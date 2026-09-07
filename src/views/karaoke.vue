@@ -2,6 +2,7 @@
   <section
     class="karaoke-surface karaoke-desktop"
     :data-ktv-theme="resolvedTheme"
+    :style="stageStyle"
   >
     <div class="ambient" :style="coverStyle"></div>
     <div class="ambient-overlay"></div>
@@ -32,7 +33,11 @@
         }}</p>
       </aside>
 
-      <section class="stage glass-panel" aria-label="KTV 歌词舞台">
+      <section
+        class="stage glass-panel"
+        :data-lyric-state="stageLyrics.state"
+        aria-label="KTV 歌词舞台"
+      >
         <p class="stage-kicker">LYRIC STAGE</p>
         <div class="stage-lines">
           <p class="before-line">{{ stageLyrics.before }}</p>
@@ -118,20 +123,18 @@
 import { mapState } from 'vuex';
 import { getLyric } from '@/api/track';
 import { lyricParser } from '@/utils/lyrics';
+import {
+  normalizeLyricFontSize,
+  normalizeLyricOffset,
+} from '@/utils/lyricsSettings';
 import KaraokeThemeSwitcher from '@/components/karaoke/KaraokeThemeSwitcher.vue';
-
-const fallbackLyrics = [
-  { content: '把歌声留在今晚的光里', time: 0 },
-  { content: '选择歌曲后，歌词会在这里出现', time: 5 },
-  { content: '让每一句都被听见', time: 10 },
-];
 
 export default {
   name: 'Karaoke',
   components: { KaraokeThemeSwitcher },
   data() {
     return {
-      lyrics: fallbackLyrics,
+      lyrics: [],
       now: 0,
       clock: null,
       systemTheme: 'light',
@@ -197,12 +200,13 @@ export default {
       return this.systemTheme;
     },
     lyricFontSize() {
-      const value = Number(this.settings.lyricFontSize);
-      return Number.isFinite(value) ? Math.min(64, Math.max(16, value)) : 28;
+      return normalizeLyricFontSize(this.settings.lyricFontSize);
     },
     lyricOffset() {
-      const value = Number(this.settings.lyricOffsetSeconds);
-      return Number.isFinite(value) ? Math.min(10, Math.max(-10, value)) : 0;
+      return normalizeLyricOffset(this.settings.lyricOffsetSeconds);
+    },
+    stageStyle() {
+      return { '--ktv-active-lyric-size': `${this.lyricFontSize}px` };
     },
     lyricOffsetLabel() {
       if (this.lyricOffset === 0) return '同步';
@@ -212,12 +216,41 @@ export default {
     },
     stageLyrics() {
       const progress = this.now + this.lyricOffset;
+      if (!this.lyrics.length) {
+        return {
+          state: 'waiting',
+          before: '♪',
+          active: '等待歌词加载',
+          after: '播放带歌词的歌曲后，主舞台会在这里同步显示。',
+          translation: '歌词时间轴始终保留原始数据。',
+        };
+      }
+      if (progress < this.lyrics[0].time) {
+        return {
+          state: 'before-first',
+          before: '♪',
+          active: '等待第一句歌词',
+          after: this.lyrics[0].content,
+          translation: '歌词将在原始时间轴到达时高亮。',
+        };
+      }
       const activeIndex = this.lyrics.findIndex((line, index) => {
         const next = this.lyrics[index + 1];
         return progress >= line.time && (!next || progress < next.time);
       });
-      const index = activeIndex === -1 ? 1 : activeIndex;
+      if (activeIndex === -1) {
+        const last = this.lyrics[this.lyrics.length - 1];
+        return {
+          state: 'after-final',
+          before: last.content,
+          active: '本首歌词已结束',
+          after: '♪',
+          translation: '等待下一首待唱歌曲。',
+        };
+      }
+      const index = activeIndex;
       return {
+        state: index === this.lyrics.length - 1 ? 'final' : 'active',
         before: this.lyrics[index - 1] ? this.lyrics[index - 1].content : '♪',
         active: this.lyrics[index]
           ? this.lyrics[index].content
@@ -261,24 +294,23 @@ export default {
     },
     loadLyrics() {
       if (!this.trackId) {
-        this.lyrics = fallbackLyrics;
+        this.lyrics = [];
         return;
       }
       getLyric(this.trackId)
         .then(data => {
           const parsed =
             data && data.lrc && data.lrc.lyric ? lyricParser(data).lyric : [];
-          this.lyrics = parsed.filter(line => line.content) || fallbackLyrics;
-          if (!this.lyrics.length) this.lyrics = fallbackLyrics;
+          this.lyrics = parsed.filter(line => line.content);
         })
         .catch(() => {
-          this.lyrics = fallbackLyrics;
+          this.lyrics = [];
         });
     },
     setOffset(value) {
       this.$store.commit('updateSettings', {
         key: 'lyricOffsetSeconds',
-        value: Math.min(10, Math.max(-10, Math.round(value * 10) / 10)),
+        value: normalizeLyricOffset(value),
       });
     },
     adjustOffset(amount) {
@@ -287,7 +319,7 @@ export default {
     adjustFontSize(amount) {
       this.$store.commit(
         'changeLyricFontSize',
-        Math.min(64, Math.max(16, this.lyricFontSize + amount))
+        normalizeLyricFontSize(this.lyricFontSize + amount)
       );
     },
     replay() {
@@ -469,16 +501,22 @@ h1 {
 .before-line,
 .after-line {
   color: var(--ktv-text-muted);
-  font-size: clamp(17px, 2vw, 29px);
+  font-size: clamp(12px, calc(var(--ktv-active-lyric-size) * 0.58), 38px);
   font-weight: 600;
 }
 .active-line {
   margin: 22px 0;
   color: var(--ktv-text-primary);
-  font-size: clamp(28px, 3.2vw, 56px);
+  font-size: var(--ktv-active-lyric-size);
   font-weight: 800;
   line-height: 1.18;
   text-shadow: 0 0 28px rgba(162, 146, 255, 0.28);
+}
+.stage[data-lyric-state='before-first'] .active-line,
+.stage[data-lyric-state='waiting'] .active-line,
+.stage[data-lyric-state='after-final'] .active-line {
+  color: var(--ktv-text-secondary);
+  text-shadow: none;
 }
 .translation {
   position: relative;

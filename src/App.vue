@@ -89,7 +89,7 @@ export default {
     handleKeydown(e) {
       if (e.code === 'Space') {
         if (e.target.tagName === 'INPUT') return false;
-        if (this.$route.name === 'mv') return false;
+        if (['mv', 'karaokeRemote'].includes(this.$route.name)) return false;
         e.preventDefault();
         this.player.playOrPause();
       }
