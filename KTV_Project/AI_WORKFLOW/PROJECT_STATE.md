@@ -10,8 +10,8 @@
 ## Current phase
 - Phase: 1 / Implementation complete locally; Git checkpoint blocked by missing `.git` metadata
 - Branch target for first implementation: `feat/ktv-phase-1`
-- Latest reviewed commit: N/A (repository metadata unavailable in supplied workspace)
-- Latest Codex report: `REPORTS/CODEX_STEP_01_REPORT.md` (local, uncommitted)
+- Latest reviewed commit: `c740ab7220250cc89792a21c4f8de60ca2b743b4` (initial Phase 1 implementation commit; not yet pushed)
+- Latest Codex report: `REPORTS/CODEX_STEP_01_REPORT.md`
 - Latest ChatGPT review: N/A
 
 ## Invariants
@@ -22,7 +22,7 @@
 - Karaoke business state must not be hidden only inside Player internals.
 
 ## Next action
-Restore/open this workspace as the intended Git checkout, create `feat/ktv-phase-1`, review the local Phase 1 changes, commit and push them, then ask ChatGPT to review the GitHub branch. Do not start Phase 2 before that review.
+Configure the user's GitHub repository as `origin`, push `feat/ktv-phase-1`, then ask ChatGPT to review the GitHub branch. Do not start Phase 2 before that review.
 
 ## Phase 1 implementation
 - Continuous `16–64px` lyric font sizing is persisted through the existing settings store.
