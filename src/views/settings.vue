@@ -862,6 +862,10 @@
 
 <script>
 import { mapState, mapActions } from 'vuex';
+import {
+  normalizeLyricFontSize,
+  normalizeLyricOffset,
+} from '@/utils/lyricsSettings';
 import { isLooseLoggedIn, doLogout } from '@/utils/auth';
 import { auth as lastfmAuth } from '@/api/lastfm';
 import {
@@ -1046,9 +1050,7 @@ export default {
     },
     lyricFontSize: {
       get() {
-        const value = Number(this.settings.lyricFontSize);
-        if (!Number.isFinite(value)) return 28;
-        return Math.min(64, Math.max(16, value));
+        return normalizeLyricFontSize(this.settings.lyricFontSize);
       },
       set(value) {
         this.$store.commit('changeLyricFontSize', Number(value));
@@ -1056,15 +1058,12 @@ export default {
     },
     lyricOffsetSeconds: {
       get() {
-        const value = Number(this.settings.lyricOffsetSeconds);
-        if (!Number.isFinite(value)) return 0;
-        return Math.min(10, Math.max(-10, value));
+        return normalizeLyricOffset(this.settings.lyricOffsetSeconds);
       },
       set(value) {
-        const clamped = Math.min(10, Math.max(-10, Number(value) || 0));
         this.$store.commit('updateSettings', {
           key: 'lyricOffsetSeconds',
-          value: Math.round(clamped * 10) / 10,
+          value: normalizeLyricOffset(value),
         });
       },
     },
@@ -1968,3 +1967,4 @@ input[type='number'] {
   }
 }
 </style>
+

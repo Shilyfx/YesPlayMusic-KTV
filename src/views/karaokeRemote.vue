@@ -6,7 +6,9 @@
     <div class="remote-ambient"></div>
     <header class="remote-header glass-panel">
       <div>
-        <p class="room-kicker">KTV · 房间 5826 <span>演示界面</span></p>
+        <p class="room-kicker"
+          >KTV Remote · Phase 2 预览 <span>尚未连接局域网房间</span></p
+        >
         <h1>今晚，一起唱</h1>
       </div>
       <KaraokeThemeSwitcher v-model="theme" />
@@ -33,7 +35,7 @@
             <p class="label">点一首歌</p>
             <h2>搜索歌名或歌手</h2>
           </div>
-          <span class="mock-label">仅为 Phase 1 界面预览</span>
+          <span class="mock-label">仅为本机预览界面</span>
         </div>
         <label class="search-input">
           <span>⌕</span>
@@ -75,7 +77,7 @@
             >
               {{
                 track.requested
-                  ? '已加入 · 第 5 首'
+                  ? `已加入 · 第 ${queuePosition(track)} 首`
                   : track.playability === 'unavailable'
                   ? '不可点'
                   : '点歌'
@@ -262,13 +264,23 @@ export default {
       track.requested = true;
       this.queue.push({
         id: `mock-${track.id}`,
+        trackId: track.id,
         name: track.name,
         artist: track.artist,
         by: '我',
       });
     },
     removeTrack(id) {
+      const item = this.queue.find(queueItem => queueItem.id === id);
+      const track = item
+        ? this.tracks.find(candidate => candidate.id === item.trackId)
+        : null;
+      if (track) track.requested = false;
       this.queue = this.queue.filter(item => item.id !== id);
+    },
+    queuePosition(track) {
+      const index = this.queue.findIndex(item => item.trackId === track.id);
+      return index === -1 ? 0 : index + 1;
     },
   },
 };
@@ -676,3 +688,4 @@ export default {
   }
 }
 </style>
+

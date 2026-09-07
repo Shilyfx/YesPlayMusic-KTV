@@ -328,6 +328,10 @@ import ContextMenu from '@/components/ContextMenu.vue';
 import { formatTrackTime } from '@/utils/common';
 import { getLyric, getCloudLyric } from '@/api/track';
 import { lyricParser, copyLyric, parseLyric } from '@/utils/lyrics';
+import {
+  normalizeLyricFontSize,
+  normalizeLyricOffset,
+} from '@/utils/lyricsSettings';
 import ButtonIcon from '@/components/ButtonIcon.vue';
 import * as Vibrant from 'node-vibrant/dist/vibrant.worker.min.js';
 import Color from 'color';
@@ -448,12 +452,13 @@ export default {
     },
     lyricFontSize() {
       return {
-        fontSize: `${this.$store.state.settings.lyricFontSize || 28}px`,
+        fontSize: `${normalizeLyricFontSize(
+          this.$store.state.settings.lyricFontSize
+        )}px`,
       };
     },
     lyricOffsetSeconds() {
-      const value = Number(this.settings.lyricOffsetSeconds);
-      return Number.isFinite(value) ? Math.min(10, Math.max(-10, value)) : 0;
+      return normalizeLyricOffset(this.settings.lyricOffsetSeconds);
     },
     lyricOffsetLabel() {
       if (this.lyricOffsetSeconds === 0) return '同步';
@@ -660,7 +665,7 @@ export default {
     setLyricOffset(value) {
       this.$store.commit('updateSettings', {
         key: 'lyricOffsetSeconds',
-        value: Math.min(10, Math.max(-10, Math.round(value * 10) / 10)),
+        value: normalizeLyricOffset(value),
       });
     },
     adjustLyricOffset(amount) {
@@ -1200,3 +1205,4 @@ export default {
   opacity: 0;
 }
 </style>
+
