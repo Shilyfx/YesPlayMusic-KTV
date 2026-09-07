@@ -5,7 +5,7 @@
 - Branch: `feat/ktv-phase-1`
 - Base commit: repository initialized from the supplied source snapshot
 - Phase 1 implementation commit: `c740ab7220250cc89792a21c4f8de60ca2b743b4`
-- Pushed remote: no; no GitHub `origin` URL is configured
+- Pushed remote: yes; `origin/feat/ktv-phase-1` was pushed to `https://github.com/Shilyfx/YesPlayMusic-KTV.git`
 
 ## Baseline
 - Install command: `npx yarn@1.22.22 install --frozen-lockfile --ignore-engines --ignore-scripts --cache-folder C:\Users\Shilyfx\AppData\Local\Temp\yesplaymusic-yarn-cache-step01`
@@ -83,7 +83,7 @@ Added `/karaoke/remote` as a Vue route-local Phase 1 mock shell. It includes a r
 
 ## Known issues / not verified
 
-- The supplied directory initially lacked Git metadata. It is now initialized and committed locally, but requires the user's GitHub repository URL before it can be pushed.
+- The supplied directory initially lacked Git metadata. It is now initialized, committed, and pushed to `origin/feat/ktv-phase-1`.
 - The environment runs Node 24 rather than the project's supported Node 14/16. Build requires a temporary compatibility flag; this was not written into project configuration.
 - No Electron desktop launch, macOS run, authenticated playback, live lyric line, or full restart persistence test was available in this environment.
 - Production build retains pre-existing CSS ordering, asset-size, Browserslist, and legacy Sass warnings.
@@ -103,4 +103,4 @@ Added `/karaoke/remote` as a Vue route-local Phase 1 mock shell. It includes a r
 
 ## Request for ChatGPT review
 
-Configure the user's GitHub repository as `origin`, push `feat/ktv-phase-1`, then review the pushed branch against Phase 1 scope. Prioritize actual code and reproducible behavior over this report.
+Review `https://github.com/Shilyfx/YesPlayMusic-KTV/tree/feat/ktv-phase-1` against Phase 1 scope. Prioritize actual code and reproducible behavior over this report.

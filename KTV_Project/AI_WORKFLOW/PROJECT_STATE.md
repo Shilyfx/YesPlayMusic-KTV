@@ -10,7 +10,7 @@
 ## Current phase
 - Phase: 1 / Implementation complete locally; Git checkpoint blocked by missing `.git` metadata
 - Branch target for first implementation: `feat/ktv-phase-1`
-- Latest reviewed commit: N/A (not yet pushed or reviewed)
+- Latest reviewed commit: N/A (pushed but not yet reviewed)
 - Latest Codex report: `REPORTS/CODEX_STEP_01_REPORT.md`
 - Latest ChatGPT review: N/A
 
@@ -22,10 +22,10 @@
 - Karaoke business state must not be hidden only inside Player internals.
 
 ## Next action
-Configure the user's GitHub repository as `origin`, push `feat/ktv-phase-1`, then ask ChatGPT to review the GitHub branch. Do not start Phase 2 before that review.
+Ask ChatGPT to review `https://github.com/Shilyfx/YesPlayMusic-KTV/tree/feat/ktv-phase-1`. Do not start Phase 2 before that review.
 
 ## Phase 1 implementation
-- Local Git checkpoint: `c740ab7` (implementation) and `dc3885d` (workflow metadata), both on `feat/ktv-phase-1`.
+- GitHub branch: `origin/feat/ktv-phase-1` at `27be209` before this push-status documentation update.
 - Continuous `16–64px` lyric font sizing is persisted through the existing settings store.
 - Persistent lyric offset supports `-10.0s` to `+10.0s`; positive values display lyrics earlier and do not alter source lyric timestamps or click-to-seek values.
 - KTV desktop and remote shell routes, glass design tokens, Auto/Light/Dark theme controls, and responsive mock data views are implemented.
