@@ -1,5 +1,4 @@
 <template>
-
   <div class="settings-page" @click="clickOutside">
     <div class="container">
       <div v-if="showUserInfo" class="user">
