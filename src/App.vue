@@ -91,6 +91,11 @@ export default {
         if (e.target.tagName === 'INPUT') return false;
         if (['mv', 'karaokeRemote'].includes(this.$route.name)) return false;
         e.preventDefault();
+        const karaokeManager = this.$store.$karaokeManager;
+        if (karaokeManager?.ownsPlayback) {
+          karaokeManager.playOrPause();
+          return;
+        }
         this.player.playOrPause();
       }
     },
