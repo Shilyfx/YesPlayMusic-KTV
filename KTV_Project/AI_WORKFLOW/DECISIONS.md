@@ -76,3 +76,13 @@ in-memory Remote client session. The HTTP server calls only explicit
 `KaraokeManager` public operations through Electron IPC; it does not retain a
 parallel queue or access Player internals. The API is polling-only and exposes a
 strict song-request whitelist, never a generic desktop or NetEase proxy.
+
+## D-012 Remote catalog uses the host request context
+
+Status: Accepted
+
+The LAN server calls only the whitelisted `search`, `trackDetail`, and
+`availability` actions over the existing Main→Renderer command bridge. The
+Renderer reuses the host request stack, including its authenticated NetEase and
+proxy context. Cookies, raw upstream responses, and arbitrary URLs are never
+passed to Remote clients.

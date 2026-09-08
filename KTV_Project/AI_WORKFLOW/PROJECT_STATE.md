@@ -10,7 +10,8 @@
 
 ## Current phase
 
-- Phase: Phase 1–4 unified audit repair in progress on `fix/ktv-full-audit`
+- Phase: Phase 1–4 unified audit repair implementation complete; CI and manual
+  device smoke remain the release gates on `fix/ktv-full-audit`.
 - Active branch: `fix/ktv-full-audit`
 - Phase 1.1 fixed GitHub parent: `98436df30434432037f8dfc0213b85df33205176`
 - Phase 2 GitHub implementation commit: `d091844f456bd91cc36b6bac6fc6500d3b55134e`
@@ -30,8 +31,9 @@
 
 ## Next action
 
-Run the Phase 4 scoped and GitHub validation gate, then complete a real LAN and
-logged-in NetEase smoke test. Do not add WebSocket/SSE or general desktop APIs.
+Review the unified audit diff, wait for the repair-branch GitHub validation, then
+complete the logged-in NetEase and physical LAN/TV/audio smoke test. Do not add
+WebSocket/SSE or general desktop APIs.
 
 ## Phase 1 implementation
 
@@ -72,8 +74,9 @@ logged-in NetEase smoke test. Do not add WebSocket/SSE or general desktop APIs.
   removed from the address bar; room stop/restart invalidates all client sessions.
 - `KaraokeManager` remains the only queue source of truth. Main-process HTTP uses
   a narrow IPC command bridge to its public snapshot/enqueue/remove/front methods.
-- Search and availability checks run server-side through the local NetEase service;
-  Remote clients never receive or call the desktop localhost API. Point-song always
+- Search, detail, and availability checks use a strict Main→Renderer catalog bridge,
+  so they inherit the host's authenticated NetEase request/proxy context. Remote
+  clients receive only sanitized metadata and a playability enum. Point-song always
   performs a fresh playable check, permits duplicates, and never auto-starts audio.
 - The responsive Remote page has real now-playing, search, normal/priority request,
   own waiting-item controls, theme modes, and 1.5/5 second adaptive polling.

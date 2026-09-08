@@ -3,6 +3,10 @@
 ## Unreleased
 
 - Unified Phase 1–4 audit repair branch established from the canonical Phase 4 snapshot.
+- Unified audit hardening: Player transient migration and cancellation generation,
+  session-bound LAN lifecycle, server race/static-header checks, host-context
+  catalog bridge, bounded Remote sessions/rates, polling-safe Remote DOM updates,
+  lyric race/fullscreen fixes, mock-route retirement, and expanded CI regressions.
 
 - Project plan and AI workflow scaffolding prepared.
 - Phase 1 local implementation: continuous lyric font size, persisted lyric timing offset, reusable KTV glass tokens/theme switcher, desktop KTV shell, and responsive remote UI shell.
