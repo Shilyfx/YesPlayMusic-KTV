@@ -124,7 +124,7 @@ export class KaraokeServer {
 
   async describeRoom() {
     if (!this.room) return null;
-    const url = `http://${this.room.lanAddress}:${this.port}/room/${this.room.code}#token=${this.room.token}`;
+    const url = `http://${this.room.lanAddress}:${this.port}/room/${this.room.code}/#token=${this.room.token}`;
     return {
       code: this.room.code,
       url,
@@ -150,8 +150,8 @@ export class KaraokeServer {
       return this.notFound(response);
     }
 
-    const relativePath =
-      requestUrl.pathname.slice(roomPath.length) || '/index.html';
+    const requestedPath = requestUrl.pathname.slice(roomPath.length);
+    const relativePath = requestedPath === '/' ? '/index.html' : requestedPath;
     return this.sendRemoteAsset(relativePath, response);
   }
 
