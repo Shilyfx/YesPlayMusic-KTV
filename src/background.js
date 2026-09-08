@@ -97,7 +97,6 @@ class Background {
     this.expressApp = null;
     this.karaokeServer = new KaraokeServer({
       remoteDistPath: path.resolve(process.cwd(), 'dist', 'remote'),
-      publicDistPath: path.resolve(process.cwd(), 'dist'),
     });
     this.willQuitApp = !isMac;
 
@@ -489,7 +488,7 @@ class Background {
     });
 
     if (!isMac) {
-      app.on('second-instance', (e, cl, wd) => {
+      app.on('second-instance', () => {
         if (this.window) {
           this.window.show();
           if (this.window.isMinimized()) {

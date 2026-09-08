@@ -41,6 +41,17 @@
       <div>
         <strong>用同一局域网设备扫码加入</strong>
         <p>房间码 {{ lanRoom.code }}。链接仅在本次 KTV 进行期间有效。</p>
+        <label v-if="lanRoom.candidates && lanRoom.candidates.length > 1">
+          对外地址
+          <select v-model="selectedLanAddress" @change="restartLanRoom">
+            <option
+              v-for="candidate in lanRoom.candidates"
+              :key="candidate.address"
+              :value="candidate.address"
+              >{{ candidate.interfaceName }} · {{ candidate.address }}</option
+            >
+          </select>
+        </label>
       </div>
     </section>
 
@@ -89,6 +100,20 @@
         <div class="fullscreen-actions">
           <button type="button" @click="enterKtvFullscreen">全屏 KTV</button>
           <button type="button" @click="enterLyricFullscreen">只看歌词</button>
+        </div>
+        <div
+          v-if="isLyricFullscreen"
+          class="lyric-fullscreen-overlay"
+          :class="{ visible: lyricControlsVisible }"
+          @mousemove="showLyricControls"
+          @touchstart="showLyricControls"
+        >
+          <button type="button" @click="replay">重唱</button>
+          <button type="button" @click="playOrPause">
+            {{ player.playing ? '暂停' : '播放' }}
+          </button>
+          <button type="button" @click="nextTrack">切歌</button>
+          <button type="button" @click="exitFullscreen">退出全屏</button>
         </div>
       </section>
 
@@ -247,6 +272,10 @@ export default {
       themeMedia: null,
       lanRoom: null,
       showRoomCode: false,
+      selectedLanAddress: '',
+      isLyricFullscreen: false,
+      lyricControlsVisible: false,
+      lyricControlsTimer: null,
     };
   },
   computed: {
@@ -383,6 +412,7 @@ export default {
     else this.themeMedia.addListener(this.syncSystemTheme);
     this.loadLyrics();
     this.loadLanRoom();
+    document.addEventListener('fullscreenchange', this.handleFullscreenChange);
     this.clock = window.setInterval(() => {
       this.now = this.player.seek(null, false) || 0;
     }, 100);
@@ -393,6 +423,11 @@ export default {
       this.themeMedia.removeEventListener('change', this.syncSystemTheme);
     else if (this.themeMedia)
       this.themeMedia.removeListener(this.syncSystemTheme);
+    document.removeEventListener(
+      'fullscreenchange',
+      this.handleFullscreenChange
+    );
+    window.clearTimeout(this.lyricControlsTimer);
   },
   methods: {
     syncSystemTheme() {
@@ -415,7 +450,7 @@ export default {
     toggleSession() {
       if (!this.isSessionActive) {
         this.karaokeManager.startSession();
-        this.startLanRoom();
+        this.setLanSessionActive(true).then(() => this.startLanRoom());
         this.$store.dispatch('showToast', '本机 KTV 已开始，临时队列已就绪');
         return;
       }
@@ -425,8 +460,8 @@ export default {
         );
         if (!confirmed) return;
       }
+      this.setLanSessionActive(false);
       this.karaokeManager.endSession();
-      this.stopLanRoom();
       this.$store.dispatch('showToast', '本机 KTV 已结束，临时队列已清空');
     },
     electronIpc() {
@@ -438,13 +473,22 @@ export default {
       if (!ipcRenderer) return;
       const result = await ipcRenderer.invoke('karaoke:lan:status');
       this.lanRoom = result.room;
+      this.selectedLanAddress = result.room?.selectedAddress || '';
+    },
+    async setLanSessionActive(active) {
+      const ipcRenderer = this.electronIpc();
+      if (ipcRenderer)
+        await ipcRenderer.invoke('karaoke:lan:set-session-active', active);
     },
     async startLanRoom() {
       const ipcRenderer = this.electronIpc();
       if (!ipcRenderer) return;
-      const result = await ipcRenderer.invoke('karaoke:lan:start');
+      const result = await ipcRenderer.invoke('karaoke:lan:start', {
+        lanAddress: this.selectedLanAddress || undefined,
+      });
       if (result.ok) {
         this.lanRoom = result.room;
+        this.selectedLanAddress = result.room.selectedAddress;
         this.showRoomCode = true;
       } else {
         this.$store.dispatch('showToast', `局域网房间未开启：${result.error}`);
@@ -456,11 +500,31 @@ export default {
       this.lanRoom = null;
       this.showRoomCode = false;
     },
+    async restartLanRoom() {
+      await this.stopLanRoom();
+      await this.startLanRoom();
+    },
     enterKtvFullscreen() {
       this.$refs.karaokeSurface.requestFullscreen();
     },
     enterLyricFullscreen() {
       this.$refs.lyricStage.requestFullscreen();
+    },
+    handleFullscreenChange() {
+      this.isLyricFullscreen =
+        document.fullscreenElement === this.$refs.lyricStage;
+      if (this.isLyricFullscreen) this.showLyricControls();
+      else this.lyricControlsVisible = false;
+    },
+    showLyricControls() {
+      this.lyricControlsVisible = true;
+      window.clearTimeout(this.lyricControlsTimer);
+      this.lyricControlsTimer = window.setTimeout(() => {
+        this.lyricControlsVisible = false;
+      }, 4000);
+    },
+    exitFullscreen() {
+      if (document.fullscreenElement) document.exitFullscreen();
     },
     enqueueCurrentTrack() {
       const item = this.karaokeManager.enqueueTrack(this.track);
@@ -622,6 +686,20 @@ export default {
   color: var(--ktv-text-secondary);
   font-size: 12px;
   line-height: 1.5;
+}
+.room-access label {
+  display: block;
+  margin-top: 8px;
+  color: var(--ktv-text-secondary);
+  font-size: 12px;
+}
+.room-access select {
+  max-width: 100%;
+  margin-left: 8px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 8px;
+  background: var(--ktv-glass-soft);
+  color: var(--ktv-text-primary);
 }
 .karaoke-layout {
   flex: 1;
@@ -802,6 +880,29 @@ button:disabled {
 .stage:fullscreen .stage-kicker,
 .stage:fullscreen .stage-footer {
   display: none;
+}
+.lyric-fullscreen-overlay {
+  position: fixed;
+  right: 24px;
+  bottom: 24px;
+  display: flex;
+  gap: 8px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 180ms ease;
+}
+.lyric-fullscreen-overlay.visible {
+  opacity: 1;
+  pointer-events: auto;
+}
+.lyric-fullscreen-overlay button {
+  min-height: 38px;
+  padding: 0 13px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 12px;
+  background: var(--ktv-glass-strong);
+  color: var(--ktv-text-primary);
+  font-weight: 700;
 }
 .panel-title {
   display: flex;

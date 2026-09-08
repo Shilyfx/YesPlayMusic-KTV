@@ -5,6 +5,7 @@ import cloneDeep from 'lodash/cloneDeep';
 import shortcuts from '@/utils/shortcuts';
 import { createMenu } from './menu';
 import { isCreateTray, isMac } from '@/utils/platform';
+import KaraokeLanLifecycle from './karaoke/KaraokeLanLifecycle';
 
 const clc = require('cli-color');
 const log = text => {
@@ -137,23 +138,29 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
   // WIP: Do not enable logging as it has some issues in non-blocking I/O environment.
   // UNM.enableLogging(UNM.LoggingType.ConsoleEnv);
   const unmExecutor = new UNM.Executor();
+  const karaokeLanLifecycle = new KaraokeLanLifecycle(karaokeServer);
 
-  ipcMain.handle('karaoke:lan:start', async () => {
+  ipcMain.handle('karaoke:lan:set-session-active', async (_, active) => {
+    const status = await karaokeLanLifecycle.setSessionActive(active);
+    return { ok: true, ...status };
+  });
+
+  ipcMain.handle('karaoke:lan:start', async (_, options) => {
     try {
-      return { ok: true, room: await karaokeServer.startRoom() };
+      return { ok: true, room: await karaokeLanLifecycle.startRoom(options) };
     } catch (error) {
       return { ok: false, error: error.message };
     }
   });
 
   ipcMain.handle('karaoke:lan:stop', async () => {
-    await karaokeServer.stopRoom();
+    await karaokeLanLifecycle.stopRoom();
     return { ok: true };
   });
 
   ipcMain.handle('karaoke:lan:status', async () => ({
     ok: true,
-    room: await karaokeServer.describeRoom(),
+    ...(await karaokeLanLifecycle.status()),
   }));
 
   ipcMain.handle(
@@ -291,7 +298,7 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
     );
   });
 
-  ipcMain.on('removeProxy', (event, arg) => {
+  ipcMain.on('removeProxy', () => {
     log('removeProxy');
     win.webContents.session.setProxy({});
     store.set('proxy', '');

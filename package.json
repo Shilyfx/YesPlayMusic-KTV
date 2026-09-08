@@ -6,7 +6,7 @@
   "author": "qier222<qier222@outlook.com>",
   "scripts": {
     "serve": "vue-cli-service serve",
-    "build": "vue-cli-service build",
+    "build": "vue-cli-service build && node scripts/isolate-remote-assets.js",
     "lint": "vue-cli-service lint",
     "electron:build": "vue-cli-service electron:build -p never",
     "electron:build-all": "vue-cli-service electron:build -p never -mwl",

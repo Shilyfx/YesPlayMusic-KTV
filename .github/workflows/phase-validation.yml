@@ -26,6 +26,10 @@ jobs:
           src/views/karaoke.vue src/views/karaokeRemote.vue src/App.vue
           src/karaoke/*.js src/utils/Player.js src/store/index.js
           src/store/state.js src/store/mutations.js src/electron/ipcRenderer.js
+          src/electron/karaoke/*.js src/electron/ipcMain.js src/background.js
+          src/remote/*.js src/remote/*.css vue.config.js
+          scripts/test-karaoke-server.js scripts/test-karaoke-lifecycle.js
+          scripts/isolate-remote-assets.js package.json
       - name: KTV source lint
         run: >-
           ./node_modules/.bin/eslint
@@ -33,10 +37,16 @@ jobs:
           src/views/karaoke.vue src/views/karaokeRemote.vue src/App.vue
           src/karaoke/*.js src/utils/Player.js src/store/index.js
           src/store/state.js src/store/mutations.js src/electron/ipcRenderer.js
+          src/electron/karaoke/*.js src/electron/ipcMain.js src/background.js
+          src/remote/*.js vue.config.js
+          scripts/test-karaoke-server.js scripts/test-karaoke-lifecycle.js
+          scripts/isolate-remote-assets.js
       - name: KTV domain transitions
         run: node scripts/test-karaoke-domain.js
       - name: KTV LAN room server
         run: node scripts/test-karaoke-server.js
+      - name: KTV LAN lifecycle bridge
+        run: node scripts/test-karaoke-lifecycle.js
       - name: Full repository lint diagnostic (known upstream failures)
         continue-on-error: true
         run: yarn lint

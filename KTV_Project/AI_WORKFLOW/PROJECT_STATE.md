@@ -29,8 +29,8 @@
 
 ## Next action
 
-Complete Phase 3 validation and push `feat/ktv-phase-3`. Do not begin Phase 4
-remote controls, search, queue APIs, polling, SSE, or WebSocket work.
+Push the Phase 3.1 repair and wait for a green GitHub validation gate. Do not
+begin Phase 4 remote search, queue APIs, polling, SSE, or WebSocket work before it.
 
 ## Phase 1 implementation
 

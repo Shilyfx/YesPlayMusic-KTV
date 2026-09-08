@@ -17,7 +17,7 @@ function isPrivateIpv4(address) {
   );
 }
 
-function selectLanAddress(interfaces) {
+function getLanAddressCandidates(interfaces = os.networkInterfaces()) {
   const candidates = [];
   for (const [interfaceName, addresses] of Object.entries(interfaces)) {
     const virtualInterface =
@@ -28,16 +28,21 @@ function selectLanAddress(interfaces) {
       if (address.family !== 'IPv4' || address.internal) continue;
       const privateAddress = isPrivateIpv4(address.address);
       candidates.push({
+        interfaceName,
         address: address.address,
-        score:
+        isPrivate: privateAddress,
+        priority:
           (privateAddress ? 100 : 0) -
           (virtualInterface ? 80 : 0) -
           (address.address.startsWith('169.254.') ? 100 : 0),
       });
     }
   }
-  candidates.sort((left, right) => right.score - left.score);
-  return candidates[0]?.address || null;
+  return candidates.sort((left, right) => right.priority - left.priority);
+}
+
+function selectLanAddress(interfaces) {
+  return getLanAddressCandidates(interfaces)[0]?.address || null;
 }
 
 function getLanAddress() {
@@ -53,35 +58,64 @@ function contentType(filePath) {
 }
 
 export class KaraokeServer {
-  constructor({ remoteDistPath, publicDistPath }) {
+  constructor({
+    remoteDistPath,
+    port = ROOM_PORT,
+    networkInterfaces = () => os.networkInterfaces(),
+  }) {
     this.remoteDistPath = remoteDistPath;
-    this.publicDistPath = publicDistPath;
+    this.port = port;
+    this.networkInterfaces = networkInterfaces;
     this.server = null;
     this.room = null;
+    this.state = 'idle';
   }
 
-  async startRoom() {
+  async startRoom({ lanAddress } = {}) {
     if (this.room) return this.describeRoom();
-    const lanAddress = getLanAddress();
-    if (!lanAddress) throw new Error('未找到可用的局域网 IPv4 地址');
+    const candidates = getLanAddressCandidates(this.networkInterfaces());
+    const selectedAddress = lanAddress || candidates[0]?.address;
+    if (
+      !selectedAddress ||
+      !candidates.some(item => item.address === selectedAddress)
+    ) {
+      throw new Error('未找到可用的局域网 IPv4 地址');
+    }
 
-    this.room = { code: roomCode(), token: roomToken(), lanAddress };
-    this.server = http.createServer((request, response) =>
+    const room = {
+      code: roomCode(),
+      token: roomToken(),
+      lanAddress: selectedAddress,
+      candidates,
+    };
+    const server = http.createServer((request, response) =>
       this.handleRequest(request, response)
     );
-
-    await new Promise((resolve, reject) => {
-      this.server.once('error', reject);
-      this.server.listen(ROOM_PORT, '0.0.0.0', () => {
-        this.server.off('error', reject);
-        resolve();
+    this.state = 'starting';
+    try {
+      await new Promise((resolve, reject) => {
+        server.once('error', reject);
+        server.listen(this.port, '0.0.0.0', () => {
+          server.off('error', reject);
+          resolve();
+        });
       });
-    });
-    return this.describeRoom();
+      this.room = room;
+      this.server = server;
+      this.state = 'active';
+      return this.describeRoom();
+    } catch (error) {
+      this.room = null;
+      this.server = null;
+      this.state = 'idle';
+      server.close();
+      throw error;
+    }
   }
 
   async stopRoom() {
     this.room = null;
+    this.state = 'idle';
     if (!this.server) return;
     const server = this.server;
     this.server = null;
@@ -90,10 +124,12 @@ export class KaraokeServer {
 
   async describeRoom() {
     if (!this.room) return null;
-    const url = `http://${this.room.lanAddress}:${ROOM_PORT}/room/${this.room.code}?token=${this.room.token}`;
+    const url = `http://${this.room.lanAddress}:${this.port}/room/${this.room.code}#token=${this.room.token}`;
     return {
       code: this.room.code,
       url,
+      candidates: this.room.candidates,
+      selectedAddress: this.room.lanAddress,
       qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 280 }),
     };
   }
@@ -105,19 +141,11 @@ export class KaraokeServer {
       return this.sendJson(response, { active: Boolean(this.room) });
     }
 
-    if (/^\/(?:css|img|js)\//.test(requestUrl.pathname)) {
-      return this.sendStaticAsset(
-        this.publicDistPath,
-        requestUrl.pathname,
-        response
-      );
-    }
-
     const roomPath = `/room/${this.room?.code}`;
     if (
       !this.room ||
-      !requestUrl.pathname.startsWith(roomPath) ||
-      requestUrl.searchParams.get('token') !== this.room.token
+      (requestUrl.pathname !== roomPath &&
+        !requestUrl.pathname.startsWith(`${roomPath}/`))
     ) {
       return this.notFound(response);
     }
@@ -163,4 +191,4 @@ export class KaraokeServer {
   }
 }
 
-export { ROOM_PORT, getLanAddress, selectLanAddress };
+export { ROOM_PORT, getLanAddress, getLanAddressCandidates, selectLanAddress };

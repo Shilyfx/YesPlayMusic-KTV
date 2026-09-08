@@ -11,3 +11,6 @@
 - Phase 2.1 repair: transactional KTV playback ownership, failure/natural-end routing,
   Vuex runtime-service separation, queue move-to-front, deterministic domain tests, and
   expanded Phase validation scope.
+- Phase 3.1 repair: main-process LAN lifecycle gate, transactional room startup,
+  isolated remote assets, fragment token bootstrap, candidate selection, lyric
+  fullscreen controls, and expanded blocking validation.
