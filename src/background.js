@@ -96,7 +96,9 @@ class Background {
     this.neteaseMusicAPI = null;
     this.expressApp = null;
     this.karaokeServer = new KaraokeServer({
-      remoteDistPath: path.resolve(process.cwd(), 'dist', 'remote'),
+      // Remote is emitted beside the Electron main bundle.  `cwd` is mutable for
+      // portable apps, whereas `__dirname` remains inside the packaged app.
+      remoteDistPath: path.resolve(__dirname, 'remote'),
     });
     this.willQuitApp = !isMac;
 
