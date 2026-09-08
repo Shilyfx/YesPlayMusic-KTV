@@ -164,7 +164,7 @@ async function run() {
     remoteApi: new RemoteApiRouter(service),
     remoteService: service,
   });
-  const room = await server.startRoom();
+  const room = await server.startRoom({ sessionId: 'session-test' });
   const bad = await request(port, 'POST', '/ktv/api/client-session', {
     token: 'bad',
   });
@@ -221,7 +221,7 @@ async function run() {
   const staleToken = guestA.body.clientToken;
   await server.stopRoom();
   assert.throws(() => service.client(staleToken), /ROOM_ENDED/);
-  const restarted = await server.startRoom();
+  const restarted = await server.startRoom({ sessionId: 'session-restarted' });
   const oldJoin = await request(port, 'POST', '/ktv/api/client-session', {
     token: new URL(room.url).hash.slice(7),
   });

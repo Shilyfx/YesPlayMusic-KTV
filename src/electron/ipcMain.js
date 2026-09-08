@@ -185,7 +185,11 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
 
   ipcMain.handle('karaoke:lan:start', async (_, options) => {
     try {
-      return { ok: true, room: await karaokeLanLifecycle.startRoom(options) };
+      const snapshot = await remoteCommand('snapshot');
+      return {
+        ok: true,
+        room: await karaokeLanLifecycle.startRoom(options, snapshot.session),
+      };
     } catch (error) {
       return { ok: false, error: error.message };
     }

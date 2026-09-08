@@ -63,7 +63,7 @@ async function run() {
     port: serverPort,
     networkInterfaces: interfaces,
   });
-  const room = await server.startRoom();
+  const room = await server.startRoom({ sessionId: 'session-test' });
   const roomUrl = new URL(room.url);
 
   assert.equal(await request(serverPort, '/health'), 200);
@@ -81,7 +81,7 @@ async function run() {
   await assert.rejects(() => request(serverPort, roomUrl.pathname));
   assert.equal(await server.describeRoom(), null);
 
-  const restarted = await server.startRoom();
+  const restarted = await server.startRoom({ sessionId: 'session-test-2' });
   assert.notEqual(restarted.url, room.url);
   assert.equal(await request(serverPort, roomUrl.pathname), 404);
   assert.equal(await request(serverPort, new URL(restarted.url).pathname), 200);
@@ -95,11 +95,14 @@ async function run() {
     port: busyPort,
     networkInterfaces: interfaces,
   });
-  await assert.rejects(() => busyServer.startRoom(), /EADDRINUSE/);
+  await assert.rejects(
+    () => busyServer.startRoom({ sessionId: 'busy' }),
+    /EADDRINUSE/
+  );
   assert.equal(await busyServer.describeRoom(), null);
   assert.equal(busyServer.server, null);
   await new Promise(resolve => blocker.close(resolve));
-  const afterRetry = await busyServer.startRoom();
+  const afterRetry = await busyServer.startRoom({ sessionId: 'retry' });
   assert.ok(afterRetry.url);
   await busyServer.stopRoom();
   fs.rmSync(remoteDistPath, { recursive: true, force: true });

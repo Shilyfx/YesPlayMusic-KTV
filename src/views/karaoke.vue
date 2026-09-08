@@ -55,7 +55,7 @@
       </div>
     </section>
 
-    <main class="karaoke-layout">
+    <div class="karaoke-layout" role="main">
       <aside class="track-identity glass-panel">
         <div class="cover-wrap">
           <img v-if="cover" :src="cover" :alt="`${track.name} 封面`" />
@@ -192,7 +192,7 @@
           >清空待唱</button
         >
       </aside>
-    </main>
+    </div>
 
     <footer class="karaoke-controls glass-panel">
       <div class="quick-setting">
@@ -434,16 +434,19 @@ export default {
       this.systemTheme = this.themeMedia?.matches ? 'dark' : 'light';
     },
     loadLyrics() {
+      const requestedTrackId = this.trackId;
       if (!this.trackId) {
         this.lyrics = [];
         return;
       }
       getLyric(this.trackId)
         .then(data => {
+          if (requestedTrackId !== this.trackId) return;
           const parsed = data?.lrc?.lyric ? lyricParser(data).lyric : [];
           this.lyrics = parsed.filter(line => line.content);
         })
         .catch(() => {
+          if (requestedTrackId !== this.trackId) return;
           this.lyrics = [];
         });
     },
@@ -704,9 +707,9 @@ export default {
 .karaoke-layout {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(180px, 0.6fr) minmax(460px, 2.4fr) minmax(
-      220px,
-      0.7fr
+  grid-template-columns: minmax(180px, 0.7fr) minmax(460px, 3.8fr) minmax(
+      180px,
+      0.8fr
     );
   gap: 18px;
   min-height: 480px;

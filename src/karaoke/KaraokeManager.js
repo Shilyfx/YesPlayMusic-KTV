@@ -11,6 +11,7 @@ export default class KaraokeManager {
     this.queue = new KaraokeQueue();
     this.listeners = [];
     this.transitionPromise = null;
+    this.transitionId = 0;
     this.playerAdapter.onEnded(() => this.handleTrackEnded());
     this.playerAdapter.onError(() => this.handlePlaybackError());
     this.playerAdapter.setCommandHandlers({
@@ -62,6 +63,7 @@ export default class KaraokeManager {
 
   endSession() {
     if (!this.isSessionActive) return this.getSnapshot();
+    this.transitionId += 1;
     this.playerAdapter.stop();
     this.session.end();
     // Phase 2 intentionally keeps no recovery data after local session end.
@@ -117,11 +119,21 @@ export default class KaraokeManager {
       return null;
     }
     this.notify();
+    const transitionId = (this.transitionId += 1);
+    const sessionId = this.session.sessionId;
+    const loadingItemId = item.queueItemId;
     this.transitionPromise = Promise.resolve(
       this.playerAdapter.playTrack(item.trackId)
     );
     try {
       const result = await this.transitionPromise;
+      if (
+        transitionId !== this.transitionId ||
+        !this.isSessionActive ||
+        this.session.sessionId !== sessionId ||
+        this.queue.currentItem?.queueItemId !== loadingItemId
+      )
+        return null;
       if (!result?.success) throw new Error('KTV track could not be played');
       this.queue.markCurrentPlaying();
       this.notify();

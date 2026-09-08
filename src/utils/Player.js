@@ -36,10 +36,15 @@ const delay = ms =>
       resolve('');
     }, ms);
   });
-const excludeSaveKeys = [
+export const TRANSIENT_PLAYER_KEYS = [
   '_playing',
   '_personalFMLoading',
   '_personalFMNextLoading',
+  '_playbackOwner',
+  '_playbackEndedListeners',
+  '_playbackErrorListeners',
+  '_karaokeCommandHandlers',
+  '_karaokePlaybackGeneration',
 ];
 
 function setTitle(track) {
@@ -75,6 +80,7 @@ export default class {
     this._playbackEndedListeners = [];
     this._playbackErrorListeners = [];
     this._karaokeCommandHandlers = null;
+    this._karaokePlaybackGeneration = 0;
 
     // 播放信息
     this._list = []; // 播放列表
@@ -344,7 +350,9 @@ export default class {
       onend: () => {
         if (this._playbackOwner === 'karaoke') {
           this._setPlaying(false);
-          this._playbackEndedListeners.forEach(listener => listener());
+          this._playbackEndedListeners
+            .filter(listener => typeof listener === 'function')
+            .forEach(listener => listener());
           return;
         }
         this._nextTrackCallback();
@@ -353,7 +361,9 @@ export default class {
     this._howler.on('loaderror', (_, errCode) => {
       if (this._playbackOwner === 'karaoke') {
         this._setPlaying(false);
-        this._playbackErrorListeners.forEach(listener => listener(errCode));
+        this._playbackErrorListeners
+          .filter(listener => typeof listener === 'function')
+          .forEach(listener => listener(errCode));
         return;
       }
       // https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
@@ -554,6 +564,8 @@ export default class {
           case UNPLAYABLE_CONDITION.PLAY_PREV_TRACK:
             this.playPrevTrack();
             break;
+          case UNPLAYABLE_CONDITION.NONE:
+            break;
           default:
             store.dispatch(
               'showToast',
@@ -580,6 +592,7 @@ export default class {
     const player = JSON.parse(localStorage.getItem('player'));
     if (!player) return;
     for (const [key, value] of Object.entries(player)) {
+      if (TRANSIENT_PLAYER_KEYS.includes(key)) continue;
       this[key] = value;
     }
   }
@@ -823,7 +836,7 @@ export default class {
   saveSelfToLocalStorage() {
     let player = {};
     for (let [key, value] of Object.entries(this)) {
-      if (excludeSaveKeys.includes(key)) continue;
+      if (TRANSIENT_PLAYER_KEYS.includes(key)) continue;
       player[key] = value;
     }
 
@@ -955,9 +968,12 @@ export default class {
       fallback === 'none'
         ? UNPLAYABLE_CONDITION.NONE
         : UNPLAYABLE_CONDITION.PLAY_NEXT_TRACK;
+    const generation = (this._karaokePlaybackGeneration += 1);
     this._playbackOwner = owner;
     try {
       const success = await this._replaceCurrentTrack(id, true, condition);
+      if (owner === 'karaoke' && generation !== this._karaokePlaybackGeneration)
+        return { success: false, cancelled: true };
       if (!success && owner === 'karaoke') this._playbackOwner = null;
       return { success: Boolean(success) };
     } catch (error) {
@@ -990,6 +1006,7 @@ export default class {
 
   stopKaraokePlayback() {
     if (this._playbackOwner !== 'karaoke') return false;
+    this._karaokePlaybackGeneration += 1;
     this._howler?.stop();
     this._setPlaying(false);
     this._playbackOwner = null;

@@ -10,8 +10,8 @@
 
 ## Current phase
 
-- Phase: 4 / authenticated LAN remote song request implementation on `feat/ktv-phase-4`
-- Active branch: `feat/ktv-phase-4`
+- Phase: Phase 1–4 unified audit repair in progress on `fix/ktv-full-audit`
+- Active branch: `fix/ktv-full-audit`
 - Phase 1.1 fixed GitHub parent: `98436df30434432037f8dfc0213b85df33205176`
 - Phase 2 GitHub implementation commit: `d091844f456bd91cc36b6bac6fc6500d3b55134e`
 - Phase 2.1 fixed GitHub commit: `21385ac20ef56e69f597a5d78b2fb7b2cbb39b54`

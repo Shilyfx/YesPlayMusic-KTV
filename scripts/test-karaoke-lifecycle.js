@@ -36,7 +36,13 @@ async function run() {
   const lifecycle = new KaraokeLanLifecycle(server);
   await assert.rejects(() => lifecycle.startRoom(), /先开始本机 KTV/);
   await lifecycle.setSessionActive(true);
-  assert.deepEqual(await lifecycle.startRoom(), room);
+  assert.deepEqual(
+    await lifecycle.startRoom(
+      {},
+      { status: 'active', sessionId: 'session-test' }
+    ),
+    room
+  );
   await lifecycle.setSessionActive(false);
   assert.deepEqual(calls, ['start', 'stop']);
   assert.equal((await lifecycle.status()).sessionActive, false);

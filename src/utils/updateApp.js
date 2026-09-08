@@ -32,9 +32,14 @@ const updateSetting = () => {
 
 const updateData = () => {
   const parsedData = JSON.parse(localStorage.getItem('data'));
-  const data = {
-    ...parsedData,
-  };
+  const data = { ...parsedData };
+  [
+    '_playbackOwner',
+    '_playbackEndedListeners',
+    '_playbackErrorListeners',
+    '_karaokeCommandHandlers',
+    '_karaokePlaybackGeneration',
+  ].forEach(key => delete data[key]);
   localStorage.setItem('data', JSON.stringify(data));
 };
 

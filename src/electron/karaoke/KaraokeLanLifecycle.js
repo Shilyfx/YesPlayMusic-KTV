@@ -10,11 +10,14 @@ export default class KaraokeLanLifecycle {
     return this.status();
   }
 
-  async startRoom(options) {
-    if (!this.sessionActive) {
+  async startRoom(options, session) {
+    if (session?.status !== 'active' || !session.sessionId) {
       throw new Error('请先开始本机 KTV，再开启局域网房间');
     }
-    return this.karaokeServer.startRoom(options);
+    return this.karaokeServer.startRoom({
+      ...options,
+      sessionId: session.sessionId,
+    });
   }
 
   async stopRoom() {

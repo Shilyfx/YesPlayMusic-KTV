@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Unified Phase 1–4 audit repair branch established from the canonical Phase 4 snapshot.
+
 - Project plan and AI workflow scaffolding prepared.
 - Phase 1 local implementation: continuous lyric font size, persisted lyric timing offset, reusable KTV glass tokens/theme switcher, desktop KTV shell, and responsive remote UI shell.
 - Initial Git repository and Phase 1 implementation commit created: `c740ab7` on `feat/ktv-phase-1`.

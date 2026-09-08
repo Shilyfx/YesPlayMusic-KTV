@@ -121,6 +121,7 @@ h2 {
   border: 1px solid #ffffff25;
   background: #171c36bd;
   box-shadow: 0 20px 56px #03061633;
+  -webkit-backdrop-filter: blur(16px);
   backdrop-filter: blur(16px);
 }
 :root[data-theme='light'] .glass,

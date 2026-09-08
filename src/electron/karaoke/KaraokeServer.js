@@ -73,6 +73,8 @@ export class KaraokeServer {
     this.server = null;
     this.room = null;
     this.state = 'idle';
+    this.startPromise = null;
+    this.generation = 0;
   }
 
   setRemoteApi(remoteApi, remoteService) {
@@ -80,8 +82,20 @@ export class KaraokeServer {
     this.remoteService = remoteService;
   }
 
-  async startRoom({ lanAddress } = {}) {
+  async startRoom({ lanAddress, sessionId } = {}) {
     if (this.room) return this.describeRoom();
+    if (this.startPromise) return this.startPromise;
+    if (!sessionId) throw new Error('缺少有效的 KTV Session');
+    this.startPromise = this._startRoom({ lanAddress, sessionId });
+    try {
+      return await this.startPromise;
+    } finally {
+      this.startPromise = null;
+    }
+  }
+
+  async _startRoom({ lanAddress, sessionId }) {
+    const generation = (this.generation += 1);
     const candidates = getLanAddressCandidates(this.networkInterfaces());
     const selectedAddress = lanAddress || candidates[0]?.address;
     if (
@@ -96,6 +110,8 @@ export class KaraokeServer {
       token: roomToken(),
       lanAddress: selectedAddress,
       candidates,
+      sessionId,
+      generation,
     };
     const server = http.createServer((request, response) =>
       this.handleRequest(request, response)
@@ -111,6 +127,13 @@ export class KaraokeServer {
       });
       this.room = room;
       this.server = server;
+      if (generation !== this.generation) {
+        await new Promise(resolve => server.close(resolve));
+        this.room = null;
+        this.server = null;
+        this.state = 'idle';
+        throw new Error('KTV 房间已取消');
+      }
       this.state = 'active';
       this.remoteService?.onRoomStart(room);
       return this.describeRoom();
@@ -124,6 +147,7 @@ export class KaraokeServer {
   }
 
   async stopRoom() {
+    this.generation += 1;
     this.remoteService?.onRoomStop();
     this.room = null;
     this.state = 'idle';
@@ -175,14 +199,14 @@ export class KaraokeServer {
   async sendStaticAsset(rootPath, relativePath, response) {
     const safePath = path.normalize(relativePath).replace(/^([/\\])+/, '');
     const filePath = path.resolve(rootPath, safePath);
-    if (!filePath.startsWith(path.resolve(rootPath))) {
+    const relative = path.relative(path.resolve(rootPath), filePath);
+    if (relative.startsWith('..') || path.isAbsolute(relative)) {
       return this.notFound(response);
     }
     try {
       const content = await fs.readFile(filePath);
       response.writeHead(200, {
-        'Cache-Control': 'no-store',
-        'Content-Type': contentType(filePath),
+        ...this.securityHeaders(contentType(filePath)),
       });
       response.end(content);
     } catch (_) {
@@ -191,16 +215,27 @@ export class KaraokeServer {
   }
 
   sendJson(response, body) {
-    response.writeHead(200, {
-      'Cache-Control': 'no-store',
-      'Content-Type': 'application/json; charset=utf-8',
-    });
+    response.writeHead(
+      200,
+      this.securityHeaders('application/json; charset=utf-8')
+    );
     response.end(JSON.stringify(body));
   }
 
   notFound(response) {
-    response.writeHead(404, { 'Content-Type': 'text/plain; charset=utf-8' });
+    response.writeHead(404, this.securityHeaders('text/plain; charset=utf-8'));
     response.end('Not found');
+  }
+
+  securityHeaders(type) {
+    return {
+      'Cache-Control': 'no-store',
+      'Content-Type': type,
+      'X-Content-Type-Options': 'nosniff',
+      'Referrer-Policy': 'no-referrer',
+      'Content-Security-Policy':
+        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'",
+    };
   }
 }
 

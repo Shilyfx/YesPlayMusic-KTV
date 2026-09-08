@@ -23,10 +23,15 @@ function error(response, status, message) {
 function readJson(request, maxBytes = 4096) {
   return new Promise((resolve, reject) => {
     let raw = '';
+    let tooLarge = false;
     request.on('data', chunk => {
+      if (tooLarge) return;
       raw += chunk;
-      if (Buffer.byteLength(raw) > maxBytes)
+      if (Buffer.byteLength(raw) > maxBytes) {
+        tooLarge = true;
+        raw = '';
         reject(new Error('BODY_TOO_LARGE'));
+      }
     });
     request.on('end', () => {
       if (!raw) return resolve({});
@@ -81,7 +86,7 @@ function versionLabel(track) {
   if (/acoustic|unplugged/.test(text)) return 'Acoustic';
   if (/伴奏|instrumental|inst\b/.test(text)) return '伴奏';
   if (/cover|翻唱/.test(text)) return 'Cover';
-  return '原版';
+  return '其他版本';
 }
 
 function sanitizeTrack(track) {
@@ -167,7 +172,12 @@ export class RemoteClientSessionStore {
   }
 
   start(room) {
-    this.room = { code: room.code, joinToken: room.token };
+    this.room = {
+      code: room.code,
+      sessionId: room.sessionId,
+      generation: room.generation,
+      joinToken: room.token,
+    };
     this.clients.clear();
   }
 
@@ -192,6 +202,9 @@ export class RemoteClientSessionStore {
       clientToken: token(),
       displayName: `客人 ${this.clients.size + 1}`.padStart(5, '0'),
       createdAt: Date.now(),
+      roomCode: this.room.code,
+      sessionId: this.room.sessionId,
+      generation: this.room.generation,
     };
     this.clients.set(session.clientToken, session);
     return session;
@@ -199,7 +212,14 @@ export class RemoteClientSessionStore {
 
   authorize(value) {
     const session = this.clients.get(value);
-    if (!session || !this.room || Date.now() - session.createdAt > CLIENT_TTL) {
+    if (
+      !session ||
+      !this.room ||
+      Date.now() - session.createdAt > CLIENT_TTL ||
+      session.roomCode !== this.room.code ||
+      session.sessionId !== this.room.sessionId ||
+      session.generation !== this.room.generation
+    ) {
       throw new Error('INVALID_CLIENT_TOKEN');
     }
     return session;
@@ -251,8 +271,11 @@ export class KaraokeRemoteService {
     if (!this.getRoom()) throw new Error('ROOM_ENDED');
   }
 
-  bootstrap(joinToken) {
+  bootstrap(joinToken, remoteAddress = '') {
     this.ensureActive();
+    if (!this.limiter.check(`bootstrap:${remoteAddress}`, 10))
+      throw new Error('RATE_LIMIT');
+    if (this.sessions.clients.size >= 32) throw new Error('ROOM_FULL');
     const session = this.sessions.create(joinToken);
     return {
       clientId: session.clientId,
@@ -300,13 +323,20 @@ export class KaraokeRemoteService {
     if (!this.limiter.check(`search:${client.clientId}`, 10))
       throw new Error('RATE_LIMIT');
     const tracks = await this.catalog.search(query);
-    const results = [];
-    for (const track of tracks) {
-      results.push({
-        ...track,
-        playability: await this.catalog.availability(track.trackId),
-      });
-    }
+    const results = new Array(tracks.length);
+    let nextIndex = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, tracks.length) }, async () => {
+        while (nextIndex < tracks.length) {
+          const index = nextIndex++;
+          const track = tracks[index];
+          results[index] = {
+            ...track,
+            playability: await this.catalog.availability(track.trackId),
+          };
+        }
+      })
+    );
     return results;
   }
 
@@ -320,9 +350,11 @@ export class KaraokeRemoteService {
     if (!this.limiter.check(`mutation:${client.clientId}`, 20))
       throw new Error('RATE_LIMIT');
     const track = await this.catalog.getTrack(trackId);
+    this.client(client.clientToken);
     const availability = await this.catalog.availability(trackId, {
       fresh: true,
     });
+    this.client(client.clientToken);
     if (availability !== 'playable') throw new Error('TRACK_NOT_PLAYABLE');
     const item = await this.managerBridge.enqueue(
       {
@@ -367,6 +399,8 @@ export class KaraokeRemoteService {
     if (!this.limiter.check(`mutation:${client.clientId}`, 20))
       throw new Error('RATE_LIMIT');
     await this.ownWaitingItem(client, queueItemId);
+    const snapshot = await this.managerBridge.snapshot();
+    if (snapshot.waitingItems[0]?.queueItemId === queueItemId) return;
     if (!(await this.managerBridge.front(queueItemId)))
       throw new Error('WAITING_ITEM_NOT_FOUND');
   }
@@ -385,7 +419,14 @@ export class RemoteApiRouter {
         url.pathname === '/ktv/api/client-session' &&
         request.method === 'POST'
       ) {
-        return json(response, 200, this.service.bootstrap(bearer(request)));
+        return json(
+          response,
+          200,
+          this.service.bootstrap(
+            bearer(request),
+            request.socket.remoteAddress || ''
+          )
+        );
       }
       const client = this.service.client(bearer(request));
       if (url.pathname === '/ktv/api/state' && request.method === 'GET') {
@@ -449,6 +490,7 @@ export class RemoteApiRouter {
         ROOM_ENDED: [410, 'ROOM_ENDED'],
         FORBIDDEN: [403, 'FORBIDDEN'],
         RATE_LIMIT: [429, 'RATE_LIMIT'],
+        ROOM_FULL: [429, 'ROOM_FULL'],
         TRACK_NOT_PLAYABLE: [409, 'TRACK_NOT_PLAYABLE'],
         TRACK_NOT_FOUND: [404, 'TRACK_NOT_FOUND'],
         KTV_NOT_ACTIVE: [409, 'KTV_NOT_ACTIVE'],

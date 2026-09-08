@@ -10,6 +10,8 @@ let searchTimer;
 let searchAbort;
 let refreshTimer;
 let retryDelay = 2000;
+let searchQuery = '';
+let searchResults = [];
 
 function escape(value = '') {
   return String(value).replace(
@@ -72,6 +74,7 @@ function itemMarkup(item, index, own = false) {
   }${controls}</article>`;
 }
 function render() {
+  const hadSearchFocus = document.activeElement?.matches?.('[data-search]');
   const current = state?.current;
   const waiting = state?.waiting || [];
   const theme = localStorage.getItem('yesplaymusic-ktv-theme') || 'auto';
@@ -106,9 +109,11 @@ function render() {
     localStorage.setItem('yesplaymusic-ktv-theme', event.target.value);
     document.documentElement.dataset.theme = event.target.value;
   });
-  app
-    .querySelector('[data-search]')
-    .addEventListener('input', event => scheduleSearch(event.target.value));
+  const searchInput = app.querySelector('[data-search]');
+  searchInput.value = searchQuery;
+  searchInput.addEventListener('input', event =>
+    scheduleSearch(event.target.value)
+  );
   app
     .querySelectorAll('[data-remove]')
     .forEach(button =>
@@ -116,6 +121,8 @@ function render() {
         mutate(`/requests/${button.dataset.remove}`, 'DELETE')
       )
     );
+  renderResults(searchResults);
+  if (hadSearchFocus) searchInput.focus();
   app
     .querySelectorAll('[data-front]')
     .forEach(button =>
@@ -125,6 +132,7 @@ function render() {
     );
 }
 function renderResults(results) {
+  searchResults = results;
   const container = app.querySelector('[data-results]');
   if (!container) return;
   if (!results.length) {
@@ -142,10 +150,12 @@ function renderResults(results) {
           track.duration
         )} · <b class="availability ${track.playability}">${
           track.playability === 'playable'
-            ? '可播'
+            ? '可播放'
             : track.playability === 'trial-only'
-            ? '试听'
-            : '不可播'
+            ? '仅试听'
+            : track.playability === 'error'
+            ? '检测失败'
+            : '不可播放'
         }</b></small></div><div class="request-actions"><button data-request="${escape(
           track.trackId
         )}" ${
@@ -173,6 +183,7 @@ function renderResults(results) {
     );
 }
 function scheduleSearch(query) {
+  searchQuery = query;
   clearTimeout(searchTimer);
   if (searchAbort) searchAbort.abort();
   const clean = query.trim();
