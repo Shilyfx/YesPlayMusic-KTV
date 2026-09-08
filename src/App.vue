@@ -1,1 +1,158 @@
-PHRlbXBsYXRlPgogIDxkaXYgaWQ9ImFwcCIgOmNsYXNzPSJ7ICd1c2VyLXNlbGVjdC1ub25lJzogdXNlclNlbGVjdE5vbmUgfSI+CiAgICA8U2Nyb2xsYmFyIHYtc2hvdz0iIXNob3dMeXJpY3MiIHJlZj0ic2Nyb2xsYmFyIiAvPgogICAgPE5hdmJhciB2LXNob3c9InNob3dOYXZiYXIiIHJlZj0ibmF2YmFyIiAvPgogICAgPG1haW4KICAgICAgcmVmPSJtYWluIgogICAgICA6c3R5bGU9Insgb3ZlcmZsb3c6IGVuYWJsZVNjcm9sbGluZyA/ICdhdXRvJyA6ICdoaWRkZW4nIH0iCiAgICAgIEBzY3JvbGw9ImhhbmRsZVNjcm9sbCIKICAgID4KICAgICAgPGtlZXAtYWxpdmU+CiAgICAgICAgPHJvdXRlci12aWV3IHYtaWY9IiRyb3V0ZS5tZXRhLmtlZXBBbGl2ZSI+PC9yb3V0ZXItdmlldz4KICAgICAgPC9rZWVwLWFsaXZlPgogICAgICA8cm91dGVyLXZpZXcgdi1pZj0iISRyb3V0ZS5tZXRhLmtlZXBBbGl2ZSI+PC9yb3V0ZXItdmlldz4KICAgIDwvbWFpbj4KICAgIDx0cmFuc2l0aW9uIG5hbWU9InNsaWRlLXVwIj4KICAgICAgPFBsYXllciB2LWlmPSJlbmFibGVQbGF5ZXIiIHYtc2hvdz0ic2hvd1BsYXllciIgcmVmPSJwbGF5ZXIiIC8+CiAgICA8L3RyYW5zaXRpb24+CiAgICA8VG9hc3QgLz4KICAgIDxNb2RhbEFkZFRyYWNrVG9QbGF5bGlzdCB2LWlmPSJpc0FjY291bnRMb2dnZWRJbiIgLz4KICAgIDxNb2RhbE5ld1BsYXlsaXN0IHYtaWY9ImlzQWNjb3VudExvZ2dlZEluIiAvPgogICAgPHRyYW5zaXRpb24gdi1pZj0iZW5hYmxlUGxheWVyIiBuYW1lPSJzbGlkZS11cCI+CiAgICAgIDxMeXJpY3Mgdi1zaG93PSJzaG93THlyaWNzIiAvPgogICAgPC90cmFuc2l0aW9uPgogIDwvZGl2Pgo8L3RlbXBsYXRlPgoKPHNjcmlwdD4KaW1wb3J0IE1vZGFsQWRkVHJhY2tUb1BsYXlsaXN0IGZyb20gJy4vY29tcG9uZW50cy9Nb2RhbEFkZFRyYWNrVG9QbGF5bGlzdC52dWUnOwppbXBvcnQgTW9kYWxOZXdQbGF5bGlzdCBmcm9tICcuL2NvbXBvbmVudHMvTW9kYWxOZXdQbGF5bGlzdC52dWUnOwppbXBvcnQgU2Nyb2xsYmFyIGZyb20gJy4vY29tcG9uZW50cy9TY3JvbGxiYXIudnVlJzsKaW1wb3J0IE5hdmJhciBmcm9tICcuL2NvbXBvbmVudHMvTmF2YmFyLnZ1ZSc7CmltcG9ydCBQbGF5ZXIgZnJvbSAnLi9jb21wb25lbnRzL1BsYXllci52dWUnOwppbXBvcnQgVG9hc3QgZnJvbSAnLi9jb21wb25lbnRzL1RvYXN0LnZ1ZSc7CmltcG9ydCB7IGlwY1JlbmRlcmVyIH0gZnJvbSAnLi9lbGVjdHJvbi9pcGNSZW5kZXJlcic7CmltcG9ydCB7IGlzQWNjb3VudExvZ2dlZEluLCBpc0xvb3NlTG9nZ2VkSW4gfSBmcm9tICdAL3V0aWxzL2F1dGgnOwppbXBvcnQgTHlyaWNzIGZyb20gJy4vdmlld3MvbHlyaWNzLnZ1ZSc7CmltcG9ydCB7IG1hcFN0YXRlIH0gZnJvbSAndnVleCc7CgpleHBvcnQgZGVmYXVsdCB7CiAgbmFtZTogJ0FwcCcsCiAgY29tcG9uZW50czogewogICAgTmF2YmFyLAogICAgUGxheWVyLAogICAgVG9hc3QsCiAgICBNb2RhbEFkZFRyYWNrVG9QbGF5bGlzdCwKICAgIE1vZGFsTmV3UGxheWxpc3QsCiAgICBMeXJpY3MsCiAgICBTY3JvbGxiYXIsCiAgfSwKICBkYXRhKCkgewogICAgcmV0dXJuIHsKICAgICAgaXNFbGVjdHJvbjogcHJvY2Vzcy5lbnYuSVNfRUxFQ1RST04sIC8vIHRydWUgfHwgdW5kZWZpbmVkCiAgICAgIHVzZXJTZWxlY3ROb25lOiBmYWxzZSwKICAgIH07CiAgfSwKICBjb21wdXRlZDogewogICAgLi4ubWFwU3RhdGUoWydzaG93THlyaWNzJywgJ3NldHRpbmdzJywgJ3BsYXllcicsICdlbmFibGVTY3JvbGxpbmcnXSksCiAgICBpc0FjY291bnRMb2dnZWRJbigpIHsKICAgICAgcmV0dXJuIGlzQWNjb3VudExvZ2dlZEluKCk7CiAgICB9LAogICAgc2hvd1BsYXllcigpIHsKICAgICAgcmV0dXJuICgKICAgICAgICBbCiAgICAgICAgICAnbXYnLAogICAgICAgICAgJ2thcmFva2UnLAogICAgICAgICAgJ2thcmFva2VSZW1vdGUnLAogICAgICAgICAgJ2xvZ2luVXNlcm5hbWUnLAogICAgICAgICAgJ2xvZ2luJywKICAgICAgICAgICdsb2dpbkFjY291bnQnLAogICAgICAgICAgJ2xhc3RmbUNhbGxiYWNrJywKICAgICAgICBdLmluY2x1ZGVzKHRoaXMuJHJvdXRlLm5hbWUpID09PSBmYWxzZQogICAgICApOwogICAgfSwKICAgIGVuYWJsZVBsYXllcigpIHsKICAgICAgcmV0dXJuIHRoaXMucGxheWVyLmVuYWJsZWQgJiYgdGhpcy4kcm91dGUubmFtZSAhPT0gJ2xhc3RmbUNhbGxiYWNrJzsKICAgIH0sCiAgICBzaG93TmF2YmFyKCkgewogICAgICByZXR1cm4gIVsnbGFzdGZtQ2FsbGJhY2snLCAna2FyYW9rZScsICdrYXJhb2tlUmVtb3RlJ10uaW5jbHVkZXMoCiAgICAgICAgdGhpcy4kcm91dGUubmFtZQogICAgICApOwogICAgfSwKICB9LAogIGNyZWF0ZWQoKSB7CiAgICBpZiAodGhpcy5pc0VsZWN0cm9uKSBpcGNSZW5kZXJlcih0aGlzKTsKICAgIHdpbmRvdy5hZGRFdmVudExpc3RlbmVyKCdrZXlkb3duJywgdGhpcy5oYW5kbGVLZXlkb3duKTsKICAgIHRoaXMuZmV0Y2hEYXRhKCk7CiAgfSwKICBtZXRob2RzOiB7CiAgICBoYW5kbGVLZXlkb3duKGUpIHsKICAgICAgaWYgKGUuY29kZSA9PT0gJ1NwYWNlJykgewogICAgICAgIGlmIChlLnRhcmdldC50YWdOYW1lID09PSAnSU5QVVQnKSByZXR1cm4gZmFsc2U7CiAgICAgICAgaWYgKFsnbXYnLCAna2FyYW9rZVJlbW90ZSddLmluY2x1ZGVzKHRoaXMuJHJvdXRlLm5hbWUpKSByZXR1cm4gZmFsc2U7CiAgICAgICAgZS5wcmV2ZW50RGVmYXVsdCgpOwogICAgICAgIGNvbnN0IGthcmFva2VNYW5hZ2VyID0gdGhpcy4kc3RvcmUuJGthcmFva2VNYW5hZ2VyOwogICAgICAgIGlmIChrYXJhb2tlTWFuYWdlciAmJiBrYXJhb2tlTWFuYWdlci5vd25zUGxheWJhY2spIHsKICAgICAgICAgIGthcmFva2VNYW5hZ2VyLnBsYXlPclBhdXNlKCk7CiAgICAgICAgICByZXR1cm47CiAgICAgICAgfQogICAgICAgIHRoaXMucGxheWVyLnBsYXlPclBhdXNlKCk7CiAgICAgIH0KICAgIH0sCiAgICBmZXRjaERhdGEoKSB7CiAgICAgIGlmICghaXNMb29zZUxvZ2dlZEluKCkpIHJldHVybjsKICAgICAgdGhpcy4kc3RvcmUuZGlzcGF0Y2goJ2ZldGNoTGlrZWRTb25ncycpOwogICAgICB0aGlzLiRzdG9yZS5kaXNwYXRjaCgnZmV0Y2hMaWtlZFNvbmdzV2l0aERldGFpbHMnKTsKICAgICAgdGhpcy4kc3RvcmUuZGlzcGF0Y2goJ2ZldGNoTGlrZWRQbGF5bGlzdCcpOwogICAgICBpZiAoaXNBY2NvdW50TG9nZ2VkSW4oKSkgewogICAgICAgIHRoaXMuJHN0b3JlLmRpc3BhdGNoKCdmZXRjaExpa2VkQWxidW1zJyk7CiAgICAgICAgdGhpcy4kc3RvcmUuZGlzcGF0Y2goJ2ZldGNoTGlrZWRBcnRpc3RzJyk7CiAgICAgICAgdGhpcy4kc3RvcmUuZGlzcGF0Y2goJ2ZldGNoTGlrZWRNVnMnKTsKICAgICAgICB0aGlzLiRzdG9yZS5kaXNwYXRjaCgnZmV0Y2hDbG91ZERpc2snKTsKICAgICAgfQogICAgfSwKICAgIGhhbmRsZVNjcm9sbCgpIHsKICAgICAgdGhpcy4kcmVmcy5zY3JvbGxiYXIuaGFuZGxlU2Nyb2xsKCk7CiAgICB9LAogIH0sCn07Cjwvc2NyaXB0PgoKPHN0eWxlIGxhbmc9InNjc3MiPgojYXBwIHsKICB3aWR0aDogMTAwJTsKICB0cmFuc2l0aW9uOiBhbGwgMC40czsKfQoKbWFpbiB7CiAgcG9zaXRpb246IGZpeGVkOwogIHRvcDogMDsKICBib3R0b206IDA7CiAgcmlnaHQ6IDA7CiAgbGVmdDogMDsKICBvdmVyZmxvdzogYXV0bzsKICBwYWRkaW5nOiA2NHB4IDEwdncgOTZweCAxMHZ3OwogIGJveC1zaXppbmc6IGJvcmRlci1ib3g7CiAgc2Nyb2xsYmFyLXdpZHRoOiBub25lOyAvLyBmaXJlZm94Cn0KCkBtZWRpYSAobWF4LXdpZHRoOiAxMzM2cHgpIHsKICBtYWluIHsKICAgIHBhZGRpbmc6IDY0cHggNXZ3IDk2cHggNXZ3OwogIH0KfQoKbWFpbjo6LXdlYmtpdC1zY3JvbGxiYXIgewogIHdpZHRoOiAwcHg7Cn0KCi5zbGlkZS11cC1lbnRlci1hY3RpdmUsCi5zbGlkZS11cC1sZWF2ZS1hY3RpdmUgewogIHRyYW5zaXRpb246IHRyYW5zZm9ybSAwLjRzOwp9Ci5zbGlkZS11cC1lbnRlciwKLnNsaWRlLXVwLWxlYXZlLXRvIHsKICB0cmFuc2Zvcm06IHRyYW5zbGF0ZVkoMTAwJSk7Cn0KPC9zdHlsZT4K
+<template>
+  <div id="app" :class="{ 'user-select-none': userSelectNone }">
+    <Scrollbar v-show="!showLyrics" ref="scrollbar" />
+    <Navbar v-show="showNavbar" ref="navbar" />
+    <main
+      ref="main"
+      :style="{ overflow: enableScrolling ? 'auto' : 'hidden' }"
+      @scroll="handleScroll"
+    >
+      <keep-alive>
+        <router-view v-if="$route.meta.keepAlive"></router-view>
+      </keep-alive>
+      <router-view v-if="!$route.meta.keepAlive"></router-view>
+    </main>
+    <transition name="slide-up">
+      <Player v-if="enablePlayer" v-show="showPlayer" ref="player" />
+    </transition>
+    <Toast />
+    <ModalAddTrackToPlaylist v-if="isAccountLoggedIn" />
+    <ModalNewPlaylist v-if="isAccountLoggedIn" />
+    <transition v-if="enablePlayer" name="slide-up">
+      <Lyrics v-show="showLyrics" />
+    </transition>
+  </div>
+</template>
+
+<script>
+import ModalAddTrackToPlaylist from './components/ModalAddTrackToPlaylist.vue';
+import ModalNewPlaylist from './components/ModalNewPlaylist.vue';
+import Scrollbar from './components/Scrollbar.vue';
+import Navbar from './components/Navbar.vue';
+import Player from './components/Player.vue';
+import Toast from './components/Toast.vue';
+import { ipcRenderer } from './electron/ipcRenderer';
+import { isAccountLoggedIn, isLooseLoggedIn } from '@/utils/auth';
+import Lyrics from './views/lyrics.vue';
+import { mapState } from 'vuex';
+
+export default {
+  name: 'App',
+  components: {
+    Navbar,
+    Player,
+    Toast,
+    ModalAddTrackToPlaylist,
+    ModalNewPlaylist,
+    Lyrics,
+    Scrollbar,
+  },
+  data() {
+    return {
+      isElectron: process.env.IS_ELECTRON, // true || undefined
+      userSelectNone: false,
+    };
+  },
+  computed: {
+    ...mapState(['showLyrics', 'settings', 'player', 'enableScrolling']),
+    isAccountLoggedIn() {
+      return isAccountLoggedIn();
+    },
+    showPlayer() {
+      return (
+        [
+          'mv',
+          'karaoke',
+          'karaokeRemote',
+          'loginUsername',
+          'login',
+          'loginAccount',
+          'lastfmCallback',
+        ].includes(this.$route.name) === false
+      );
+    },
+    enablePlayer() {
+      return this.player.enabled && this.$route.name !== 'lastfmCallback';
+    },
+    showNavbar() {
+      return !['lastfmCallback', 'karaoke', 'karaokeRemote'].includes(
+        this.$route.name
+      );
+    },
+  },
+  created() {
+    if (this.isElectron) ipcRenderer(this);
+    window.addEventListener('keydown', this.handleKeydown);
+    this.fetchData();
+  },
+  methods: {
+    handleKeydown(e) {
+      if (e.code === 'Space') {
+        if (e.target.tagName === 'INPUT') return false;
+        if (['mv', 'karaokeRemote'].includes(this.$route.name)) return false;
+        e.preventDefault();
+        const karaokeManager = this.$store.$karaokeManager;
+        if (karaokeManager && karaokeManager.ownsPlayback) {
+          karaokeManager.playOrPause();
+          return;
+        }
+        this.player.playOrPause();
+      }
+    },
+    fetchData() {
+      if (!isLooseLoggedIn()) return;
+      this.$store.dispatch('fetchLikedSongs');
+      this.$store.dispatch('fetchLikedSongsWithDetails');
+      this.$store.dispatch('fetchLikedPlaylist');
+      if (isAccountLoggedIn()) {
+        this.$store.dispatch('fetchLikedAlbums');
+        this.$store.dispatch('fetchLikedArtists');
+        this.$store.dispatch('fetchLikedMVs');
+        this.$store.dispatch('fetchCloudDisk');
+      }
+    },
+    handleScroll() {
+      this.$refs.scrollbar.handleScroll();
+    },
+  },
+};
+</script>
+
+<style lang="scss">
+#app {
+  width: 100%;
+  transition: all 0.4s;
+}
+
+main {
+  position: fixed;
+  top: 0;
+  bottom: 0;
+  right: 0;
+  left: 0;
+  overflow: auto;
+  padding: 64px 10vw 96px 10vw;
+  box-sizing: border-box;
+  scrollbar-width: none; // firefox
+}
+
+@media (max-width: 1336px) {
+  main {
+    padding: 64px 5vw 96px 5vw;
+  }
+}
+
+main::-webkit-scrollbar {
+  width: 0px;
+}
+
+.slide-up-enter-active,
+.slide-up-leave-active {
+  transition: transform 0.4s;
+}
+.slide-up-enter,
+.slide-up-leave-to {
+  transform: translateY(100%);
+}
+</style>
+
