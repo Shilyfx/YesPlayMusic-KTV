@@ -39,6 +39,8 @@ WebSocket/SSE or general desktop APIs.
 
 - Code checkpoint: `f8fcf7cfd086e097fff856431b9ff86c3fc25ffa`; Phase Validation
   run `34258369587` succeeded.
+- Documentation checkpoint: `a94865958103a8bb4d897df57f0390f23ba1d26b`; Phase
+  Validation run `34258965888` succeeded.
 - Scope is limited to P1-01/02/03 and P2-01/02/03 final-audit repairs. No Phase 5
   capability was added.
 - The only remaining release-gate evidence is physical: packaged Windows app,

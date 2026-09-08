@@ -13,16 +13,16 @@
 
 ## Repairs and evidence
 
-| Area | Issue / root cause | Repair and verification |
-| --- | --- | --- |
-| Player P0 | Runtime KTV fields could persist; an old async load could commit after session end. | Explicit transient deny list and migration; generation-guarded KTV transaction stops output before fetching and commits audio only if still current. `test-karaoke-player.js` covers cancellation. |
-| Session and LAN lifecycle | Room security needed canonical renderer session identity and stale-room invalidation. | LAN start reads manager snapshot; renderer reload/process loss stops the room; rooms and clients bind session/generation. Lifecycle test covers real-session gating. |
-| Remote authorization | Bootstrap/session maps lacked expiry cleanup and room-wide budgets. | Expired sessions purge; per-address bootstrap, room/client caps, and room-wide state/search/mutation budgets. Mutations reauthorize after awaits and before queue changes. |
-| Host catalog | Main's raw localhost request was not proven to inherit host authentication/proxy context. | Strict `search`/`trackDetail`/`availability` bridge calls the renderer's existing request stack. Only sanitized track data and playability return to LAN callers. Remote API test asserts bridge use. |
-| Remote UI | Polling replaced all DOM and destroyed search input/results/focus. | One-time shell with polling limited to now-playing and queue patches; search state has query generation and abort guards. |
+| Area                         | Issue / root cause                                                                                                                                               | Repair and verification                                                                                                                                                                                                                                                                                                          |
+| ---------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Player P0                    | Runtime KTV fields could persist; an old async load could commit after session end.                                                                              | Explicit transient deny list and migration; generation-guarded KTV transaction stops output before fetching and commits audio only if still current. `test-karaoke-player.js` covers cancellation.                                                                                                                               |
+| Session and LAN lifecycle    | Room security needed canonical renderer session identity and stale-room invalidation.                                                                            | LAN start reads manager snapshot; renderer reload/process loss stops the room; rooms and clients bind session/generation. Lifecycle test covers real-session gating.                                                                                                                                                             |
+| Remote authorization         | Bootstrap/session maps lacked expiry cleanup and room-wide budgets.                                                                                              | Expired sessions purge; per-address bootstrap, room/client caps, and room-wide state/search/mutation budgets. Mutations reauthorize after awaits and before queue changes.                                                                                                                                                       |
+| Host catalog                 | Main's raw localhost request was not proven to inherit host authentication/proxy context.                                                                        | Strict `search`/`trackDetail`/`availability` bridge calls the renderer's existing request stack. Only sanitized track data and playability return to LAN callers. Remote API test asserts bridge use.                                                                                                                            |
+| Remote UI                    | Polling replaced all DOM and destroyed search input/results/focus.                                                                                               | One-time shell with polling limited to now-playing and queue patches; search state has query generation and abort guards.                                                                                                                                                                                                        |
 | Server security/build assets | Static path and response hardening/regression coverage were incomplete; Electron's Remote entry retained `app://` paths while shared chunks were sibling assets. | Reject encoded separators/dot segments, use relative containment, apply no-store/nosniff/referrer/CSP headers, safely rewrite only the Remote entry, and permit a CSS/JS-only trusted bundle fallback; server test covers traversal, headers, start/start, restart, port collision, and the actual Electron bundle entry/assets. |
-| KTV UI | Lyric controls could not wake after pointer events were disabled; stale lyric replies could overwrite current lyrics; mock Remote route was misleading. | Activity listeners moved to lyric stage, lyric request guards added, and `/karaoke/remote` production mock route removed. |
-| CI | Repair branch was not a direct workflow trigger and Player regression was absent. | `fix/ktv-*` trigger plus Player regression check added. |
+| KTV UI                       | Lyric controls could not wake after pointer events were disabled; stale lyric replies could overwrite current lyrics; mock Remote route was misleading.          | Activity listeners moved to lyric stage, lyric request guards added, and `/karaoke/remote` production mock route removed.                                                                                                                                                                                                        |
+| CI                           | Repair branch was not a direct workflow trigger and Player regression was absent.                                                                                | `fix/ktv-*` trigger plus Player regression check added.                                                                                                                                                                                                                                                                          |
 
 ## Local checks
 
@@ -52,3 +52,35 @@ Please review `fix/ktv-full-audit` using
 `bfa19557c7b16e4d8bb0419cd30e8de837b502cd...51554f86edd5f5a62b3ca4a1cdf65677c11c5e69`.
 Confirm the GitHub Action for the repair branch and the remaining physical
 Electron/LAN smoke evidence before declaring the release gate complete.
+
+## Final Repair Follow-up
+
+### Canonical references
+
+- `UNIFIED_REPAIR_BASE_SHA`: `bfa19557c7b16e4d8bb0419cd30e8de837b502cd`
+- `PREVIOUS_REPAIR_CODE_SHA`: `9d0176acb9989465743778a88c7046efa0d1469b`
+- `PREVIOUS_REPAIR_DOC_SHA`: `b6a0b05cb0f25d830a996c196f4bdc325178f8f5`
+- `FINAL_REPAIR_CODE_SHA`: `f8fcf7cfd086e097fff856431b9ff86c3fc25ffa`
+- `FINAL_REPAIR_DOC_SHA`: `a94865958103a8bb4d897df57f0390f23ba1d26b`
+- `FINAL_REPAIR_CODE_ACTION_RUN`: [34258369587](https://github.com/Shilyfx/YesPlayMusic-KTV/actions/runs/34258369587) — success.
+- `FINAL_REPAIR_DOC_ACTION_RUN`: [34258965888](https://github.com/Shilyfx/YesPlayMusic-KTV/actions/runs/34258965888) — success.
+
+### Closed items
+
+| Item  | Final repair                                                                                                                                                         | Evidence                                                                                                          |
+| ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| P1-01 | Packaged Remote assets are copied into `remote/js` and `remote/css`; the server reads only that tree, with no Electron desktop-bundle fallback.                      | Electron renderer build plus LAN server regression verifies own assets load and actual desktop JS/CSS return 404. |
+| P1-02 | Every queue mutation carries expected session identity across Remote API → IPC → renderer; the renderer rejects ended/replaced sessions immediately before mutation. | Delayed enqueue/remove/front regression cases reject `ROOM_ENDED` and leave the queue unchanged.                  |
+| P1-03 | Space, Electron global media and browser MediaSession commands use active KTV-session ownership, including the active-without-current no-op rule.                    | Domain and Player command-routing regressions pass.                                                               |
+| P2-01 | `updatePlayer()` removes transient KTV/runtime fields from the actual persisted `localStorage.player` object.                                                        | Persistence migration regression preserves normal state and removes each transient key.                           |
+| P2-02 | `stopRoom()` waits for a pending startup to settle/cancel before the next room can start.                                                                            | Deterministic delayed-listen stop/restart regression passes.                                                      |
+| P2-03 | Expired Remote clients are purged before the capacity decision.                                                                                                      | Deterministic 32-expired-client bootstrap regression passes.                                                      |
+
+### Final validation and remaining physical gate
+
+- Local: Node 16 web build, Electron renderer build, scoped Prettier/ESLint, and
+  Player/domain/server/lifecycle/Remote API suites passed.
+- Cloud: both canonical code and documentation workflow runs above succeeded.
+- Not claimed: packaged Windows runtime, same-Wi-Fi QR connection, logged-in NetEase
+  Remote search/request, TV rendering, and physical audio. These remain the real
+  device acceptance gate and must be observed before release approval.

@@ -94,3 +94,7 @@ Status: Accepted
 Electron packaging copies every JS/CSS file referenced by `remote/index.html` into
 the `remote/` tree and rewrites that entry to relative URLs. `KaraokeServer` serves
 Remote assets only from that tree; it must never fall back to desktop bundle assets.
+
+Validation evidence: code checkpoint `f8fcf7cfd086e097fff856431b9ff86c3fc25ffa`
+and documentation checkpoint `a94865958103a8bb4d897df57f0390f23ba1d26b` passed
+Actions `34258369587` and `34258965888`, respectively.

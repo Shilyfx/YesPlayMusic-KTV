@@ -11,7 +11,8 @@
   tree with no desktop-bundle fallback; stale Remote mutations carry and verify the
   expected session; active KTV owns keyboard/media playback commands; player
   persistence, startup cancellation, and expired-session capacity regressions are
-  covered by deterministic tests.
+  covered by deterministic tests. Code/documentation checkpoints passed GitHub
+  Actions `34258369587` / `34258965888`.
 
 - Project plan and AI workflow scaffolding prepared.
 - Phase 1 local implementation: continuous lyric font size, persisted lyric timing offset, reusable KTV glass tokens/theme switcher, desktop KTV shell, and responsive remote UI shell.

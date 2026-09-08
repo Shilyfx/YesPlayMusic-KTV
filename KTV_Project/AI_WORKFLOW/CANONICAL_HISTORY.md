@@ -15,3 +15,5 @@ Phase 3 lineages are historical evidence only and must not be force-rewritten.
 - `PREVIOUS_REPAIR_DOC_SHA`: `b6a0b05cb0f25d830a996c196f4bdc325178f8f5`
 - `FINAL_REPAIR_CODE_SHA`: `f8fcf7cfd086e097fff856431b9ff86c3fc25ffa`
 - `FINAL_REPAIR_CODE_ACTION_RUN`: `34258369587` (success)
+- `FINAL_REPAIR_DOC_SHA`: `a94865958103a8bb4d897df57f0390f23ba1d26b`
+- `FINAL_REPAIR_DOC_ACTION_RUN`: `34258965888` (success)
