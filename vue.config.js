@@ -83,7 +83,9 @@ module.exports = {
     // LimitChunkCountPlugin 可以通过合并块来对块进行后期处理。用以解决 chunk 包太多的问题
     config.plugin('chunkPlugin').use(webpack.optimize.LimitChunkCountPlugin, [
       {
-        maxChunks: 3,
+        // The dedicated Remote entry adds its own extracted CSS chunk. Keeping four
+        // chunks avoids Webpack 4 attempting an invalid contenthash CSS merge.
+        maxChunks: 4,
         minChunkSize: 10_000,
       },
     ]);
