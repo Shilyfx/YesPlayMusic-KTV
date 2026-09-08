@@ -34,3 +34,18 @@ Remote Web and KTV desktop UI use a shared glassmorphism design language with Li
 Status: Accepted
 
 Phase 1 exposes the remote song-request shell at `/karaoke/remote` in the existing Vue build to avoid creating a server before the security boundary is designed. The shell owns only mock presentation state and a browser-local theme preference. In Phase 3, its view/components can be moved into the static bundle served by `KaraokeServer`; no remote endpoint or player control bridge exists yet.
+
+## D-008 Phase 2 queue is local, temporary, and duplicate-tolerant
+Status: Accepted
+
+The Phase 2 queue lives only in the local KTV manager. It assigns a queue-item ID
+separate from a NetEase track ID, permits duplicate requests, and is cleared when
+the KTV session ends. It does not write a NetEase playlist or persist KTV history.
+
+## D-009 Natural-end auto-advance awaits a public player callback
+Status: Accepted
+
+Phase 2 uses a narrow public player adapter for host-directed start, next, replay,
+and play/pause. It does not subscribe to private Player internals to infer song
+completion; natural-end auto-advance is deferred until a stable public completion
+hook is available.

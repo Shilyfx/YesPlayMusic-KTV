@@ -5,6 +5,8 @@ import mutations from './mutations';
 import actions from './actions';
 import { changeAppearance, changeThemeColor } from '@/utils/common';
 import Player from '@/utils/Player';
+import KaraokeManager from '@/karaoke/KaraokeManager';
+import KaraokePlayerAdapter from '@/karaoke/KaraokePlayerAdapter';
 // vuex 自定义插件
 import saveToLocalStorage from './plugins/localStorage';
 import { getSendSettingsPlugin } from './plugins/sendSettings';
@@ -65,5 +67,10 @@ player = new Proxy(player, {
   },
 });
 store.state.player = player;
+const karaokeManager = new KaraokeManager(new KaraokePlayerAdapter(player));
+store.state.karaokeManager = karaokeManager;
+karaokeManager.subscribe(karaoke => {
+  store.commit('replaceKaraokeState', karaoke);
+});
 
 export default store;

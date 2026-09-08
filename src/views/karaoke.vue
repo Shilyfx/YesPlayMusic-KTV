@@ -12,11 +12,18 @@
         ← 返回音乐
       </button>
       <div class="room-label">
-        <span class="live-dot"></span>
-        <span>KTV 舞台 · Phase 1</span>
-        <small>房间将在局域网服务完成后开启</small>
+        <span class="live-dot" :class="{ active: isSessionActive }"></span>
+        <div>
+          <strong>{{ sessionLabel }}</strong>
+          <small>本机模式 · 局域网房间将在 Phase 3 开启</small>
+        </div>
       </div>
-      <KaraokeThemeSwitcher v-model="karaokeTheme" />
+      <div class="header-actions">
+        <KaraokeThemeSwitcher v-model="karaokeTheme" />
+        <button type="button" class="session-button" @click="toggleSession">
+          {{ isSessionActive ? '结束 KTV' : '开始本机 KTV' }}
+        </button>
+      </div>
     </header>
 
     <main class="karaoke-layout">
@@ -25,12 +32,21 @@
           <img v-if="cover" :src="cover" :alt="`${track.name} 封面`" />
           <div v-else class="cover-fallback">♪</div>
         </div>
-        <p class="eyebrow">正在演唱</p>
+        <p class="eyebrow">{{ currentItem ? '正在演唱' : statusEyebrow }}</p>
         <h1 :title="track.name">{{ track.name }}</h1>
         <p class="artist">{{ artist }}</p>
-        <p class="album">{{
-          track.al && track.al.name ? track.al.name : '选择一首歌，舞台即刻开始'
-        }}</p>
+        <p class="album">{{ albumName }}</p>
+        <button
+          type="button"
+          class="enqueue-current"
+          :disabled="!isSessionActive || !track.id"
+          @click="enqueueCurrentTrack"
+        >
+          将当前播放歌曲加入待唱
+        </button>
+        <p v-if="!isSessionActive" class="local-note">
+          先开始本机 KTV，才可建立临时待唱队列。
+        </p>
       </aside>
 
       <section
@@ -46,29 +62,80 @@
         </div>
         <p class="translation">{{ stageLyrics.translation }}</p>
         <div class="stage-footer">
-          <span>歌词与现有播放器保持同步</span>
-          <span>{{ lyricOffsetLabel }}</span>
+          <span>{{
+            isSessionActive ? '本机队列由主机控制' : '开始本机 KTV 以管理待唱'
+          }}</span>
+          <span>{{ lyricOffsetLabel }} · {{ lyricFontSize }}px</span>
         </div>
       </section>
 
       <aside class="queue-panel glass-panel">
         <div class="panel-title">
           <div>
-            <p class="eyebrow">临时待唱</p>
-            <h2>队列预览</h2>
+            <p class="eyebrow">本机待唱</p>
+            <h2>真实临时队列</h2>
           </div>
-          <span class="mock-badge">演示数据</span>
+          <span class="queue-count">{{ waitingItems.length }} 首待唱</span>
         </div>
-        <ol>
-          <li v-for="item in mockQueue" :key="item.id">
-            <span class="queue-number">{{ item.position }}</span>
-            <div>
-              <strong>{{ item.name }}</strong>
-              <small>{{ item.artist }} · {{ item.requester }}</small>
+
+        <article v-if="currentItem" class="current-queue-item">
+          <span>正在演唱</span>
+          <strong>{{ currentItem.trackName }}</strong>
+          <small
+            >{{ currentItem.artists.join(' / ') }} ·
+            {{ currentItem.requesterName }}</small
+          >
+        </article>
+
+        <ol v-if="waitingItems.length" class="waiting-list">
+          <li v-for="(item, index) in waitingItems" :key="item.queueItemId">
+            <span class="queue-number">{{
+              String(index + 1).padStart(2, '0')
+            }}</span>
+            <div class="queue-item-copy">
+              <strong>{{ item.trackName }}</strong>
+              <small
+                >{{ item.artists.join(' / ') }} ·
+                {{ item.requesterName }}</small
+              >
+            </div>
+            <div class="queue-actions">
+              <button
+                type="button"
+                :disabled="index === 0"
+                :aria-label="`上移 ${item.trackName}`"
+                @click="moveQueueItem(item.queueItemId, index - 1)"
+                >↑</button
+              >
+              <button
+                type="button"
+                :disabled="index === waitingItems.length - 1"
+                :aria-label="`下移 ${item.trackName}`"
+                @click="moveQueueItem(item.queueItemId, index + 1)"
+                >↓</button
+              >
+              <button
+                type="button"
+                :aria-label="`删除 ${item.trackName}`"
+                @click="removeQueueItem(item.queueItemId)"
+                >删除</button
+              >
             </div>
           </li>
         </ol>
-        <p class="queue-note">真实临时队列会在 Phase 2 接入。</p>
+        <div v-else class="queue-empty">
+          <strong>{{
+            isSessionActive ? '还没有待唱歌曲' : 'KTV 尚未开始'
+          }}</strong>
+          <span>使用左侧按钮把当前真实歌曲加入本机待唱。</span>
+        </div>
+        <button
+          v-if="waitingItems.length"
+          type="button"
+          class="clear-waiting"
+          @click="clearWaitingQueue"
+          >清空待唱</button
+        >
       </aside>
     </main>
 
@@ -93,11 +160,20 @@
         >
       </div>
       <div class="player-actions">
-        <button type="button" @click="replay">重唱</button>
-        <button type="button" class="primary" @click="player.playOrPause()">
+        <button type="button" :disabled="!currentItem" @click="replay"
+          >重唱</button
+        >
+        <button
+          type="button"
+          class="primary"
+          :disabled="!currentItem"
+          @click="playOrPause"
+        >
           {{ player.playing ? '暂停' : '播放' }}
         </button>
-        <button type="button" @click="nextTrack">下一首</button>
+        <button type="button" :disabled="!isSessionActive" @click="nextTrack">
+          {{ currentItem ? '切歌' : '开始待唱' }}
+        </button>
       </div>
       <div class="quick-setting font-setting">
         <span>舞台字号</span>
@@ -139,33 +215,34 @@ export default {
       clock: null,
       systemTheme: 'light',
       themeMedia: null,
-      mockQueue: [
-        {
-          id: 'mock-1',
-          position: '01',
-          name: '夜空中最亮的星',
-          artist: '逃跑计划',
-          requester: '客人 A',
-        },
-        {
-          id: 'mock-2',
-          position: '02',
-          name: '小幸运',
-          artist: '田馥甄',
-          requester: '客人 B',
-        },
-        {
-          id: 'mock-3',
-          position: '03',
-          name: '一路向北',
-          artist: '周杰伦',
-          requester: '客人 C',
-        },
-      ],
     };
   },
   computed: {
-    ...mapState(['player', 'settings']),
+    ...mapState(['player', 'settings', 'karaoke']),
+    karaokeManager() {
+      return this.$store.state.karaokeManager;
+    },
+    session() {
+      return this.karaoke.session || { status: 'idle' };
+    },
+    isSessionActive() {
+      return this.session.status === 'active';
+    },
+    sessionLabel() {
+      if (this.isSessionActive) return '本机 KTV 进行中';
+      return this.session.status === 'ended'
+        ? '本机 KTV 已结束'
+        : 'KTV 尚未开始';
+    },
+    statusEyebrow() {
+      return this.isSessionActive ? '等待下一首' : '准备开始';
+    },
+    currentItem() {
+      return this.karaoke.currentItem;
+    },
+    waitingItems() {
+      return this.karaoke.waitingItems || [];
+    },
     track() {
       return this.player.currentTrack || { name: '还没有正在播放的歌曲' };
     },
@@ -173,12 +250,15 @@ export default {
       return this.track.id;
     },
     artist() {
-      return this.track.ar && this.track.ar.length
+      return this.track.ar?.length
         ? this.track.ar.map(item => item.name).join(' / ')
         : '准备好开始演唱';
     },
+    albumName() {
+      return this.track.al?.name || '临时 KTV 队列不会修改网易云歌单';
+    },
     cover() {
-      return this.track.al && this.track.al.picUrl
+      return this.track.al?.picUrl
         ? `${this.track.al.picUrl}?param=640y640`
         : '';
     },
@@ -196,8 +276,9 @@ export default {
       },
     },
     resolvedTheme() {
-      if (this.karaokeTheme !== 'auto') return this.karaokeTheme;
-      return this.systemTheme;
+      return this.karaokeTheme === 'auto'
+        ? this.systemTheme
+        : this.karaokeTheme;
     },
     lyricFontSize() {
       return normalizeLyricFontSize(this.settings.lyricFontSize);
@@ -239,23 +320,19 @@ export default {
         return progress >= line.time && (!next || progress < next.time);
       });
       if (activeIndex === -1) {
-        const last = this.lyrics[this.lyrics.length - 1];
         return {
           state: 'after-final',
-          before: last.content,
+          before: this.lyrics[this.lyrics.length - 1].content,
           active: '本首歌词已结束',
           after: '♪',
           translation: '等待下一首待唱歌曲。',
         };
       }
-      const index = activeIndex;
       return {
-        state: index === this.lyrics.length - 1 ? 'final' : 'active',
-        before: this.lyrics[index - 1] ? this.lyrics[index - 1].content : '♪',
-        active: this.lyrics[index]
-          ? this.lyrics[index].content
-          : '等待歌词加载',
-        after: this.lyrics[index + 1] ? this.lyrics[index + 1].content : '♪',
+        state: activeIndex === this.lyrics.length - 1 ? 'final' : 'active',
+        before: this.lyrics[activeIndex - 1]?.content || '♪',
+        active: this.lyrics[activeIndex].content,
+        after: this.lyrics[activeIndex + 1]?.content || '♪',
         translation:
           '歌词时间轴保持原始数据，点击歌词页仍会定位到原始播放时间。',
       };
@@ -269,11 +346,9 @@ export default {
   created() {
     this.themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
     this.syncSystemTheme();
-    if (this.themeMedia.addEventListener) {
+    if (this.themeMedia.addEventListener)
       this.themeMedia.addEventListener('change', this.syncSystemTheme);
-    } else {
-      this.themeMedia.addListener(this.syncSystemTheme);
-    }
+    else this.themeMedia.addListener(this.syncSystemTheme);
     this.loadLyrics();
     this.clock = window.setInterval(() => {
       this.now = this.player.seek(null, false) || 0;
@@ -281,16 +356,14 @@ export default {
   },
   beforeDestroy() {
     window.clearInterval(this.clock);
-    if (this.themeMedia && this.themeMedia.removeEventListener) {
+    if (this.themeMedia?.removeEventListener)
       this.themeMedia.removeEventListener('change', this.syncSystemTheme);
-    } else if (this.themeMedia) {
+    else if (this.themeMedia)
       this.themeMedia.removeListener(this.syncSystemTheme);
-    }
   },
   methods: {
     syncSystemTheme() {
-      this.systemTheme =
-        this.themeMedia && this.themeMedia.matches ? 'dark' : 'light';
+      this.systemTheme = this.themeMedia?.matches ? 'dark' : 'light';
     },
     loadLyrics() {
       if (!this.trackId) {
@@ -299,13 +372,43 @@ export default {
       }
       getLyric(this.trackId)
         .then(data => {
-          const parsed =
-            data && data.lrc && data.lrc.lyric ? lyricParser(data).lyric : [];
+          const parsed = data?.lrc?.lyric ? lyricParser(data).lyric : [];
           this.lyrics = parsed.filter(line => line.content);
         })
         .catch(() => {
           this.lyrics = [];
         });
+    },
+    toggleSession() {
+      if (!this.isSessionActive) {
+        this.karaokeManager.startSession();
+        this.$store.dispatch('showToast', '本机 KTV 已开始，临时队列已就绪');
+        return;
+      }
+      if (this.currentItem || this.waitingItems.length) {
+        const confirmed = window.confirm(
+          '结束本次 KTV？当前与待唱列表将被清空，网易云歌单不会受到影响。'
+        );
+        if (!confirmed) return;
+      }
+      this.karaokeManager.endSession();
+      this.$store.dispatch('showToast', '本机 KTV 已结束，临时队列已清空');
+    },
+    enqueueCurrentTrack() {
+      const item = this.karaokeManager.enqueueTrack(this.track);
+      if (item)
+        this.$store.dispatch('showToast', `已加入 KTV 待唱：${item.trackName}`);
+    },
+    removeQueueItem(queueItemId) {
+      this.karaokeManager.removeQueueItem(queueItemId);
+    },
+    moveQueueItem(queueItemId, targetIndex) {
+      this.karaokeManager.moveQueueItem(queueItemId, targetIndex);
+    },
+    clearWaitingQueue() {
+      if (!window.confirm('清空所有待唱歌曲？正在演唱的歌曲不会被删除。'))
+        return;
+      this.karaokeManager.clearWaitingQueue();
     },
     setOffset(value) {
       this.$store.commit('updateSettings', {
@@ -323,12 +426,13 @@ export default {
       );
     },
     replay() {
-      this.player.seek(0);
-      this.player.play();
+      this.karaokeManager.replay();
+    },
+    playOrPause() {
+      this.karaokeManager.playOrPause();
     },
     nextTrack() {
-      if (this.player.isPersonalFM) this.player.playNextFMTrack();
-      else this.player.playNextTrack();
+      this.karaokeManager.next();
     },
   },
 };
@@ -346,7 +450,6 @@ export default {
   background: var(--ktv-bg-base);
   box-sizing: border-box;
 }
-
 .ambient,
 .ambient-overlay {
   position: fixed;
@@ -376,37 +479,59 @@ export default {
   display: flex;
   align-items: center;
   justify-content: space-between;
+  gap: 16px;
   padding: 0 16px;
 }
 .back {
   color: var(--ktv-text-secondary);
   font-weight: 600;
 }
-.room-label {
+.room-label,
+.header-actions {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: 10px;
+}
+.room-label strong,
+.room-label small {
+  display: block;
+}
+.room-label strong {
   color: var(--ktv-text-primary);
   font-size: 14px;
-  font-weight: 700;
 }
 .room-label small {
+  margin-top: 2px;
   color: var(--ktv-text-muted);
-  font-weight: 500;
+  font-size: 11px;
 }
 .live-dot {
   width: 8px;
   height: 8px;
-  border-radius: 999px;
-  background: var(--ktv-accent);
-  box-shadow: 0 0 0 5px rgba(108, 87, 233, 0.16);
+  border-radius: 50%;
+  background: var(--ktv-text-muted);
+}
+.live-dot.active {
+  background: var(--ktv-success);
+  box-shadow: 0 0 0 5px rgba(97, 214, 167, 0.16);
+}
+.session-button,
+.enqueue-current,
+.clear-waiting {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: var(--ktv-radius-control);
+  background: var(--ktv-glass-strong);
+  color: var(--ktv-text-primary);
+  font-weight: 700;
 }
 .karaoke-layout {
   flex: 1;
   display: grid;
   grid-template-columns: minmax(210px, 0.78fr) minmax(420px, 1.8fr) minmax(
-      250px,
-      0.92fr
+      280px,
+      0.98fr
     );
   gap: 18px;
   min-height: 480px;
@@ -414,6 +539,7 @@ export default {
 .track-identity,
 .queue-panel {
   padding: 24px;
+  min-width: 0;
 }
 .cover-wrap {
   aspect-ratio: 1;
@@ -431,7 +557,7 @@ export default {
   display: grid;
   height: 100%;
   place-items: center;
-  color: white;
+  color: #fff;
   font-size: 80px;
 }
 .eyebrow,
@@ -457,9 +583,20 @@ h1 {
   margin-bottom: 4px;
   color: var(--ktv-text-secondary);
 }
-.album {
+.album,
+.local-note {
   color: var(--ktv-text-muted);
   font-size: 13px;
+}
+.enqueue-current {
+  width: 100%;
+  margin-top: 18px;
+  background: var(--ktv-accent);
+  color: #fff;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.45;
 }
 .stage {
   position: relative;
@@ -491,7 +628,8 @@ h1 {
   left: 32px;
   margin: 0;
 }
-.stage-lines {
+.stage-lines,
+.translation {
   position: relative;
   z-index: 1;
 }
@@ -519,8 +657,6 @@ h1 {
   text-shadow: none;
 }
 .translation {
-  position: relative;
-  z-index: 1;
   margin: 4px auto 0;
   max-width: 540px;
   color: var(--ktv-text-secondary);
@@ -534,6 +670,7 @@ h1 {
   z-index: 1;
   display: flex;
   justify-content: space-between;
+  gap: 12px;
   color: var(--ktv-text-muted);
   font-size: 12px;
 }
@@ -541,6 +678,7 @@ h1 {
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
+  gap: 10px;
 }
 .panel-title .eyebrow {
   margin-top: 0;
@@ -549,27 +687,47 @@ h1 {
   margin-bottom: 16px;
   font-size: 21px;
 }
-.mock-badge {
-  padding: 4px 7px;
-  border-radius: 6px;
-  background: var(--ktv-glass-strong);
+.queue-count {
   color: var(--ktv-text-muted);
-  font-size: 10px;
+  font-size: 12px;
 }
-ol {
+.current-queue-item {
+  padding: 12px;
+  border: 1px solid rgba(171, 156, 255, 0.36);
+  border-radius: 14px;
+  background: var(--ktv-glass-soft);
+}
+.current-queue-item span,
+.current-queue-item strong,
+.current-queue-item small {
+  display: block;
+}
+.current-queue-item span {
+  margin-bottom: 5px;
+  color: var(--ktv-accent);
+  font-size: 11px;
+  font-weight: 800;
+}
+.current-queue-item small,
+.queue-item-copy small {
+  margin-top: 3px;
+  color: var(--ktv-text-muted);
+  font-size: 12px;
+}
+.waiting-list {
+  max-height: 48vh;
   padding: 0;
-  margin: 0;
+  margin: 12px 0 0;
+  overflow: auto;
   list-style: none;
 }
-li {
-  display: flex;
+.waiting-list li {
+  display: grid;
+  grid-template-columns: 26px 1fr auto;
+  gap: 8px;
   align-items: center;
-  gap: 12px;
   padding: 13px 0;
   border-bottom: 1px solid var(--ktv-glass-border);
-}
-li:last-child {
-  border: 0;
 }
 .queue-number {
   color: var(--ktv-accent);
@@ -577,20 +735,47 @@ li:last-child {
   font-variant-numeric: tabular-nums;
   font-weight: 800;
 }
-li strong,
-li small {
-  display: block;
+.queue-item-copy {
+  min-width: 0;
 }
-li strong {
+.queue-item-copy strong,
+.queue-item-copy small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.queue-item-copy strong {
   font-size: 14px;
 }
-li small,
-.queue-note {
-  color: var(--ktv-text-muted);
+.queue-actions {
+  display: flex;
+  gap: 4px;
+}
+.queue-actions button {
+  min-width: 26px;
+  min-height: 28px;
+  padding: 0 5px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 8px;
+  color: var(--ktv-text-secondary);
   font-size: 12px;
 }
-.queue-note {
-  margin: 12px 0 0;
+.queue-empty {
+  display: grid;
+  gap: 6px;
+  padding: 44px 4px;
+  color: var(--ktv-text-muted);
+  text-align: center;
+  font-size: 13px;
+}
+.queue-empty strong {
+  color: var(--ktv-text-secondary);
+}
+.clear-waiting {
+  width: 100%;
+  margin-top: 14px;
+  color: var(--ktv-danger);
 }
 .karaoke-controls {
   display: grid;
@@ -650,13 +835,8 @@ li small,
   .queue-panel {
     grid-column: 1 / -1;
   }
-  .queue-panel ol {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 12px;
-  }
-  .queue-panel li {
-    border-top: 1px solid var(--ktv-glass-border);
+  .waiting-list {
+    max-height: 260px;
   }
 }
 @media (max-width: 760px) {
@@ -665,11 +845,11 @@ li small,
   }
   .karaoke-header {
     flex-wrap: wrap;
-    gap: 10px;
     padding: 12px;
   }
-  .room-label small {
-    display: none;
+  .header-actions {
+    width: 100%;
+    justify-content: space-between;
   }
   .karaoke-layout {
     display: flex;
@@ -682,19 +862,17 @@ li small,
     gap: 0 16px;
   }
   .cover-wrap {
-    grid-row: span 4;
+    grid-row: span 5;
   }
   .track-identity .eyebrow {
     margin-top: 4px;
   }
-  .track-identity h1 {
-    font-size: 24px;
+  .enqueue-current,
+  .local-note {
+    grid-column: 1 / -1;
   }
   .stage {
     min-height: 380px;
-  }
-  .queue-panel ol {
-    display: block;
   }
   .karaoke-controls {
     grid-template-columns: 1fr;
