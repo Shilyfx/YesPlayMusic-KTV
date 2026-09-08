@@ -6,6 +6,9 @@ Phase 2 implements the local KTV session and temporary queue only. It does not
 start a LAN server, add a Remote API, use SSE/WebSocket, expose port 27233, or
 connect the existing Remote mock UI to the player.
 
+GitHub Phase 2 implementation commit:
+`d091844f456bd91cc36b6bac6fc6500d3b55134e` on `feat/ktv-phase-2`.
+
 ## Implementation
 
 - Added `KaraokeSession`, `KaraokeQueue`, `KaraokeManager`, and

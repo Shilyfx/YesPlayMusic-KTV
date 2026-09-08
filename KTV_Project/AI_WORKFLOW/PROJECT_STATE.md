@@ -8,9 +8,10 @@
 - Architecture: Electron Desktop + isolated LAN Karaoke Web
 
 ## Current phase
-- Phase: 2 / local KTV session and real temporary queue implemented and validated; final GitHub API push pending
+- Phase: 2 / local KTV session and real temporary queue implemented, validated, and pushed through the GitHub API
 - Active branch: `feat/ktv-phase-2`
 - Phase 1.1 fixed GitHub parent: `98436df30434432037f8dfc0213b85df33205176`
+- Phase 2 GitHub implementation commit: `d091844f456bd91cc36b6bac6fc6500d3b55134e`
 - Latest Codex report: `REPORTS/CODEX_STEP_02_REPORT.md`
 - Latest ChatGPT review: `REVIEWS/CHATGPT_PHASE_01_REVIEW.md` (Conditional Pass for Phase 1 only)
 
@@ -22,9 +23,8 @@
 - Karaoke business state must not be hidden only inside Player internals.
 
 ## Next action
-Push the completed Phase 2 implementation and evidence records through the GitHub
-API, then stop before Phase 3. Phase 3 LAN services and Remote integration remain
-out of scope.
+Stop before Phase 3 and await the requested ChatGPT review of `feat/ktv-phase-2`.
+Phase 3 LAN services and Remote integration remain out of scope.
 
 ## Phase 1 implementation
 - GitHub branch: `origin/feat/ktv-phase-1` at reviewed SHA `856de64` before the Phase 1.1 repair commit.
