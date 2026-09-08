@@ -23,6 +23,7 @@ const INDEX_IN_PLAY_NEXT = -1;
 const UNPLAYABLE_CONDITION = {
   PLAY_NEXT_TRACK: 'playNextTrack',
   PLAY_PREV_TRACK: 'playPrevTrack',
+  NONE: 'none',
 };
 
 const electron =
@@ -70,6 +71,10 @@ export default class {
     this._volumeBeforeMuted = 1; // 用于保存静音前的音量
     this._personalFMLoading = false; // 是否正在私人FM中加载新的track
     this._personalFMNextLoading = false; // 是否正在缓存私人FM的下一首歌曲
+    this._playbackOwner = null;
+    this._playbackEndedListeners = [];
+    this._playbackErrorListeners = [];
+    this._karaokeCommandHandlers = null;
 
     // 播放信息
     this._list = []; // 播放列表
@@ -337,10 +342,20 @@ export default class {
       preload: true,
       format: ['mp3', 'flac'],
       onend: () => {
+        if (this._playbackOwner === 'karaoke') {
+          this._setPlaying(false);
+          this._playbackEndedListeners.forEach(listener => listener());
+          return;
+        }
         this._nextTrackCallback();
       },
     });
     this._howler.on('loaderror', (_, errCode) => {
+      if (this._playbackOwner === 'karaoke') {
+        this._setPlaying(false);
+        this._playbackErrorListeners.forEach(listener => listener(errCode));
+        return;
+      }
       // https://developer.mozilla.org/en-US/docs/Web/API/MediaError/code
       // code 3: MEDIA_ERR_DECODE
       if (errCode === 3) {
@@ -571,19 +586,27 @@ export default class {
   _initMediaSession() {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.setActionHandler('play', () => {
-        this.play();
+        if (this._playbackOwner === 'karaoke')
+          this._karaokeCommandHandlers?.toggle();
+        else this.play();
       });
       navigator.mediaSession.setActionHandler('pause', () => {
-        this.pause();
+        if (this._playbackOwner === 'karaoke')
+          this._karaokeCommandHandlers?.toggle();
+        else this.pause();
       });
       navigator.mediaSession.setActionHandler('previoustrack', () => {
-        this.playPrevTrack();
+        if (this._playbackOwner !== 'karaoke') this.playPrevTrack();
       });
       navigator.mediaSession.setActionHandler('nexttrack', () => {
-        this._playNextTrack(this.isPersonalFM);
+        if (this._playbackOwner === 'karaoke')
+          this._karaokeCommandHandlers?.next();
+        else this._playNextTrack(this.isPersonalFM);
       });
       navigator.mediaSession.setActionHandler('stop', () => {
-        this.pause();
+        if (this._playbackOwner === 'karaoke')
+          this._karaokeCommandHandlers?.toggle();
+        else this.pause();
       });
       navigator.mediaSession.setActionHandler('seekto', event => {
         this.seek(event.seekTime);
@@ -927,8 +950,50 @@ export default class {
   }
   // Public single-track playback hook for integrations such as local KTV.
   // It deliberately does not own or mutate the caller's business queue.
-  playTrackByID(id) {
-    return this._replaceCurrentTrack(id);
+  async playTrackByID(id, { fallback = 'normal', owner = null } = {}) {
+    const condition =
+      fallback === 'none'
+        ? UNPLAYABLE_CONDITION.NONE
+        : UNPLAYABLE_CONDITION.PLAY_NEXT_TRACK;
+    this._playbackOwner = owner;
+    try {
+      const success = await this._replaceCurrentTrack(id, true, condition);
+      if (!success && owner === 'karaoke') this._playbackOwner = null;
+      return { success: Boolean(success) };
+    } catch (error) {
+      if (owner === 'karaoke') this._playbackOwner = null;
+      return { success: false, error };
+    }
+  }
+
+  onPlaybackEnded(listener) {
+    this._playbackEndedListeners.push(listener);
+    return () => {
+      this._playbackEndedListeners = this._playbackEndedListeners.filter(
+        item => item !== listener
+      );
+    };
+  }
+
+  onPlaybackError(listener) {
+    this._playbackErrorListeners.push(listener);
+    return () => {
+      this._playbackErrorListeners = this._playbackErrorListeners.filter(
+        item => item !== listener
+      );
+    };
+  }
+
+  setKaraokeCommandHandlers(handlers) {
+    this._karaokeCommandHandlers = handlers;
+  }
+
+  stopKaraokePlayback() {
+    if (this._playbackOwner !== 'karaoke') return false;
+    this._howler?.stop();
+    this._setPlaying(false);
+    this._playbackOwner = null;
+    return true;
   }
   playIntelligenceListById(id, trackID = 'first', noCache = false) {
     getPlaylistDetail(id, noCache).then(data => {

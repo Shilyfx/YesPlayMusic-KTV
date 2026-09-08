@@ -38,7 +38,7 @@ export default class KaraokeQueue {
       : 0;
     if (index < 0 || !this.waitingItems.length) return null;
     const [item] = this.waitingItems.splice(index, 1);
-    item.status = KARAOKE_ITEM_STATUS.PLAYING;
+    item.status = KARAOKE_ITEM_STATUS.LOADING;
     this.currentItem = item;
     return item;
   }
@@ -76,6 +76,16 @@ export default class KaraokeQueue {
     const [item] = this.waitingItems.splice(index, 1);
     this.waitingItems.splice(target, 0, item);
     return true;
+  }
+
+  moveToFront(queueItemId) {
+    return this.move(queueItemId, 0);
+  }
+
+  markCurrentPlaying() {
+    if (!this.currentItem) return null;
+    this.currentItem.status = KARAOKE_ITEM_STATUS.PLAYING;
+    return this.currentItem;
   }
 
   clearWaiting() {

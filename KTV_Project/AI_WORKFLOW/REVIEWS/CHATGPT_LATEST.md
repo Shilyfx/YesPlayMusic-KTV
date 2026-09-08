@@ -1,8 +1,7 @@
 # CHATGPT LATEST REVIEW
 
-Latest review: `CHATGPT_PHASE_01_REVIEW.md`.
+Latest review: `CHATGPT_PHASE_02_REVIEW.md`.
 
-Phase 1 at `856de64d43ab0c11abcee532b238fe2c43909d09` received a Conditional
-Pass. Its Phase 1.1 repair gate is in progress; ChatGPT has not reviewed the
-future repair commit.
-
+Phase 2 at `5252177e8b6700b24ebc0e43882df77d9f60b60b` received a Conditional
+Pass. The Phase 2.1 repair gate is in progress; GitHub Phase Validation must be
+green before Phase 3 can begin.

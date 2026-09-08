@@ -24,12 +24,17 @@ jobs:
           ./node_modules/.bin/prettier --check
           src/utils/lyricsSettings.js src/views/lyrics.vue src/views/settings.vue
           src/views/karaoke.vue src/views/karaokeRemote.vue src/App.vue
+          src/karaoke/*.js src/utils/Player.js src/store/index.js
+          src/store/state.js src/store/mutations.js src/electron/ipcRenderer.js
       - name: KTV source lint
         run: >-
           ./node_modules/.bin/eslint
           src/utils/lyricsSettings.js src/views/lyrics.vue src/views/settings.vue
           src/views/karaoke.vue src/views/karaokeRemote.vue src/App.vue
+          src/karaoke/*.js src/utils/Player.js src/store/index.js
+          src/store/state.js src/store/mutations.js src/electron/ipcRenderer.js
+      - name: KTV domain transitions
+        run: node scripts/test-karaoke-domain.js
       - name: Full repository lint diagnostic (known upstream failures)
         continue-on-error: true
         run: yarn lint
-
