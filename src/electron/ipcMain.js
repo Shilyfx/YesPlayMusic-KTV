@@ -168,6 +168,9 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
     },
   });
   karaokeServer.setRemoteApi(new RemoteApiRouter(remoteService), remoteService);
+  const stopStaleRoom = () => karaokeLanLifecycle.stopRoom().catch(() => {});
+  win.webContents.on('render-process-gone', stopStaleRoom);
+  win.webContents.on('did-start-loading', stopStaleRoom);
 
   ipcMain.on('karaoke:remote:result', (_, payload) => {
     const pending = pendingRemoteCommands.get(payload?.id);

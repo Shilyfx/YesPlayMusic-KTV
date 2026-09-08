@@ -71,13 +71,13 @@ export function ipcRenderer(vueInstance) {
 
   ipcRenderer.on('play', () => {
     const manager = store.$karaokeManager;
-    if (manager?.ownsPlayback) manager.playOrPause();
+    if (manager?.isSessionActive) manager.playOrPause();
     else player.playOrPause();
   });
 
   ipcRenderer.on('next', () => {
     const manager = store.$karaokeManager;
-    if (manager?.ownsPlayback) {
+    if (manager?.isSessionActive) {
       manager.next();
     } else if (player.isPersonalFM) {
       player.playNextFMTrack();
@@ -87,7 +87,7 @@ export function ipcRenderer(vueInstance) {
   });
 
   ipcRenderer.on('previous', () => {
-    if (!store.$karaokeManager?.ownsPlayback) player.playPrevTrack();
+    if (!store.$karaokeManager?.isSessionActive) player.playPrevTrack();
   });
 
   ipcRenderer.on('increaseVolume', () => {
