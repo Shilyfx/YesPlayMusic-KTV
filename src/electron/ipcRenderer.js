@@ -32,11 +32,16 @@ export function ipcRenderer(vueInstance) {
   });
 
   ipcRenderer.on('play', () => {
-    player.playOrPause();
+    const manager = store.$karaokeManager;
+    if (manager?.ownsPlayback) manager.playOrPause();
+    else player.playOrPause();
   });
 
   ipcRenderer.on('next', () => {
-    if (player.isPersonalFM) {
+    const manager = store.$karaokeManager;
+    if (manager?.ownsPlayback) {
+      manager.next();
+    } else if (player.isPersonalFM) {
       player.playNextFMTrack();
     } else {
       player.playNextTrack();
@@ -44,7 +49,7 @@ export function ipcRenderer(vueInstance) {
   });
 
   ipcRenderer.on('previous', () => {
-    player.playPrevTrack();
+    if (!store.$karaokeManager?.ownsPlayback) player.playPrevTrack();
   });
 
   ipcRenderer.on('increaseVolume', () => {

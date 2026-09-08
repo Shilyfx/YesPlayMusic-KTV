@@ -49,3 +49,10 @@ Phase 2 uses a narrow public player adapter for host-directed start, next, repla
 and play/pause. It does not subscribe to private Player internals to infer song
 completion; natural-end auto-advance is deferred until a stable public completion
 hook is available.
+
+## D-010 KTV playback owns its audio lifecycle
+Status: Accepted
+
+While an active KTV queue item is playing, Player must route end, error, next, and
+play/pause through KaraokeManager. KTV failures never fall through to the ordinary
+playlist; ending KTV stops its audio and does not restore prior playback in Phase 2.1.

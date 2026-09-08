@@ -103,6 +103,13 @@
               <button
                 type="button"
                 :disabled="index === 0"
+                :aria-label="`置顶 ${item.trackName}`"
+                @click="moveQueueItemToFront(item.queueItemId)"
+                >置顶</button
+              >
+              <button
+                type="button"
+                :disabled="index === 0"
                 :aria-label="`上移 ${item.trackName}`"
                 @click="moveQueueItem(item.queueItemId, index - 1)"
                 >↑</button
@@ -220,7 +227,7 @@ export default {
   computed: {
     ...mapState(['player', 'settings', 'karaoke']),
     karaokeManager() {
-      return this.$store.state.karaokeManager;
+      return this.$store.$karaokeManager;
     },
     session() {
       return this.karaoke.session || { status: 'idle' };
@@ -404,6 +411,9 @@ export default {
     },
     moveQueueItem(queueItemId, targetIndex) {
       this.karaokeManager.moveQueueItem(queueItemId, targetIndex);
+    },
+    moveQueueItemToFront(queueItemId) {
+      this.karaokeManager.moveQueueItemToFront(queueItemId);
     },
     clearWaitingQueue() {
       if (!window.confirm('清空所有待唱歌曲？正在演唱的歌曲不会被删除。'))

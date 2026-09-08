@@ -10,10 +10,21 @@ export default class KaraokeManager {
     this.session = new KaraokeSession();
     this.queue = new KaraokeQueue();
     this.listeners = [];
+    this.transitionPromise = null;
+    this.playerAdapter.onEnded(() => this.handleTrackEnded());
+    this.playerAdapter.onError(() => this.handlePlaybackError());
+    this.playerAdapter.setCommandHandlers({
+      next: () => this.next(),
+      toggle: () => this.playOrPause(),
+    });
   }
 
   get isSessionActive() {
     return this.session.status === KARAOKE_SESSION_STATUS.ACTIVE;
+  }
+
+  get ownsPlayback() {
+    return this.isSessionActive && Boolean(this.queue.currentItem);
   }
 
   getSnapshot() {
@@ -51,6 +62,7 @@ export default class KaraokeManager {
 
   endSession() {
     if (!this.isSessionActive) return this.getSnapshot();
+    this.playerAdapter.stop();
     this.session.end();
     // Phase 2 intentionally keeps no recovery data after local session end.
     this.queue.reset();
@@ -79,33 +91,80 @@ export default class KaraokeManager {
     return moved;
   }
 
+  moveQueueItemToFront(queueItemId) {
+    if (!this.isSessionActive) return false;
+    const moved = this.queue.moveToFront(queueItemId);
+    if (moved) this.notify();
+    return moved;
+  }
+
   clearWaitingQueue() {
     if (!this.isSessionActive) return;
     this.queue.clearWaiting();
     this.notify();
   }
 
-  playQueueItem(queueItemId = null) {
-    if (!this.isSessionActive || this.queue.currentItem) return null;
+  async playQueueItem(queueItemId = null) {
+    if (
+      !this.isSessionActive ||
+      this.queue.currentItem ||
+      this.transitionPromise
+    )
+      return null;
     const item = this.queue.take(queueItemId);
     if (!item) {
       this.notify();
       return null;
     }
     this.notify();
-    this.playerAdapter.playTrack(item.trackId);
-    return item;
+    this.transitionPromise = Promise.resolve(
+      this.playerAdapter.playTrack(item.trackId)
+    );
+    try {
+      const result = await this.transitionPromise;
+      if (!result?.success) throw new Error('KTV track could not be played');
+      this.queue.markCurrentPlaying();
+      this.notify();
+      return this.queue.currentItem;
+    } catch (_) {
+      this.queue.archiveCurrent(KARAOKE_ITEM_STATUS.FAILED);
+      this.notify();
+      return null;
+    } finally {
+      this.transitionPromise = null;
+    }
   }
 
   startQueue() {
     return this.playQueueItem();
   }
 
-  next() {
+  async next() {
     if (!this.isSessionActive) return null;
-    this.queue.archiveCurrent(KARAOKE_ITEM_STATUS.SKIPPED);
+    if (this.transitionPromise) return this.transitionPromise;
+    if (this.queue.currentItem) {
+      this.queue.archiveCurrent(KARAOKE_ITEM_STATUS.SKIPPED);
+      this.notify();
+    }
+    if (!this.queue.waitingItems.length) {
+      this.playerAdapter.stop();
+      return null;
+    }
+    return this.startQueue();
+  }
+
+  async handleTrackEnded() {
+    if (!this.ownsPlayback || this.transitionPromise) return null;
+    this.queue.archiveCurrent(KARAOKE_ITEM_STATUS.PLAYED);
     this.notify();
     return this.startQueue();
+  }
+
+  handlePlaybackError() {
+    if (!this.ownsPlayback) return;
+    this.queue.archiveCurrent(KARAOKE_ITEM_STATUS.FAILED);
+    this.playerAdapter.stop();
+    this.notify();
   }
 
   replay() {
