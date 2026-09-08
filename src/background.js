@@ -99,10 +99,6 @@ class Background {
       // Remote is emitted beside the Electron main bundle.  `cwd` is mutable for
       // portable apps, whereas `__dirname` remains inside the packaged app.
       remoteDistPath: path.resolve(__dirname, 'remote'),
-      // Electron emits Remote's entry in `remote/`, while its shared CSS/JS
-      // chunks are siblings of the main bundle. KaraokeServer permits only
-      // static fallback reads from this trusted bundle root.
-      remoteAssetRoot: __dirname,
     });
     this.willQuitApp = !isMac;
 

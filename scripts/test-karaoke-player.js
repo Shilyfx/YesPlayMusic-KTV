@@ -1,5 +1,4 @@
 const assert = require('assert');
-const fs = require('fs');
 const Module = require('module');
 const path = require('path');
 const babel = require('@babel/core');
@@ -57,10 +56,16 @@ stub('utils/db.js', {
 });
 stub('utils/platform.js', { isCreateMpris: false, isCreateTray: false });
 stub('utils/base64.js', { decode: () => Buffer.alloc(0) });
+stub('store/initLocalStorage.js', { settings: { shortcuts: [] } });
 
 const originalJsLoader = require.extensions['.js'];
 require.extensions['.js'] = function transpilePlayer(module, filename) {
-  if (filename !== path.join(root, 'src', 'utils', 'Player.js'))
+  if (
+    ![
+      path.join(root, 'src', 'utils', 'Player.js'),
+      path.join(root, 'src', 'utils', 'updateApp.js'),
+    ].includes(filename)
+  )
     return originalJsLoader(module, filename);
   const result = babel.transformFileSync(filename, {
     presets: ['@vue/cli-plugin-babel/preset'],
@@ -71,6 +76,7 @@ require.extensions['.js'] = function transpilePlayer(module, filename) {
 
 const Player = require('../src/utils/Player').default;
 const { TRANSIENT_PLAYER_KEYS } = require('../src/utils/Player');
+const { updatePlayer } = require('../src/utils/updateApp');
 
 async function run() {
   assert.ok(TRANSIENT_PLAYER_KEYS.includes('_playbackOwner'));
@@ -104,11 +110,60 @@ async function run() {
   assert.equal(player._playbackOwner, null);
   assert.equal(player._karaokePlaybackPending, false);
 
-  const migration = fs.readFileSync(
-    path.join(root, 'src', 'utils', 'updateApp.js'),
-    'utf8'
+  const values = new Map();
+  global.localStorage = {
+    getItem: key => values.get(key) || null,
+    setItem: (key, value) => values.set(key, value),
+  };
+  localStorage.setItem(
+    'player',
+    JSON.stringify({
+      _volume: 0.6,
+      _playbackOwner: 'karaoke',
+      _playbackEndedListeners: [null],
+      _playbackErrorListeners: [null],
+      _karaokeCommandHandlers: {},
+      _karaokePlaybackGeneration: 4,
+      _karaokePlaybackPending: true,
+    })
   );
-  assert.match(migration, /_karaokePlaybackPending/);
+  updatePlayer();
+  const migrated = JSON.parse(localStorage.getItem('player'));
+  assert.equal(migrated._volume, 0.6);
+  TRANSIENT_PLAYER_KEYS.filter(key => key !== '_playing').forEach(key => {
+    assert.equal(migrated[key], undefined);
+  });
+
+  const mediaHandlers = {};
+  Object.defineProperty(global, 'navigator', {
+    configurable: true,
+    value: {
+      mediaSession: {
+        setActionHandler: (action, handler) =>
+          (mediaHandlers[action] = handler),
+      },
+    },
+  });
+  const commandPlayer = Object.create(Player.prototype);
+  let normalCalls = 0;
+  let karaokeCalls = 0;
+  commandPlayer._karaokeCommandHandlers = {
+    isSessionActive: () => true,
+    toggle: () => (karaokeCalls += 1),
+    next: () => (karaokeCalls += 1),
+  };
+  commandPlayer.play = () => (normalCalls += 1);
+  commandPlayer.pause = () => (normalCalls += 1);
+  commandPlayer.playPrevTrack = () => (normalCalls += 1);
+  commandPlayer._playNextTrack = () => (normalCalls += 1);
+  commandPlayer._initMediaSession();
+  mediaHandlers.play();
+  mediaHandlers.pause();
+  mediaHandlers.nexttrack();
+  mediaHandlers.previoustrack();
+  mediaHandlers.stop();
+  assert.equal(karaokeCalls, 4);
+  assert.equal(normalCalls, 0);
   console.log('KTV Player persistence and cancellation tests passed');
 }
 

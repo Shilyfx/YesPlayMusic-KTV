@@ -601,25 +601,25 @@ export default class {
   _initMediaSession() {
     if ('mediaSession' in navigator) {
       navigator.mediaSession.setActionHandler('play', () => {
-        if (this._playbackOwner === 'karaoke')
+        if (this._isKaraokeSessionActive())
           this._karaokeCommandHandlers?.toggle();
         else this.play();
       });
       navigator.mediaSession.setActionHandler('pause', () => {
-        if (this._playbackOwner === 'karaoke')
+        if (this._isKaraokeSessionActive())
           this._karaokeCommandHandlers?.toggle();
         else this.pause();
       });
       navigator.mediaSession.setActionHandler('previoustrack', () => {
-        if (this._playbackOwner !== 'karaoke') this.playPrevTrack();
+        if (!this._isKaraokeSessionActive()) this.playPrevTrack();
       });
       navigator.mediaSession.setActionHandler('nexttrack', () => {
-        if (this._playbackOwner === 'karaoke')
+        if (this._isKaraokeSessionActive())
           this._karaokeCommandHandlers?.next();
         else this._playNextTrack(this.isPersonalFM);
       });
       navigator.mediaSession.setActionHandler('stop', () => {
-        if (this._playbackOwner === 'karaoke')
+        if (this._isKaraokeSessionActive())
           this._karaokeCommandHandlers?.toggle();
         else this.pause();
       });
@@ -636,6 +636,9 @@ export default class {
         this._updateMediaSessionPositionState();
       });
     }
+  }
+  _isKaraokeSessionActive() {
+    return Boolean(this._karaokeCommandHandlers?.isSessionActive?.());
   }
   _updateMediaSessionMetaData(track) {
     if ('mediaSession' in navigator === false) {

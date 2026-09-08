@@ -74,12 +74,24 @@ function request(port, method, pathname, { token, body } = {}) {
 async function run() {
   const waitingItems = [];
   let sequence = 0;
+  let activeSession = { status: 'active', sessionId: 'session-test' };
+  const assertExpectedSession = expected => {
+    if (
+      !expected ||
+      activeSession.status !== 'active' ||
+      activeSession.sessionId !== expected.sessionId
+    ) {
+      throw new Error('ROOM_ENDED');
+    }
+  };
   const bridge = {
     snapshot: async () => ({
+      session: { ...activeSession },
       currentItem: null,
       waitingItems: [...waitingItems],
     }),
-    enqueue: async (track, requester) => {
+    enqueue: async (track, requester, expected) => {
+      assertExpectedSession(expected);
       const item = {
         queueItemId: `item-${(sequence += 1)}`,
         trackId: track.id,
@@ -95,13 +107,15 @@ async function run() {
       waitingItems.push(item);
       return item;
     },
-    remove: async queueItemId => {
+    remove: async (queueItemId, expected) => {
+      assertExpectedSession(expected);
       const index = waitingItems.findIndex(
         item => item.queueItemId === queueItemId
       );
       return index < 0 ? null : waitingItems.splice(index, 1)[0];
     },
-    front: async queueItemId => {
+    front: async (queueItemId, expected) => {
+      assertExpectedSession(expected);
       const index = waitingItems.findIndex(
         item => item.queueItemId === queueItemId
       );
@@ -181,6 +195,35 @@ async function run() {
   assert.equal(results.body.results[0].playability, 'playable');
   assert.ok(bridgeCalls.includes('search'));
   assert.ok(bridgeCalls.includes('availability'));
+  service.sessions.clients.clear();
+  for (let index = 0; index < 32; index += 1) {
+    service.sessions.clients.set(`expired-${index}`, {
+      createdAt: Date.now() - 6 * 60 * 60 * 1000,
+    });
+  }
+  const afterExpiry = service.bootstrap(
+    new URL(room.url).hash.slice(7),
+    'expired'
+  );
+  assert.ok(afterExpiry.clientToken);
+  assert.equal(service.sessions.clients.size, 1);
+  service.sessions.clients.clear();
+  service.sessions.clients.set(guestA.body.clientToken, {
+    ...service.sessions.room,
+    clientId: guestA.body.clientId,
+    clientToken: guestA.body.clientToken,
+    displayName: guestA.body.displayName,
+    createdAt: Date.now(),
+    roomCode: service.sessions.room.code,
+  });
+  service.sessions.clients.set(guestB.body.clientToken, {
+    ...service.sessions.room,
+    clientId: guestB.body.clientId,
+    clientToken: guestB.body.clientToken,
+    displayName: guestB.body.displayName,
+    createdAt: Date.now(),
+    roomCode: service.sessions.room.code,
+  });
   const aRequest = await request(port, 'POST', '/ktv/api/requests', {
     token: guestA.body.clientToken,
     body: { trackId: '101' },
@@ -220,6 +263,65 @@ async function run() {
     { token: guestB.body.clientToken }
   );
   assert.equal(alreadyFront.status, 200);
+
+  const clientA = service.client(guestA.body.clientToken);
+  const waitForMutation = method =>
+    new Promise(resolve => {
+      bridge[method] = (...args) => {
+        const expected = args.at(-1);
+        resolve(() => assertExpectedSession(expected));
+        return new Promise((_, reject) => {
+          bridge[`release${method}`] = () => {
+            try {
+              assertExpectedSession(expected);
+              reject(new Error('EXPECTED_MUTATION_WOULD_HAVE_RUN'));
+            } catch (error) {
+              reject(error);
+            }
+          };
+        });
+      };
+    });
+  const enqueueReady = waitForMutation('enqueue');
+  const staleEnqueue = service.enqueue(clientA, '101', false);
+  await enqueueReady;
+  activeSession = { status: 'active', sessionId: 'session-new' };
+  bridge.releaseenqueue();
+  await assert.rejects(() => staleEnqueue, /ROOM_ENDED/);
+  assert.equal(
+    waitingItems.some(item => item.requesterId === clientA.clientId),
+    false
+  );
+
+  activeSession = { status: 'active', sessionId: 'session-test' };
+  const ownItem = {
+    queueItemId: 'stale-own',
+    requesterId: clientA.clientId,
+    requesterName: clientA.displayName,
+    requesterType: 'remote',
+    trackId: '101',
+    trackName: 'stale',
+    artists: [],
+    albumName: '',
+    status: 'queued',
+  };
+  waitingItems.push(ownItem);
+  const removeReady = waitForMutation('remove');
+  const staleRemove = service.remove(clientA, ownItem.queueItemId);
+  await removeReady;
+  activeSession = { status: 'active', sessionId: 'session-new' };
+  bridge.releaseremove();
+  await assert.rejects(() => staleRemove, /ROOM_ENDED/);
+  assert.ok(waitingItems.includes(ownItem));
+
+  activeSession = { status: 'active', sessionId: 'session-test' };
+  const frontReady = waitForMutation('front');
+  const staleFront = service.front(clientA, ownItem.queueItemId);
+  await frontReady;
+  activeSession = { status: 'active', sessionId: 'session-new' };
+  bridge.releasefront();
+  await assert.rejects(() => staleFront, /ROOM_ENDED/);
+  assert.ok(waitingItems.includes(ownItem));
   const staleToken = guestA.body.clientToken;
   await server.stopRoom();
   assert.throws(() => service.client(staleToken), /ROOM_ENDED/);

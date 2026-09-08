@@ -1,7 +1,16 @@
 const webpack = require('webpack');
 const path = require('path');
+const { isolateRemoteAssets } = require('./scripts/isolate-remote-assets');
 function resolve(dir) {
   return path.join(__dirname, dir);
+}
+
+class IsolateElectronRemoteAssetsPlugin {
+  apply(compiler) {
+    compiler.hooks.afterEmit.tap('IsolateElectronRemoteAssetsPlugin', () => {
+      isolateRemoteAssets(compiler.options.output.path);
+    });
+  }
 }
 
 module.exports = {
@@ -208,6 +217,9 @@ module.exports = {
           args[0]['IS_ELECTRON'] = true;
           return args;
         });
+        config
+          .plugin('isolateElectronRemoteAssets')
+          .use(IsolateElectronRemoteAssetsPlugin);
       },
       // 主入口文件
       // mainProcessFile: 'src/main.js',

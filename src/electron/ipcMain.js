@@ -167,10 +167,12 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
     getRoom: () => karaokeServer.room,
     managerBridge: {
       snapshot: () => remoteCommand('snapshot'),
-      enqueue: (track, requester) =>
-        remoteCommand('enqueue', { track, requester }),
-      remove: queueItemId => remoteCommand('remove', { queueItemId }),
-      front: queueItemId => remoteCommand('front', { queueItemId }),
+      enqueue: (track, requester, expected) =>
+        remoteCommand('enqueue', { track, requester, expected }),
+      remove: (queueItemId, expected) =>
+        remoteCommand('remove', { queueItemId, expected }),
+      front: (queueItemId, expected) =>
+        remoteCommand('front', { queueItemId, expected }),
     },
   });
   karaokeServer.setRemoteApi(new RemoteApiRouter(remoteService), remoteService);

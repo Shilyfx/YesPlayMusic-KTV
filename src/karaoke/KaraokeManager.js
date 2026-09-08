@@ -17,6 +17,7 @@ export default class KaraokeManager {
     this.playerAdapter.setCommandHandlers({
       next: () => this.next(),
       toggle: () => this.playOrPause(),
+      isSessionActive: () => this.isSessionActive,
     });
   }
 

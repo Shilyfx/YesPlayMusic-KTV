@@ -44,13 +44,21 @@ const updateData = () => {
   localStorage.setItem('data', JSON.stringify(data));
 };
 
-const updatePlayer = () => {
+export const updatePlayer = () => {
   let parsedData = JSON.parse(localStorage.getItem('player'));
   let appVersion = localStorage.getItem('appVersion');
   if (appVersion === `"0.2.5"`) parsedData = {}; // 0.2.6版本重构了player
   const data = {
     ...parsedData,
   };
+  [
+    '_playbackOwner',
+    '_playbackEndedListeners',
+    '_playbackErrorListeners',
+    '_karaokeCommandHandlers',
+    '_karaokePlaybackGeneration',
+    '_karaokePlaybackPending',
+  ].forEach(key => delete data[key]);
   localStorage.setItem('player', JSON.stringify(data));
 };
 

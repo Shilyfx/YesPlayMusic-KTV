@@ -1,30 +1,26 @@
 const fs = require('fs');
 const path = require('path');
 
-const distPath = path.resolve(__dirname, '..', 'dist');
-const remotePath = path.join(distPath, 'remote');
-const indexPath = path.join(remotePath, 'index.html');
-
-function copyAsset(match, directory) {
-  const source = path.join(distPath, directory, match);
-  const targetDirectory = path.join(remotePath, directory);
-  fs.mkdirSync(targetDirectory, { recursive: true });
-  fs.copyFileSync(source, path.join(targetDirectory, match));
-}
-
-function run() {
+function isolateRemoteAssets(distPath) {
+  const remotePath = path.join(distPath, 'remote');
+  const indexPath = path.join(remotePath, 'index.html');
   let html = fs.readFileSync(indexPath, 'utf8');
   const assets = [];
-  html.replace(/\/(?:js|css)\/([^"']+)/g, (_, asset) => {
-    assets.push(asset);
-    return _;
-  });
-  assets.forEach(asset => {
-    const directory = asset.endsWith('.css') ? 'css' : 'js';
-    copyAsset(asset, directory);
+  html.replace(
+    /(?:app:\/\/\.|)\/(js|css)\/([^"']+)/g,
+    (_, directory, asset) => {
+      assets.push({ directory, asset });
+      return _;
+    }
+  );
+  assets.forEach(({ directory, asset }) => {
+    const source = path.join(distPath, directory, asset);
+    const targetDirectory = path.join(remotePath, directory);
+    fs.mkdirSync(targetDirectory, { recursive: true });
+    fs.copyFileSync(source, path.join(targetDirectory, asset));
   });
   html = html
-    .replace(/\/(js|css)\//g, '$1/')
+    .replace(/(?:app:\/\/\.|)\/(js|css)\//g, '$1/')
     .replace(
       /<link rel="(?:icon|manifest|apple-touch-icon|mask-icon)"[^>]*>\s*/g,
       ''
@@ -34,7 +30,11 @@ function run() {
       ''
     );
   fs.writeFileSync(indexPath, html);
-  console.log('Remote assets isolated under dist/remote');
 }
 
-run();
+if (require.main === module) {
+  isolateRemoteAssets(path.resolve(__dirname, '..', process.argv[2] || 'dist'));
+  console.log('Remote assets isolated under remote/');
+}
+
+module.exports = { isolateRemoteAssets };

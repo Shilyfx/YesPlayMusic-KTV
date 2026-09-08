@@ -314,6 +314,7 @@ export class KaraokeRemoteService {
 
   bootstrap(joinToken, remoteAddress = '') {
     this.ensureActive();
+    this.sessions.purgeExpired();
     if (!this.limiter.check(`bootstrap:${remoteAddress}`, 10))
       throw new Error('RATE_LIMIT');
     if (!this.limiter.check('bootstrap:room', 40))
@@ -407,6 +408,10 @@ export class KaraokeRemoteService {
     this.client(client.clientToken);
     if (availability !== 'playable') throw new Error('TRACK_NOT_PLAYABLE');
     this.client(client.clientToken);
+    const expected = {
+      sessionId: client.sessionId,
+      generation: client.generation,
+    };
     const item = await this.managerBridge.enqueue(
       {
         id: track.trackId,
@@ -420,10 +425,14 @@ export class KaraokeRemoteService {
         name: client.displayName,
         type: 'remote',
         priorityRequested: Boolean(priority),
-      }
+      },
+      expected
     );
     if (!item) throw new Error('KTV_NOT_ACTIVE');
-    if (priority) await this.managerBridge.front(item.queueItemId);
+    if (priority) {
+      this.client(client.clientToken);
+      await this.managerBridge.front(item.queueItemId, expected);
+    }
     return this.sanitizeItem(item);
   }
 
@@ -444,7 +453,10 @@ export class KaraokeRemoteService {
       throw new Error('RATE_LIMIT');
     await this.ownWaitingItem(client, queueItemId);
     this.client(client.clientToken);
-    const item = await this.managerBridge.remove(queueItemId);
+    const item = await this.managerBridge.remove(queueItemId, {
+      sessionId: client.sessionId,
+      generation: client.generation,
+    });
     if (!item) throw new Error('WAITING_ITEM_NOT_FOUND');
     return this.sanitizeItem(item);
   }
@@ -462,7 +474,12 @@ export class KaraokeRemoteService {
       snapshot.waitingItems[0].queueItemId === queueItemId
     )
       return;
-    if (!(await this.managerBridge.front(queueItemId)))
+    if (
+      !(await this.managerBridge.front(queueItemId, {
+        sessionId: client.sessionId,
+        generation: client.generation,
+      }))
+    )
       throw new Error('WAITING_ITEM_NOT_FOUND');
   }
 }

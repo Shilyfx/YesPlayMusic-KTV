@@ -92,7 +92,7 @@ export default {
         if (['mv', 'karaokeRemote'].includes(this.$route.name)) return false;
         e.preventDefault();
         const karaokeManager = this.$store.$karaokeManager;
-        if (karaokeManager && karaokeManager.ownsPlayback) {
+        if (karaokeManager && karaokeManager.isSessionActive) {
           karaokeManager.playOrPause();
           return;
         }

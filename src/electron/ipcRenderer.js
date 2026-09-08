@@ -4,6 +4,17 @@ import { getMP3, getTrackDetail } from '@/api/track';
 
 const player = store.state.player;
 
+export function assertExpectedKaraokeSession(manager, expected) {
+  const session = manager.getSnapshot().session;
+  if (
+    !expected ||
+    session.status !== 'active' ||
+    session.sessionId !== expected.sessionId
+  ) {
+    throw new Error('ROOM_ENDED');
+  }
+}
+
 function safeCatalogTrack(track) {
   return {
     id: track.id,
@@ -67,15 +78,18 @@ export function ipcRenderer(vueInstance) {
           result = manager.getSnapshot();
           break;
         case 'enqueue':
+          assertExpectedKaraokeSession(manager, command.payload.expected);
           result = manager.enqueueTrack(
             command.payload.track,
             command.payload.requester
           );
           break;
         case 'remove':
+          assertExpectedKaraokeSession(manager, command.payload.expected);
           result = manager.removeQueueItem(command.payload.queueItemId);
           break;
         case 'front':
+          assertExpectedKaraokeSession(manager, command.payload.expected);
           result = manager.moveQueueItemToFront(command.payload.queueItemId);
           break;
         case 'catalog':

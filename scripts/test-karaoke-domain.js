@@ -64,7 +64,9 @@ const track = id => ({ id, name: `Track ${id}`, ar: [{ name: 'Artist' }] });
 async function run() {
   const adapter = new FakePlayerAdapter();
   const manager = new KaraokeManager(adapter);
+  assert.equal(adapter.handlers.isSessionActive(), false);
   manager.startSession();
+  assert.equal(adapter.handlers.isSessionActive(), true);
   const first = manager.enqueueTrack(track(1));
   const duplicate = manager.enqueueTrack(track(1));
   const third = manager.enqueueTrack(track(3));
@@ -109,6 +111,7 @@ async function run() {
   assert.strictEqual(adapter.calls.at(-1)[0], 'stop');
 
   manager.endSession();
+  assert.equal(adapter.handlers.isSessionActive(), false);
   assert.strictEqual(manager.session.status, 'ended');
   assert.strictEqual(manager.queue.waitingItems.length, 0);
 

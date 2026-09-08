@@ -61,16 +61,17 @@ function contentType(filePath) {
 export class KaraokeServer {
   constructor({
     remoteDistPath,
-    remoteAssetRoot = null,
     port = ROOM_PORT,
     networkInterfaces = () => os.networkInterfaces(),
+    listen = (server, port, host, callback) =>
+      server.listen(port, host, callback),
     remoteApi = null,
     remoteService = null,
   }) {
     this.remoteDistPath = remoteDistPath;
-    this.remoteAssetRoot = remoteAssetRoot;
     this.port = port;
     this.networkInterfaces = networkInterfaces;
+    this.listen = listen;
     this.remoteApi = remoteApi;
     this.remoteService = remoteService;
     this.server = null;
@@ -125,7 +126,7 @@ export class KaraokeServer {
     try {
       await new Promise((resolve, reject) => {
         server.once('error', reject);
-        server.listen(this.port, '0.0.0.0', () => {
+        this.listen(server, this.port, '0.0.0.0', () => {
           server.off('error', reject);
           resolve();
         });
@@ -156,10 +157,22 @@ export class KaraokeServer {
     if (this.remoteService) this.remoteService.onRoomStop();
     this.room = null;
     this.state = 'idle';
-    if (!this.server) return;
-    const server = this.server;
+    const pendingStart = this.startPromise;
+    if (this.server) {
+      const server = this.server;
+      this.server = null;
+      await new Promise(resolve => server.close(resolve));
+    }
+    if (pendingStart) {
+      try {
+        await pendingStart;
+      } catch (_) {
+        // Cancellation is the expected completion of a pending startup.
+      }
+    }
+    this.room = null;
     this.server = null;
-    await new Promise(resolve => server.close(resolve));
+    this.state = 'idle';
   }
 
   async describeRoom() {
@@ -203,13 +216,7 @@ export class KaraokeServer {
   }
 
   async sendRemoteAsset(relativePath, response) {
-    if (relativePath === '/index.html') return this.sendRemoteIndex(response);
-    return this.sendStaticAsset(
-      this.remoteDistPath,
-      relativePath,
-      response,
-      /^\/(?:css|js)\//.test(relativePath) ? this.remoteAssetRoot : null
-    );
+    return this.sendStaticAsset(this.remoteDistPath, relativePath, response);
   }
 
   resolveStaticPath(rootPath, relativePath) {
@@ -222,46 +229,13 @@ export class KaraokeServer {
     return filePath;
   }
 
-  async sendRemoteIndex(response) {
-    const indexPath = this.resolveStaticPath(
-      this.remoteDistPath,
-      '/index.html'
-    );
-    try {
-      const content = (await fs.readFile(indexPath, 'utf8'))
-        .replace(/app:\/\/\.\//g, '')
-        .replace(
-          /<link rel="(?:icon|manifest|apple-touch-icon|mask-icon)"[^>]*>\s*/g,
-          ''
-        );
-      response.writeHead(200, {
-        ...this.securityHeaders('text/html; charset=utf-8'),
-      });
-      response.end(content);
-    } catch (_) {
-      this.notFound(response);
-    }
-  }
-
-  async sendStaticAsset(rootPath, relativePath, response, fallbackRoot = null) {
+  async sendStaticAsset(rootPath, relativePath, response) {
     const filePath = this.resolveStaticPath(rootPath, relativePath);
-    const fallbackPath = fallbackRoot
-      ? this.resolveStaticPath(fallbackRoot, relativePath)
-      : null;
-    if (!filePath || (fallbackRoot && !fallbackPath))
-      return this.notFound(response);
+    if (!filePath) return this.notFound(response);
     try {
-      let finalPath = filePath;
-      let content;
-      try {
-        content = await fs.readFile(filePath);
-      } catch (_) {
-        if (!fallbackPath) throw _;
-        finalPath = fallbackPath;
-        content = await fs.readFile(fallbackPath);
-      }
+      const content = await fs.readFile(filePath);
       response.writeHead(200, {
-        ...this.securityHeaders(contentType(finalPath)),
+        ...this.securityHeaders(contentType(filePath)),
       });
       response.end(content);
     } catch (_) {
