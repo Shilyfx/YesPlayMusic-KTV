@@ -8,3 +8,10 @@
 
 Future review diffs must use `UNIFIED_REPAIR_BASE_SHA...UNIFIED_REPAIR_SHA`; older
 Phase 3 lineages are historical evidence only and must not be force-rewritten.
+
+## Final repair code checkpoint
+
+- `PREVIOUS_REPAIR_CODE_SHA`: `9d0176acb9989465743778a88c7046efa0d1469b`
+- `PREVIOUS_REPAIR_DOC_SHA`: `b6a0b05cb0f25d830a996c196f4bdc325178f8f5`
+- `FINAL_REPAIR_CODE_SHA`: `f8fcf7cfd086e097fff856431b9ff86c3fc25ffa`
+- `FINAL_REPAIR_CODE_ACTION_RUN`: `34258369587` (success)

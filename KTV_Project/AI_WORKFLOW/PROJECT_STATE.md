@@ -35,6 +35,15 @@ Review the unified audit diff, wait for the repair-branch GitHub validation, the
 complete the logged-in NetEase and physical LAN/TV/audio smoke test. Do not add
 WebSocket/SSE or general desktop APIs.
 
+## Final repair checkpoint
+
+- Code checkpoint: `f8fcf7cfd086e097fff856431b9ff86c3fc25ffa`; Phase Validation
+  run `34258369587` succeeded.
+- Scope is limited to P1-01/02/03 and P2-01/02/03 final-audit repairs. No Phase 5
+  capability was added.
+- The only remaining release-gate evidence is physical: packaged Windows app,
+  same-LAN QR connection, logged-in NetEase search/request, TV display, and audio.
+
 ## Phase 1 implementation
 
 - GitHub branch: `origin/feat/ktv-phase-1` at reviewed SHA `856de64` before the Phase 1.1 repair commit.

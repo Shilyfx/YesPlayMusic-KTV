@@ -7,6 +7,11 @@
   session-bound LAN lifecycle, server race/static-header checks, host-context
   catalog bridge, bounded Remote sessions/rates, polling-safe Remote DOM updates,
   lyric race/fullscreen fixes, mock-route retirement, and expanded CI regressions.
+- Final audit repair: Electron Remote assets are copied into the packaged Remote
+  tree with no desktop-bundle fallback; stale Remote mutations carry and verify the
+  expected session; active KTV owns keyboard/media playback commands; player
+  persistence, startup cancellation, and expired-session capacity regressions are
+  covered by deterministic tests.
 
 - Project plan and AI workflow scaffolding prepared.
 - Phase 1 local implementation: continuous lyric font size, persisted lyric timing offset, reusable KTV glass tokens/theme switcher, desktop KTV shell, and responsive remote UI shell.

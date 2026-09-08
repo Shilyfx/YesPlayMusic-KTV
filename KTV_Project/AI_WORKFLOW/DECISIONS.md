@@ -86,3 +86,11 @@ The LAN server calls only the whitelisted `search`, `trackDetail`, and
 Renderer reuses the host request stack, including its authenticated NetEase and
 proxy context. Cookies, raw upstream responses, and arbitrary URLs are never
 passed to Remote clients.
+
+## D-013 Packaged Remote assets are self-contained
+
+Status: Accepted
+
+Electron packaging copies every JS/CSS file referenced by `remote/index.html` into
+the `remote/` tree and rewrites that entry to relative URLs. `KaraokeServer` serves
+Remote assets only from that tree; it must never fall back to desktop bundle assets.
