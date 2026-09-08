@@ -111,6 +111,22 @@ async function run() {
   manager.endSession();
   assert.strictEqual(manager.session.status, 'ended');
   assert.strictEqual(manager.queue.waitingItems.length, 0);
+
+  const pendingAdapter = new FakePlayerAdapter();
+  let resolvePending;
+  pendingAdapter.playTrack = trackId => {
+    pendingAdapter.calls.push(['play', trackId]);
+    return new Promise(resolve => (resolvePending = resolve));
+  };
+  const pendingManager = new KaraokeManager(pendingAdapter);
+  pendingManager.startSession();
+  pendingManager.enqueueTrack(track(99));
+  const loading = pendingManager.startQueue();
+  pendingManager.endSession();
+  resolvePending({ success: true });
+  await loading;
+  assert.strictEqual(pendingManager.session.status, 'ended');
+  assert.strictEqual(pendingManager.queue.currentItem, null);
   console.log('KTV domain transition tests passed');
 }
 
