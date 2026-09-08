@@ -1,4 +1,5 @@
 <template>
+
   <section
     class="karaoke-surface karaoke-remote"
     :data-ktv-theme="resolvedTheme"
@@ -688,4 +689,3 @@ export default {
   }
 }
 </style>
-

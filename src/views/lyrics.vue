@@ -1,4 +1,5 @@
 <template>
+
   <transition name="slide-up">
     <div
       class="lyrics-page"
@@ -1205,4 +1206,3 @@ export default {
   opacity: 0;
 }
 </style>
-
