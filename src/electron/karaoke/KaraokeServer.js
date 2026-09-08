@@ -61,12 +61,14 @@ function contentType(filePath) {
 export class KaraokeServer {
   constructor({
     remoteDistPath,
+    remoteAssetRoot = null,
     port = ROOM_PORT,
     networkInterfaces = () => os.networkInterfaces(),
     remoteApi = null,
     remoteService = null,
   }) {
     this.remoteDistPath = remoteDistPath;
+    this.remoteAssetRoot = remoteAssetRoot;
     this.port = port;
     this.networkInterfaces = networkInterfaces;
     this.remoteApi = remoteApi;
@@ -201,20 +203,65 @@ export class KaraokeServer {
   }
 
   async sendRemoteAsset(relativePath, response) {
-    return this.sendStaticAsset(this.remoteDistPath, relativePath, response);
+    if (relativePath === '/index.html') return this.sendRemoteIndex(response);
+    return this.sendStaticAsset(
+      this.remoteDistPath,
+      relativePath,
+      response,
+      /^\/(?:css|js)\//.test(relativePath) ? this.remoteAssetRoot : null
+    );
   }
 
-  async sendStaticAsset(rootPath, relativePath, response) {
+  resolveStaticPath(rootPath, relativePath) {
     const safePath = path.normalize(relativePath).replace(/^([/\\])+/, '');
     const filePath = path.resolve(rootPath, safePath);
     const relative = path.relative(path.resolve(rootPath), filePath);
     if (relative.startsWith('..') || path.isAbsolute(relative)) {
-      return this.notFound(response);
+      return null;
     }
+    return filePath;
+  }
+
+  async sendRemoteIndex(response) {
+    const indexPath = this.resolveStaticPath(
+      this.remoteDistPath,
+      '/index.html'
+    );
     try {
-      const content = await fs.readFile(filePath);
+      const content = (await fs.readFile(indexPath, 'utf8'))
+        .replace(/app:\/\/\.\//g, '')
+        .replace(
+          /<link rel="(?:icon|manifest|apple-touch-icon|mask-icon)"[^>]*>\s*/g,
+          ''
+        );
       response.writeHead(200, {
-        ...this.securityHeaders(contentType(filePath)),
+        ...this.securityHeaders('text/html; charset=utf-8'),
+      });
+      response.end(content);
+    } catch (_) {
+      this.notFound(response);
+    }
+  }
+
+  async sendStaticAsset(rootPath, relativePath, response, fallbackRoot = null) {
+    const filePath = this.resolveStaticPath(rootPath, relativePath);
+    const fallbackPath = fallbackRoot
+      ? this.resolveStaticPath(fallbackRoot, relativePath)
+      : null;
+    if (!filePath || (fallbackRoot && !fallbackPath))
+      return this.notFound(response);
+    try {
+      let finalPath = filePath;
+      let content;
+      try {
+        content = await fs.readFile(filePath);
+      } catch (_) {
+        if (!fallbackPath) throw _;
+        finalPath = fallbackPath;
+        content = await fs.readFile(fallbackPath);
+      }
+      response.writeHead(200, {
+        ...this.securityHeaders(contentType(finalPath)),
       });
       response.end(content);
     } catch (_) {

@@ -29,9 +29,15 @@ const interfaces = () => ({
 function request(port, pathname) {
   return new Promise((resolve, reject) => {
     const req = http.get(`http://127.0.0.1:${port}${pathname}`, response => {
-      response.resume();
+      let body = '';
+      response.setEncoding('utf8');
+      response.on('data', chunk => (body += chunk));
       response.on('end', () =>
-        resolve({ status: response.statusCode, headers: response.headers })
+        resolve({
+          status: response.statusCode,
+          headers: response.headers,
+          body,
+        })
       );
     });
     req.on('error', reject);
@@ -50,20 +56,26 @@ function getAvailablePort() {
 
 async function run() {
   const remoteDistPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ktv-remote-'));
+  const remoteAssetRoot = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'ktv-remote-assets-')
+  );
   fs.mkdirSync(path.join(remoteDistPath, 'js'));
+  fs.mkdirSync(path.join(remoteAssetRoot, 'css'));
   fs.writeFileSync(
     path.join(remoteDistPath, 'index.html'),
-    '<main>room</main>'
+    '<link href="app://./css/fallback.css"><main>room</main>'
   );
   fs.writeFileSync(
     path.join(remoteDistPath, 'js', 'remote.js'),
     'window.room=true;'
   );
+  fs.writeFileSync(path.join(remoteAssetRoot, 'css', 'fallback.css'), 'body{}');
   const serverPort = await getAvailablePort();
   const server = new KaraokeServer({
     remoteDistPath,
     port: serverPort,
     networkInterfaces: interfaces,
+    remoteAssetRoot,
   });
   const room = await server.startRoom({ sessionId: 'session-test' });
   const roomUrl = new URL(room.url);
@@ -75,8 +87,13 @@ async function run() {
   assert.equal(page.headers['x-content-type-options'], 'nosniff');
   assert.equal(page.headers['referrer-policy'], 'no-referrer');
   assert.match(page.headers['content-security-policy'], /default-src 'none'/);
+  assert.equal(page.body.includes('app://'), false);
   assert.equal(
-    (await request(serverPort, `${roomUrl.pathname}/js/remote.js`)).status,
+    (await request(serverPort, `${roomUrl.pathname}css/fallback.css`)).status,
+    200
+  );
+  assert.equal(
+    (await request(serverPort, `${roomUrl.pathname}js/remote.js`)).status,
     200
   );
   assert.equal((await request(serverPort, '/room/not-a-room')).status, 404);
@@ -142,7 +159,35 @@ async function run() {
   assert.equal(raceServer.state, 'idle');
   assert.equal(raceServer.room, null);
   assert.equal(raceServer.server, null);
+
+  const bundledRoot = path.join(__dirname, '..', 'dist_electron', 'bundled');
+  const bundledRemote = path.join(bundledRoot, 'remote');
+  if (fs.existsSync(path.join(bundledRemote, 'index.html'))) {
+    const bundledPort = await getAvailablePort();
+    const bundledServer = new KaraokeServer({
+      remoteDistPath: bundledRemote,
+      remoteAssetRoot: bundledRoot,
+      port: bundledPort,
+      networkInterfaces: interfaces,
+    });
+    const bundledRoom = await bundledServer.startRoom({
+      sessionId: 'bundled-assets',
+    });
+    const bundledPath = new URL(bundledRoom.url).pathname;
+    const bundledIndex = await request(bundledPort, bundledPath);
+    assert.equal(bundledIndex.status, 200);
+    assert.equal(bundledIndex.body.includes('app://'), false);
+    const asset = bundledIndex.body.match(/(?:href|src)="(css|js)\/([^\"]+)"/);
+    assert.ok(asset);
+    assert.equal(
+      (await request(bundledPort, `${bundledPath}${asset[1]}/${asset[2]}`))
+        .status,
+      200
+    );
+    await bundledServer.stopRoom();
+  }
   fs.rmSync(remoteDistPath, { recursive: true, force: true });
+  fs.rmSync(remoteAssetRoot, { recursive: true, force: true });
   console.log('KTV LAN server tests passed');
 }
 
