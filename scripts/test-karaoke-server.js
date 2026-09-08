@@ -177,7 +177,7 @@ async function run() {
     const bundledIndex = await request(bundledPort, bundledPath);
     assert.equal(bundledIndex.status, 200);
     assert.equal(bundledIndex.body.includes('app://'), false);
-    const asset = bundledIndex.body.match(/(?:href|src)="(css|js)\/([^\"]+)"/);
+    const asset = bundledIndex.body.match(/(?:href|src)="(css|js)\/([^"]+)"/);
     assert.ok(asset);
     assert.equal(
       (await request(bundledPort, `${bundledPath}${asset[1]}/${asset[2]}`))
