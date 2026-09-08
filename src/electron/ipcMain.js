@@ -157,7 +157,13 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
       win.webContents.send('karaoke:remote:command', { id, action, payload });
     });
   const remoteService = new KaraokeRemoteService({
-    catalog: new KaraokeCatalogService(),
+    // Catalog calls cross the existing controlled Main → Renderer bridge so they
+    // inherit the desktop app's authenticated request/proxy context. The LAN API
+    // only ever receives sanitized track metadata and a playability enum.
+    catalog: new KaraokeCatalogService({
+      hostCatalogBridge: (action, payload) =>
+        remoteCommand('catalog', { action, payload }),
+    }),
     getRoom: () => karaokeServer.room,
     managerBridge: {
       snapshot: () => remoteCommand('snapshot'),
@@ -173,7 +179,7 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
   win.webContents.on('did-start-loading', stopStaleRoom);
 
   ipcMain.on('karaoke:remote:result', (_, payload) => {
-    const pending = pendingRemoteCommands.get(payload?.id);
+    const pending = pendingRemoteCommands.get(payload && payload.id);
     if (!pending) return;
     clearTimeout(pending.timeout);
     pendingRemoteCommands.delete(payload.id);

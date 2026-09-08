@@ -578,7 +578,9 @@ export default {
       }
     },
     getLyric() {
-      if (!this.currentTrack.id) return;
+      const requestedTrackId = this.currentTrack.id;
+      const isCurrentRequest = () => requestedTrackId === this.currentTrack.id;
+      if (!requestedTrackId) return;
       if (
         this.currentTrack.pc !== null &&
         this.currentTrack.cd === null &&
@@ -586,9 +588,10 @@ export default {
       ) {
         //云盘未设置关联的歌曲获取其内置歌词
         return getCloudLyric(
-          this.currentTrack.id,
+          requestedTrackId,
           this.$store.state.data.user?.userId
         ).then(data => {
+          if (!isCurrentRequest()) return false;
           this.tlyric = [];
           this.romalyric = [];
           this.lyric = data?.lrc?.length > 0 ? parseLyric(data.lrc) : [];
@@ -596,7 +599,8 @@ export default {
           return true;
         });
       }
-      return getLyric(this.currentTrack.id).then(data => {
+      return getLyric(requestedTrackId).then(data => {
+        if (!isCurrentRequest()) return false;
         if (!data?.lrc?.lyric) {
           this.lyric = [];
           this.tlyric = [];
@@ -626,6 +630,7 @@ export default {
             this.romalyric = [];
             return false;
           } else {
+            if (!isCurrentRequest()) return false;
             this.lyric = lyric;
             this.tlyric = tlyric;
             this.romalyric = romalyric;

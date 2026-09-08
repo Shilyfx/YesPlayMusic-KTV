@@ -45,6 +45,7 @@ export const TRANSIENT_PLAYER_KEYS = [
   '_playbackErrorListeners',
   '_karaokeCommandHandlers',
   '_karaokePlaybackGeneration',
+  '_karaokePlaybackPending',
 ];
 
 function setTitle(track) {
@@ -81,6 +82,7 @@ export default class {
     this._playbackErrorListeners = [];
     this._karaokeCommandHandlers = null;
     this._karaokePlaybackGeneration = 0;
+    this._karaokePlaybackPending = false;
 
     // 播放信息
     this._list = []; // 播放列表
@@ -964,6 +966,7 @@ export default class {
   // Public single-track playback hook for integrations such as local KTV.
   // It deliberately does not own or mutate the caller's business queue.
   async playTrackByID(id, { fallback = 'normal', owner = null } = {}) {
+    if (owner === 'karaoke') return this._playKaraokeTrackByID(id);
     const condition =
       fallback === 'none'
         ? UNPLAYABLE_CONDITION.NONE
@@ -980,6 +983,47 @@ export default class {
       if (owner === 'karaoke') this._playbackOwner = null;
       return { success: false, error };
     }
+  }
+
+  async _playKaraokeTrackByID(id) {
+    const generation = (this._karaokePlaybackGeneration += 1);
+    this._playbackOwner = 'karaoke';
+    this._karaokePlaybackPending = true;
+    // A KTV attempt owns the output from its first moment.  Stopping ordinary
+    // audio before fetching avoids two songs sounding together; metadata is not
+    // changed until a usable source has arrived and the attempt is still valid.
+    this._howler?.stop();
+    this._setPlaying(false);
+    try {
+      const detail = await this._getKaraokeTrackDetail(id);
+      if (generation !== this._karaokePlaybackGeneration)
+        return { success: false, cancelled: true };
+      const track = detail?.songs?.[0];
+      if (!track) return { success: false };
+      const source = await this._getAudioSource(track);
+      if (generation !== this._karaokePlaybackGeneration)
+        return { success: false, cancelled: true };
+      if (!source) {
+        store.dispatch('showToast', `无法播放 ${track.name}`);
+        this._playbackOwner = null;
+        return { success: false };
+      }
+      this._currentTrack = track;
+      this._updateMediaSessionMetaData(track);
+      this._playAudioSource(source, true);
+      return { success: true };
+    } catch (error) {
+      if (generation === this._karaokePlaybackGeneration)
+        this._playbackOwner = null;
+      return { success: false, error };
+    } finally {
+      if (generation === this._karaokePlaybackGeneration)
+        this._karaokePlaybackPending = false;
+    }
+  }
+
+  _getKaraokeTrackDetail(id) {
+    return getTrackDetail(id);
   }
 
   onPlaybackEnded(listener) {
@@ -1005,11 +1049,13 @@ export default class {
   }
 
   stopKaraokePlayback() {
-    if (this._playbackOwner !== 'karaoke') return false;
+    if (this._playbackOwner !== 'karaoke' && !this._karaokePlaybackPending)
+      return false;
     this._karaokePlaybackGeneration += 1;
     this._howler?.stop();
     this._setPlaying(false);
     this._playbackOwner = null;
+    this._karaokePlaybackPending = false;
     return true;
   }
   playIntelligenceListById(id, trackID = 'first', noCache = false) {

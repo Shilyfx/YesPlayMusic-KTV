@@ -30,7 +30,9 @@ function request(port, pathname) {
   return new Promise((resolve, reject) => {
     const req = http.get(`http://127.0.0.1:${port}${pathname}`, response => {
       response.resume();
-      response.on('end', () => resolve(response.statusCode));
+      response.on('end', () =>
+        resolve({ status: response.statusCode, headers: response.headers })
+      );
     });
     req.on('error', reject);
   });
@@ -66,16 +68,33 @@ async function run() {
   const room = await server.startRoom({ sessionId: 'session-test' });
   const roomUrl = new URL(room.url);
 
-  assert.equal(await request(serverPort, '/health'), 200);
-  assert.equal(await request(serverPort, roomUrl.pathname), 200);
+  const health = await request(serverPort, '/health');
+  assert.equal(health.status, 200);
+  const page = await request(serverPort, roomUrl.pathname);
+  assert.equal(page.status, 200);
+  assert.equal(page.headers['x-content-type-options'], 'nosniff');
+  assert.equal(page.headers['referrer-policy'], 'no-referrer');
+  assert.match(page.headers['content-security-policy'], /default-src 'none'/);
   assert.equal(
-    await request(serverPort, `${roomUrl.pathname}/js/remote.js`),
+    (await request(serverPort, `${roomUrl.pathname}/js/remote.js`)).status,
     200
   );
-  assert.equal(await request(serverPort, '/room/not-a-room'), 404);
-  assert.equal(await request(serverPort, '/api'), 404);
-  assert.equal(await request(serverPort, '/player'), 404);
-  assert.equal(await request(serverPort, '/js/app.js'), 404);
+  assert.equal((await request(serverPort, '/room/not-a-room')).status, 404);
+  assert.equal((await request(serverPort, '/api')).status, 404);
+  assert.equal((await request(serverPort, '/player')).status, 404);
+  assert.equal((await request(serverPort, '/js/app.js')).status, 404);
+  const traversalResponse = {
+    writeHead(status) {
+      this.status = status;
+    },
+    end() {},
+  };
+  await server.sendStaticAsset(
+    remoteDistPath,
+    '../index.html',
+    traversalResponse
+  );
+  assert.equal(traversalResponse.status, 404);
 
   await server.stopRoom();
   await assert.rejects(() => request(serverPort, roomUrl.pathname));
@@ -83,8 +102,11 @@ async function run() {
 
   const restarted = await server.startRoom({ sessionId: 'session-test-2' });
   assert.notEqual(restarted.url, room.url);
-  assert.equal(await request(serverPort, roomUrl.pathname), 404);
-  assert.equal(await request(serverPort, new URL(restarted.url).pathname), 200);
+  assert.equal((await request(serverPort, roomUrl.pathname)).status, 404);
+  assert.equal(
+    (await request(serverPort, new URL(restarted.url).pathname)).status,
+    200
+  );
   await server.stopRoom();
 
   const busyPort = await getAvailablePort();
@@ -105,6 +127,21 @@ async function run() {
   const afterRetry = await busyServer.startRoom({ sessionId: 'retry' });
   assert.ok(afterRetry.url);
   await busyServer.stopRoom();
+
+  const racePort = await getAvailablePort();
+  const raceServer = new KaraokeServer({
+    remoteDistPath,
+    port: racePort,
+    networkInterfaces: interfaces,
+  });
+  const firstStart = raceServer.startRoom({ sessionId: 'race' });
+  const secondStart = raceServer.startRoom({ sessionId: 'race' });
+  const [firstRoom, secondRoom] = await Promise.all([firstStart, secondStart]);
+  assert.equal(firstRoom.url, secondRoom.url);
+  await raceServer.stopRoom();
+  assert.equal(raceServer.state, 'idle');
+  assert.equal(raceServer.room, null);
+  assert.equal(raceServer.server, null);
   fs.rmSync(remoteDistPath, { recursive: true, force: true });
   console.log('KTV LAN server tests passed');
 }

@@ -125,11 +125,6 @@ const routes = [
     component: () => import('@/views/karaoke.vue'),
   },
   {
-    path: '/karaoke/remote',
-    name: 'karaokeRemote',
-    component: () => import('@/views/karaokeRemote.vue'),
-  },
-  {
     path: '/daily/songs',
     name: 'dailySongs',
     component: () => import('@/views/dailyTracks.vue'),

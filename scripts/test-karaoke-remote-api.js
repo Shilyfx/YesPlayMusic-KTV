@@ -110,36 +110,29 @@ async function run() {
       return true;
     },
   };
-  const upstream = async pathname => {
-    if (pathname.startsWith('/search'))
-      return {
-        result: {
-          songs: [
-            {
-              id: 101,
-              name: '测试歌 Live',
-              ar: [{ name: '歌手' }],
-              al: { name: '专辑' },
-              dt: 180000,
-            },
-          ],
+  const bridgeCalls = [];
+  const hostCatalogBridge = async (action, payload) => {
+    bridgeCalls.push(action);
+    if (action === 'search')
+      return [
+        {
+          id: 101,
+          name: '测试歌 Live',
+          ar: [{ name: '歌手' }],
+          al: { name: '专辑' },
+          dt: 180000,
         },
-      };
-    if (pathname.startsWith('/song/detail'))
+      ];
+    if (action === 'trackDetail')
       return {
-        songs: [
-          {
-            id: 101,
-            name: '测试歌 Live',
-            ar: [{ name: '歌手' }],
-            al: { name: '专辑' },
-            dt: 180000,
-          },
-        ],
+        id: Number(payload.trackId),
+        name: '测试歌 Live',
+        ar: [{ name: '歌手' }],
+        al: { name: '专辑' },
+        dt: 180000,
       };
-    if (pathname.startsWith('/song/url'))
-      return { data: [{ url: 'https://audio.example/101.mp3' }] };
-    throw new Error('UPSTREAM');
+    if (action === 'availability') return 'playable';
+    throw new Error('UNEXPECTED_CATALOG_ACTION');
   };
   const remoteDistPath = fs.mkdtempSync(
     path.join(os.tmpdir(), 'ktv-remote-api-')
@@ -151,7 +144,7 @@ async function run() {
   const port = await getAvailablePort();
   let server;
   const service = new KaraokeRemoteService({
-    catalog: new KaraokeCatalogService({ upstream }),
+    catalog: new KaraokeCatalogService({ hostCatalogBridge }),
     managerBridge: bridge,
     getRoom: () => server.room,
   });
@@ -186,6 +179,8 @@ async function run() {
   assert.equal(results.status, 200);
   assert.equal(results.body.results[0].versionLabel, 'Live');
   assert.equal(results.body.results[0].playability, 'playable');
+  assert.ok(bridgeCalls.includes('search'));
+  assert.ok(bridgeCalls.includes('availability'));
   const aRequest = await request(port, 'POST', '/ktv/api/requests', {
     token: guestA.body.clientToken,
     body: { trackId: '101' },
@@ -218,6 +213,13 @@ async function run() {
     { token: guestA.body.clientToken }
   );
   assert.equal(removed.status, 200);
+  const alreadyFront = await request(
+    port,
+    'POST',
+    `/ktv/api/requests/${bRequest.body.item.queueItemId}/front`,
+    { token: guestB.body.clientToken }
+  );
+  assert.equal(alreadyFront.status, 200);
   const staleToken = guestA.body.clientToken;
   await server.stopRoom();
   assert.throws(() => service.client(staleToken), /ROOM_ENDED/);

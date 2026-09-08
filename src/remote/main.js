@@ -12,6 +12,7 @@ let refreshTimer;
 let retryDelay = 2000;
 let searchQuery = '';
 let searchResults = [];
+let searchGeneration = 0;
 
 function escape(value = '') {
   return String(value).replace(
@@ -22,6 +23,7 @@ function escape(value = '') {
       ])
   );
 }
+
 function api(path, options = {}) {
   return fetch(`${apiRoot}${path}`, {
     ...options,
@@ -42,19 +44,19 @@ function api(path, options = {}) {
     return body;
   });
 }
+
 function setNotice(message = '', kind = '') {
-  const notice = document.querySelector('[data-notice]');
-  if (notice) {
-    notice.textContent = message;
-    notice.dataset.kind = kind;
-  }
+  const notice = app.querySelector('[data-notice]');
+  notice.textContent = message;
+  notice.dataset.kind = kind;
 }
+
 function formatDuration(milliseconds) {
   const total = Math.max(0, Math.round((milliseconds || 0) / 1000));
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
+
 function itemMarkup(item, index, own = false) {
-  if (!item) return '<div class="empty">主机还没有开始播放</div>';
   const controls =
     own && item.status === 'queued'
       ? `<div class="queue-actions"><button data-front="${escape(
@@ -73,15 +75,38 @@ function itemMarkup(item, index, own = false) {
     item.priorityRequested ? '<span class="tag">优先</span>' : ''
   }${controls}</article>`;
 }
-function render() {
-  const hadSearchFocus = document.activeElement?.matches?.('[data-search]');
-  const current = state?.current;
-  const waiting = state?.waiting || [];
+
+function initializeShell() {
   const theme = localStorage.getItem('yesplaymusic-ktv-theme') || 'auto';
   document.documentElement.dataset.theme = theme;
   app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1>房间 ${escape(
     roomCode || '—'
-  )}</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass"><p class="section-label">正在演唱</p>${
+  )}</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
+  app.querySelector('[data-theme]').value = theme;
+  app.querySelector('[data-theme]').addEventListener('change', event => {
+    localStorage.setItem('yesplaymusic-ktv-theme', event.target.value);
+    document.documentElement.dataset.theme = event.target.value;
+  });
+  app
+    .querySelector('[data-search]')
+    .addEventListener('input', event => scheduleSearch(event.target.value));
+  app.addEventListener('click', event => {
+    const button = event.target.closest('button');
+    if (!button) return;
+    if (button.dataset.request) requestSong(button.dataset.request, false);
+    else if (button.dataset.priority)
+      requestSong(button.dataset.priority, true);
+    else if (button.dataset.remove)
+      mutate(`/requests/${button.dataset.remove}`, 'DELETE');
+    else if (button.dataset.front)
+      mutate(`/requests/${button.dataset.front}/front`, 'POST');
+  });
+}
+
+function renderNowPlaying() {
+  const current = state?.current;
+  const target = app.querySelector('[data-now-playing]');
+  target.innerHTML = `<p class="section-label">正在演唱</p>${
     current
       ? `<div class="track-title"><div class="record">♫</div><div><h2>${escape(
           current.name
@@ -91,52 +116,34 @@ function render() {
           current.requesterName || '主机'
         )} 点播</small></div></div>`
       : '<div class="empty">等待主机选择歌曲</div>'
-  }</section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span>${
-    waiting.length
-  } 首</span></div><div class="queue-list">${
-    waiting.length
-      ? waiting
-          .map((item, index) =>
-            itemMarkup(item, index + 1, item.requesterId === client?.clientId)
-          )
-          .join('')
-      : '<div class="empty">还没有待唱歌曲</div>'
-  }</div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2>${escape(
-    client?.displayName || '访客'
-  )}</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
-  app.querySelector('[data-theme]').value = theme;
-  app.querySelector('[data-theme]').addEventListener('change', event => {
-    localStorage.setItem('yesplaymusic-ktv-theme', event.target.value);
-    document.documentElement.dataset.theme = event.target.value;
-  });
-  const searchInput = app.querySelector('[data-search]');
-  searchInput.value = searchQuery;
-  searchInput.addEventListener('input', event =>
-    scheduleSearch(event.target.value)
-  );
-  app
-    .querySelectorAll('[data-remove]')
-    .forEach(button =>
-      button.addEventListener('click', () =>
-        mutate(`/requests/${button.dataset.remove}`, 'DELETE')
-      )
-    );
-  renderResults(searchResults);
-  if (hadSearchFocus) searchInput.focus();
-  app
-    .querySelectorAll('[data-front]')
-    .forEach(button =>
-      button.addEventListener('click', () =>
-        mutate(`/requests/${button.dataset.front}/front`, 'POST')
-      )
-    );
+  }`;
 }
-function renderResults(results) {
+
+function renderQueue() {
+  const waiting = state?.waiting || [];
+  app.querySelector('[data-queue-count]').textContent = `${waiting.length} 首`;
+  app.querySelector('[data-queue-list]').innerHTML = waiting.length
+    ? waiting
+        .map((item, index) =>
+          itemMarkup(item, index + 1, item.requesterId === client?.clientId)
+        )
+        .join('')
+    : '<div class="empty">还没有待唱歌曲</div>';
+  app.querySelector('[data-guest-name]').textContent =
+    client?.displayName || '访客';
+}
+
+function renderResults(results, { searching = false } = {}) {
   searchResults = results;
   const container = app.querySelector('[data-results]');
-  if (!container) return;
+  if (searching) {
+    container.innerHTML = '<div class="hint">正在搜索…</div>';
+    return;
+  }
   if (!results.length) {
-    container.innerHTML = '<div class="hint">没有找到可展示的歌曲。</div>';
+    container.innerHTML = searchQuery.trim()
+      ? '<div class="hint">没有找到可展示的歌曲。</div>'
+      : '<div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div>';
     return;
   }
   container.innerHTML = results
@@ -167,43 +174,33 @@ function renderResults(results) {
         }>优先点歌</button></div></article>`
     )
     .join('');
-  container
-    .querySelectorAll('[data-request]')
-    .forEach(button =>
-      button.addEventListener('click', () =>
-        requestSong(button.dataset.request, false)
-      )
-    );
-  container
-    .querySelectorAll('[data-priority]')
-    .forEach(button =>
-      button.addEventListener('click', () =>
-        requestSong(button.dataset.priority, true)
-      )
-    );
 }
+
 function scheduleSearch(query) {
   searchQuery = query;
+  const generation = ++searchGeneration;
   clearTimeout(searchTimer);
   if (searchAbort) searchAbort.abort();
   const clean = query.trim();
   if (!clean) return renderResults([]);
   searchTimer = setTimeout(async () => {
     searchAbort = new AbortController();
+    renderResults(searchResults, { searching: true });
     try {
-      renderResults(
-        (
-          await api(`/search?q=${encodeURIComponent(clean)}`, {
-            signal: searchAbort.signal,
-          })
-        ).results
-      );
+      const response = await api(`/search?q=${encodeURIComponent(clean)}`, {
+        signal: searchAbort.signal,
+      });
+      if (generation === searchGeneration && clean === searchQuery.trim())
+        renderResults(response.results);
     } catch (error) {
-      if (error.name !== 'AbortError')
+      if (error.name !== 'AbortError' && generation === searchGeneration) {
+        renderResults(searchResults);
         setNotice('搜索暂时不可用，请稍后重试。', 'error');
+      }
     }
   }, 350);
 }
+
 async function requestSong(trackId, priority) {
   try {
     await api('/requests', {
@@ -224,6 +221,7 @@ async function requestSong(trackId, priority) {
     );
   }
 }
+
 async function mutate(path, method) {
   try {
     await api(path, { method });
@@ -236,15 +234,18 @@ async function mutate(path, method) {
     setNotice('操作未完成，队列可能已发生变化。', 'error');
   }
 }
+
 function scheduleRefresh(delay) {
   clearTimeout(refreshTimer);
   refreshTimer = setTimeout(refresh, delay);
 }
+
 async function refresh() {
   try {
     state = await api('/state');
     retryDelay = 2000;
-    render();
+    renderNowPlaying();
+    renderQueue();
     scheduleRefresh(document.hidden ? 5000 : 1500);
   } catch (error) {
     if (error.code === 'INVALID_CLIENT_TOKEN' || error.code === 'ROOM_ENDED')
@@ -253,12 +254,14 @@ async function refresh() {
     retryDelay = Math.min(retryDelay * 2, 8000);
   }
 }
+
 function showEnded() {
   clearTimeout(refreshTimer);
   sessionStorage.removeItem(storageKey);
   app.innerHTML =
     '<main class="ended"><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1>房间已结束</h1><p>请向主机重新获取新的二维码或加入链接。</p></main>';
 }
+
 async function bootstrap() {
   try {
     client = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
@@ -274,11 +277,13 @@ async function bootstrap() {
       sessionStorage.setItem(storageKey, JSON.stringify(client));
       history.replaceState({}, '', window.location.pathname);
     }
+    initializeShell();
     await refresh();
   } catch (_) {
     showEnded();
   }
 }
+
 document.addEventListener('visibilitychange', () => {
   if (!document.hidden && client) refresh();
 });

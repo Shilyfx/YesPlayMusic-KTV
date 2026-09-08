@@ -39,6 +39,7 @@ const updateData = () => {
     '_playbackErrorListeners',
     '_karaokeCommandHandlers',
     '_karaokePlaybackGeneration',
+    '_karaokePlaybackPending',
   ].forEach(key => delete data[key]);
   localStorage.setItem('data', JSON.stringify(data));
 };

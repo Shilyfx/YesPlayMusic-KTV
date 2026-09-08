@@ -1,6 +1,49 @@
 import store from '@/store';
+import { search } from '@/api/others';
+import { getMP3, getTrackDetail } from '@/api/track';
 
 const player = store.state.player;
+
+function safeCatalogTrack(track) {
+  return {
+    id: track.id,
+    name: track.name,
+    ar: (track.ar || track.artists || []).map(artist => ({
+      name: artist.name,
+    })),
+    al: {
+      name: track.al?.name || track.album?.name || '',
+      picUrl: track.al?.picUrl || track.album?.picUrl || '',
+    },
+    dt: track.dt || track.duration || 0,
+    alia: track.alia || track.aliases || [],
+  };
+}
+
+async function hostCatalog(action, payload = {}) {
+  if (action === 'search') {
+    const data = await search({
+      keywords: String(payload.query || ''),
+      limit: 15,
+      type: 1,
+    });
+    const songs = data.result?.songs || data.result?.song?.songs || [];
+    return songs.slice(0, 15).map(safeCatalogTrack);
+  }
+  if (action === 'trackDetail') {
+    const data = await getTrackDetail(String(payload.trackId));
+    const track = data?.songs?.[0];
+    if (!track) throw new Error('TRACK_NOT_FOUND');
+    return safeCatalogTrack(track);
+  }
+  if (action === 'availability') {
+    const data = await getMP3(String(payload.trackId));
+    const source = data?.data?.[0];
+    if (!source?.url) return 'unavailable';
+    return source.freeTrialInfo ? 'trial-only' : 'playable';
+  }
+  throw new Error('KTV_NOT_ACTIVE');
+}
 
 export function ipcRenderer(vueInstance) {
   const self = vueInstance;
@@ -34,6 +77,12 @@ export function ipcRenderer(vueInstance) {
           break;
         case 'front':
           result = manager.moveQueueItemToFront(command.payload.queueItemId);
+          break;
+        case 'catalog':
+          result = await hostCatalog(
+            command.payload.action,
+            command.payload.payload
+          );
           break;
         default:
           throw new Error('KTV_NOT_ACTIVE');

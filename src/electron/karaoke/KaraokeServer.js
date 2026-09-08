@@ -42,7 +42,8 @@ function getLanAddressCandidates(interfaces = os.networkInterfaces()) {
 }
 
 function selectLanAddress(interfaces) {
-  return getLanAddressCandidates(interfaces)[0]?.address || null;
+  const first = getLanAddressCandidates(interfaces)[0];
+  return (first && first.address) || null;
 }
 
 function getLanAddress() {
@@ -97,7 +98,9 @@ export class KaraokeServer {
   async _startRoom({ lanAddress, sessionId }) {
     const generation = (this.generation += 1);
     const candidates = getLanAddressCandidates(this.networkInterfaces());
-    const selectedAddress = lanAddress || candidates[0]?.address;
+    const firstCandidate = candidates[0];
+    const selectedAddress =
+      lanAddress || (firstCandidate && firstCandidate.address);
     if (
       !selectedAddress ||
       !candidates.some(item => item.address === selectedAddress)
@@ -135,7 +138,7 @@ export class KaraokeServer {
         throw new Error('KTV 房间已取消');
       }
       this.state = 'active';
-      this.remoteService?.onRoomStart(room);
+      if (this.remoteService) this.remoteService.onRoomStart(room);
       return this.describeRoom();
     } catch (error) {
       this.room = null;
@@ -148,7 +151,7 @@ export class KaraokeServer {
 
   async stopRoom() {
     this.generation += 1;
-    this.remoteService?.onRoomStop();
+    if (this.remoteService) this.remoteService.onRoomStop();
     this.room = null;
     this.state = 'idle';
     if (!this.server) return;
@@ -170,6 +173,11 @@ export class KaraokeServer {
   }
 
   async handleRequest(request, response) {
+    // `URL` normalizes encoded dot segments before we can compare them to the
+    // room prefix. Remote assets never need encoded separators or dot segments,
+    // so reject those raw forms before URL parsing.
+    const rawPath = request.url.split(/[?#]/)[0];
+    if (/%2e|%2f|%5c|\\/i.test(rawPath)) return this.notFound(response);
     const requestUrl = new URL(request.url, 'http://karaoke.local');
     if (this.remoteApi && (await this.remoteApi.handle(request, response)))
       return;
@@ -178,7 +186,7 @@ export class KaraokeServer {
       return this.sendJson(response, { active: Boolean(this.room) });
     }
 
-    const roomPath = `/room/${this.room?.code}`;
+    const roomPath = `/room/${this.room && this.room.code}`;
     if (
       !this.room ||
       (requestUrl.pathname !== roomPath &&

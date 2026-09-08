@@ -77,7 +77,7 @@ function versionLabel(track) {
   const text = [
     track.name,
     ...(track.aliases || track.alia || []),
-    track.album?.name || track.al?.name || '',
+    (track.album && track.album.name) || (track.al && track.al.name) || '',
   ]
     .join(' ')
     .toLowerCase();
@@ -94,8 +94,12 @@ function sanitizeTrack(track) {
     trackId: String(track.id),
     name: track.name || '未知歌曲',
     artists: (track.artists || track.ar || []).map(item => item.name),
-    album: track.album?.name || track.al?.name || '',
-    coverUrl: track.album?.picUrl || track.al?.picUrl || '',
+    album:
+      (track.album && track.album.name) || (track.al && track.al.name) || '',
+    coverUrl:
+      (track.album && track.album.picUrl) ||
+      (track.al && track.al.picUrl) ||
+      '',
     duration: track.duration || track.dt || 0,
     aliases: track.aliases || track.alia || [],
     versionLabel: versionLabel(track),
@@ -103,17 +107,29 @@ function sanitizeTrack(track) {
 }
 
 export class KaraokeCatalogService {
-  constructor({ upstream = requestNetease } = {}) {
+  constructor({ upstream = requestNetease, hostCatalogBridge = null } = {}) {
     this.upstream = upstream;
+    this.hostCatalogBridge = hostCatalogBridge;
     this.trackCache = new Map();
     this.availabilityCache = new Map();
   }
 
   async search(query) {
+    if (this.hostCatalogBridge) {
+      const songs = await this.hostCatalogBridge('search', { query });
+      return songs.map(song => {
+        const track = sanitizeTrack(song);
+        this.trackCache.set(track.trackId, {
+          value: track,
+          expiresAt: Date.now() + CACHE_TTL,
+        });
+        return track;
+      });
+    }
     const data = await this.upstream(
       `/search?keywords=${encodeURIComponent(query)}&limit=15&type=1`
     );
-    const songs = data.result?.songs || [];
+    const songs = (data.result && data.result.songs) || [];
     return songs.map(song => {
       const track = sanitizeTrack(song);
       this.trackCache.set(track.trackId, {
@@ -127,10 +143,12 @@ export class KaraokeCatalogService {
   async getTrack(trackId) {
     const cached = this.trackCache.get(String(trackId));
     if (cached && cached.expiresAt > Date.now()) return cached.value;
-    const data = await this.upstream(
-      `/song/detail?ids=${encodeURIComponent(trackId)}`
-    );
-    const song = data.songs?.[0];
+    const data = this.hostCatalogBridge
+      ? await this.hostCatalogBridge('trackDetail', {
+          trackId: String(trackId),
+        })
+      : await this.upstream(`/song/detail?ids=${encodeURIComponent(trackId)}`);
+    const song = this.hostCatalogBridge ? data : data.songs && data.songs[0];
     if (!song) throw new Error('TRACK_NOT_FOUND');
     const track = sanitizeTrack(song);
     this.trackCache.set(track.trackId, {
@@ -145,15 +163,28 @@ export class KaraokeCatalogService {
     const cached = this.availabilityCache.get(key);
     if (!fresh && cached && cached.expiresAt > Date.now()) return cached.value;
     try {
+      if (this.hostCatalogBridge) {
+        const value = await this.hostCatalogBridge('availability', {
+          trackId: key,
+        });
+        if (!['playable', 'trial-only', 'unavailable', 'error'].includes(value))
+          throw new Error('UPSTREAM');
+        this.availabilityCache.set(key, {
+          value,
+          expiresAt: Date.now() + CACHE_TTL,
+        });
+        return value;
+      }
       const data = await this.upstream(
         `/song/url?id=${encodeURIComponent(key)}`
       );
-      const source = data.data?.[0];
-      const value = !source?.url
-        ? 'unavailable'
-        : source.freeTrialInfo
-        ? 'trial-only'
-        : 'playable';
+      const source = data.data && data.data[0];
+      const value =
+        !source || !source.url
+          ? 'unavailable'
+          : source.freeTrialInfo
+          ? 'trial-only'
+          : 'playable';
       this.availabilityCache.set(key, {
         value,
         expiresAt: Date.now() + CACHE_TTL,
@@ -187,6 +218,7 @@ export class RemoteClientSessionStore {
   }
 
   create(joinToken) {
+    this.purgeExpired();
     const received = Buffer.from(joinToken || '');
     const expected = this.room && Buffer.from(this.room.joinToken);
     if (
@@ -220,9 +252,18 @@ export class RemoteClientSessionStore {
       session.sessionId !== this.room.sessionId ||
       session.generation !== this.room.generation
     ) {
+      if (session && Date.now() - session.createdAt > CLIENT_TTL)
+        this.clients.delete(value);
       throw new Error('INVALID_CLIENT_TOKEN');
     }
     return session;
+  }
+
+  purgeExpired() {
+    const now = Date.now();
+    for (const [key, session] of this.clients) {
+      if (now - session.createdAt > CLIENT_TTL) this.clients.delete(key);
+    }
   }
 }
 
@@ -275,6 +316,8 @@ export class KaraokeRemoteService {
     this.ensureActive();
     if (!this.limiter.check(`bootstrap:${remoteAddress}`, 10))
       throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('bootstrap:room', 40))
+      throw new Error('RATE_LIMIT');
     if (this.sessions.clients.size >= 32) throw new Error('ROOM_FULL');
     const session = this.sessions.create(joinToken);
     return {
@@ -290,6 +333,9 @@ export class KaraokeRemoteService {
   }
 
   async state(client) {
+    if (!this.limiter.check(`state:${client.clientId}`, 40))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('state:room', 240)) throw new Error('RATE_LIMIT');
     const snapshot = await this.managerBridge.snapshot();
     return {
       room: { active: true, code: this.getRoom().code },
@@ -322,6 +368,7 @@ export class KaraokeRemoteService {
   async search(client, query) {
     if (!this.limiter.check(`search:${client.clientId}`, 10))
       throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('search:room', 80)) throw new Error('RATE_LIMIT');
     const tracks = await this.catalog.search(query);
     const results = new Array(tracks.length);
     let nextIndex = 0;
@@ -343,11 +390,14 @@ export class KaraokeRemoteService {
   async availability(client, trackId) {
     if (!this.limiter.check(`search:${client.clientId}`, 10))
       throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('search:room', 80)) throw new Error('RATE_LIMIT');
     return this.catalog.availability(trackId);
   }
 
   async enqueue(client, trackId, priority) {
     if (!this.limiter.check(`mutation:${client.clientId}`, 20))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('mutation:room', 120))
       throw new Error('RATE_LIMIT');
     const track = await this.catalog.getTrack(trackId);
     this.client(client.clientToken);
@@ -356,6 +406,7 @@ export class KaraokeRemoteService {
     });
     this.client(client.clientToken);
     if (availability !== 'playable') throw new Error('TRACK_NOT_PLAYABLE');
+    this.client(client.clientToken);
     const item = await this.managerBridge.enqueue(
       {
         id: track.trackId,
@@ -389,7 +440,10 @@ export class KaraokeRemoteService {
   async remove(client, queueItemId) {
     if (!this.limiter.check(`mutation:${client.clientId}`, 20))
       throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('mutation:room', 120))
+      throw new Error('RATE_LIMIT');
     await this.ownWaitingItem(client, queueItemId);
+    this.client(client.clientToken);
     const item = await this.managerBridge.remove(queueItemId);
     if (!item) throw new Error('WAITING_ITEM_NOT_FOUND');
     return this.sanitizeItem(item);
@@ -398,9 +452,16 @@ export class KaraokeRemoteService {
   async front(client, queueItemId) {
     if (!this.limiter.check(`mutation:${client.clientId}`, 20))
       throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('mutation:room', 120))
+      throw new Error('RATE_LIMIT');
     await this.ownWaitingItem(client, queueItemId);
+    this.client(client.clientToken);
     const snapshot = await this.managerBridge.snapshot();
-    if (snapshot.waitingItems[0]?.queueItemId === queueItemId) return;
+    if (
+      snapshot.waitingItems[0] &&
+      snapshot.waitingItems[0].queueItemId === queueItemId
+    )
+      return;
     if (!(await this.managerBridge.front(queueItemId)))
       throw new Error('WAITING_ITEM_NOT_FOUND');
   }

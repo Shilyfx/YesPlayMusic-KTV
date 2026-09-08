@@ -83,6 +83,8 @@
         class="stage glass-panel"
         :data-lyric-state="stageLyrics.state"
         aria-label="KTV 歌词舞台"
+        @mousemove="showLyricControls"
+        @touchstart="showLyricControls"
       >
         <p class="stage-kicker">LYRIC STAGE</p>
         <div class="stage-lines">
@@ -105,8 +107,6 @@
           v-if="isLyricFullscreen"
           class="lyric-fullscreen-overlay"
           :class="{ visible: lyricControlsVisible }"
-          @mousemove="showLyricControls"
-          @touchstart="showLyricControls"
         >
           <button type="button" @click="replay">重唱</button>
           <button type="button" @click="playOrPause">
