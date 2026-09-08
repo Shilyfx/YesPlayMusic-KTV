@@ -133,10 +133,28 @@ function parseSourceStringToList(executor, sourceString) {
     });
 }
 
-export function initIpcMain(win, store, trayEventEmitter) {
+export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
   // WIP: Do not enable logging as it has some issues in non-blocking I/O environment.
   // UNM.enableLogging(UNM.LoggingType.ConsoleEnv);
   const unmExecutor = new UNM.Executor();
+
+  ipcMain.handle('karaoke:lan:start', async () => {
+    try {
+      return { ok: true, room: await karaokeServer.startRoom() };
+    } catch (error) {
+      return { ok: false, error: error.message };
+    }
+  });
+
+  ipcMain.handle('karaoke:lan:stop', async () => {
+    await karaokeServer.stopRoom();
+    return { ok: true };
+  });
+
+  ipcMain.handle('karaoke:lan:status', async () => ({
+    ok: true,
+    room: await karaokeServer.describeRoom(),
+  }));
 
   ipcMain.handle(
     'unblock-music',

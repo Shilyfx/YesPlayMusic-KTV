@@ -35,6 +35,8 @@ jobs:
           src/store/state.js src/store/mutations.js src/electron/ipcRenderer.js
       - name: KTV domain transitions
         run: node scripts/test-karaoke-domain.js
+      - name: KTV LAN room server
+        run: node scripts/test-karaoke-server.js
       - name: Full repository lint diagnostic (known upstream failures)
         continue-on-error: true
         run: yarn lint

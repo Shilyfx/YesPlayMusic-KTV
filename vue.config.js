@@ -41,6 +41,13 @@ module.exports = {
       title: 'YesPlayMusic',
       chunks: ['main', 'chunk-vendors', 'chunk-common', 'index'],
     },
+    remote: {
+      entry: 'src/remote/main.js',
+      template: 'public/remote.html',
+      filename: 'remote/index.html',
+      title: 'YesPlayMusic KTV Room',
+      chunks: ['chunk-vendors', 'chunk-common', 'remote'],
+    },
   },
   chainWebpack(config) {
     config.module.rules.delete('svg');

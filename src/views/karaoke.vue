@@ -1,5 +1,6 @@
 <template>
   <section
+    ref="karaokeSurface"
     class="karaoke-surface karaoke-desktop"
     :data-ktv-theme="resolvedTheme"
     :style="stageStyle"
@@ -15,16 +16,33 @@
         <span class="live-dot" :class="{ active: isSessionActive }"></span>
         <div>
           <strong>{{ sessionLabel }}</strong>
-          <small>本机模式 · 局域网房间将在 Phase 3 开启</small>
+          <small>{{
+            lanRoom ? `房间 ${lanRoom.code} · 局域网已开启` : '本机模式'
+          }}</small>
         </div>
       </div>
       <div class="header-actions">
         <KaraokeThemeSwitcher v-model="karaokeTheme" />
+        <button
+          v-if="lanRoom"
+          type="button"
+          class="session-button"
+          @click="showRoomCode = !showRoomCode"
+          >{{ showRoomCode ? '收起二维码' : '房间二维码' }}</button
+        >
         <button type="button" class="session-button" @click="toggleSession">
           {{ isSessionActive ? '结束 KTV' : '开始本机 KTV' }}
         </button>
       </div>
     </header>
+
+    <section v-if="lanRoom && showRoomCode" class="room-access glass-panel">
+      <img :src="lanRoom.qrDataUrl" alt="局域网 KTV 房间二维码" />
+      <div>
+        <strong>用同一局域网设备扫码加入</strong>
+        <p>房间码 {{ lanRoom.code }}。链接仅在本次 KTV 进行期间有效。</p>
+      </div>
+    </section>
 
     <main class="karaoke-layout">
       <aside class="track-identity glass-panel">
@@ -50,6 +68,7 @@
       </aside>
 
       <section
+        ref="lyricStage"
         class="stage glass-panel"
         :data-lyric-state="stageLyrics.state"
         aria-label="KTV 歌词舞台"
@@ -66,6 +85,10 @@
             isSessionActive ? '本机队列由主机控制' : '开始本机 KTV 以管理待唱'
           }}</span>
           <span>{{ lyricOffsetLabel }} · {{ lyricFontSize }}px</span>
+        </div>
+        <div class="fullscreen-actions">
+          <button type="button" @click="enterKtvFullscreen">全屏 KTV</button>
+          <button type="button" @click="enterLyricFullscreen">只看歌词</button>
         </div>
       </section>
 
@@ -222,6 +245,8 @@ export default {
       clock: null,
       systemTheme: 'light',
       themeMedia: null,
+      lanRoom: null,
+      showRoomCode: false,
     };
   },
   computed: {
@@ -357,6 +382,7 @@ export default {
       this.themeMedia.addEventListener('change', this.syncSystemTheme);
     else this.themeMedia.addListener(this.syncSystemTheme);
     this.loadLyrics();
+    this.loadLanRoom();
     this.clock = window.setInterval(() => {
       this.now = this.player.seek(null, false) || 0;
     }, 100);
@@ -389,6 +415,7 @@ export default {
     toggleSession() {
       if (!this.isSessionActive) {
         this.karaokeManager.startSession();
+        this.startLanRoom();
         this.$store.dispatch('showToast', '本机 KTV 已开始，临时队列已就绪');
         return;
       }
@@ -399,7 +426,41 @@ export default {
         if (!confirmed) return;
       }
       this.karaokeManager.endSession();
+      this.stopLanRoom();
       this.$store.dispatch('showToast', '本机 KTV 已结束，临时队列已清空');
+    },
+    electronIpc() {
+      if (!process.env.IS_ELECTRON || !window.require) return null;
+      return window.require('electron').ipcRenderer;
+    },
+    async loadLanRoom() {
+      const ipcRenderer = this.electronIpc();
+      if (!ipcRenderer) return;
+      const result = await ipcRenderer.invoke('karaoke:lan:status');
+      this.lanRoom = result.room;
+    },
+    async startLanRoom() {
+      const ipcRenderer = this.electronIpc();
+      if (!ipcRenderer) return;
+      const result = await ipcRenderer.invoke('karaoke:lan:start');
+      if (result.ok) {
+        this.lanRoom = result.room;
+        this.showRoomCode = true;
+      } else {
+        this.$store.dispatch('showToast', `局域网房间未开启：${result.error}`);
+      }
+    },
+    async stopLanRoom() {
+      const ipcRenderer = this.electronIpc();
+      if (ipcRenderer) await ipcRenderer.invoke('karaoke:lan:stop');
+      this.lanRoom = null;
+      this.showRoomCode = false;
+    },
+    enterKtvFullscreen() {
+      this.$refs.karaokeSurface.requestFullscreen();
+    },
+    enterLyricFullscreen() {
+      this.$refs.lyricStage.requestFullscreen();
     },
     enqueueCurrentTrack() {
       const item = this.karaokeManager.enqueueTrack(this.track);
@@ -480,7 +541,8 @@ export default {
 }
 .karaoke-header,
 .karaoke-layout,
-.karaoke-controls {
+.karaoke-controls,
+.room-access {
   position: relative;
   z-index: 1;
 }
@@ -536,12 +598,37 @@ export default {
   color: var(--ktv-text-primary);
   font-weight: 700;
 }
+.room-access {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  width: min(460px, calc(100% - 32px));
+  margin: 14px auto 0;
+  padding: 12px;
+}
+.room-access img {
+  width: 104px;
+  height: 104px;
+  border-radius: 10px;
+  background: #fff;
+}
+.room-access strong,
+.room-access p {
+  display: block;
+  margin: 0;
+}
+.room-access p {
+  margin-top: 6px;
+  color: var(--ktv-text-secondary);
+  font-size: 12px;
+  line-height: 1.5;
+}
 .karaoke-layout {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(210px, 0.78fr) minmax(420px, 1.8fr) minmax(
-      280px,
-      0.98fr
+  grid-template-columns: minmax(180px, 0.6fr) minmax(460px, 2.4fr) minmax(
+      220px,
+      0.7fr
     );
   gap: 18px;
   min-height: 480px;
@@ -683,6 +770,38 @@ button:disabled {
   gap: 12px;
   color: var(--ktv-text-muted);
   font-size: 12px;
+}
+.fullscreen-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+  margin-top: 18px;
+}
+.fullscreen-actions button {
+  min-height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 9px;
+  color: var(--ktv-text-secondary);
+  font-size: 12px;
+}
+.karaoke-desktop:fullscreen {
+  overflow: auto;
+  padding: 24px;
+  background: var(--ktv-bg-base);
+}
+.stage:fullscreen {
+  display: grid;
+  place-content: center;
+  min-width: 100vw;
+  min-height: 100vh;
+  padding: 48px;
+  background: var(--ktv-bg-base);
+}
+.stage:fullscreen .fullscreen-actions,
+.stage:fullscreen .stage-kicker,
+.stage:fullscreen .stage-footer {
+  display: none;
 }
 .panel-title {
   display: flex;

@@ -20,6 +20,7 @@ import {
 import { createProtocol } from 'vue-cli-plugin-electron-builder/lib';
 import { startNeteaseMusicApi } from './electron/services';
 import { initIpcMain } from './electron/ipcMain.js';
+import { KaraokeServer } from './electron/karaoke/KaraokeServer';
 import { createMenu } from './electron/menu';
 import { createTray } from '@/electron/tray';
 import { createTouchBar } from './electron/touchBar';
@@ -28,6 +29,7 @@ import { registerGlobalShortcut } from './electron/globalShortcut';
 import { autoUpdater } from 'electron-updater';
 import installExtension, { VUEJS_DEVTOOLS } from 'electron-devtools-installer';
 import { EventEmitter } from 'events';
+import path from 'path';
 import express from 'express';
 import expressProxy from 'express-http-proxy';
 import Store from 'electron-store';
@@ -93,6 +95,10 @@ class Background {
     });
     this.neteaseMusicAPI = null;
     this.expressApp = null;
+    this.karaokeServer = new KaraokeServer({
+      remoteDistPath: path.resolve(process.cwd(), 'dist', 'remote'),
+      publicDistPath: path.resolve(process.cwd(), 'dist'),
+    });
     this.willQuitApp = !isMac;
 
     this.init();
@@ -396,7 +402,12 @@ class Background {
       }
 
       // init ipcMain
-      initIpcMain(this.window, this.store, this.trayEventEmitter);
+      initIpcMain(
+        this.window,
+        this.store,
+        this.trayEventEmitter,
+        this.karaokeServer
+      );
 
       // set proxy
       const proxyRules = this.store.get('proxy');
@@ -469,6 +480,7 @@ class Background {
 
     app.on('quit', () => {
       this.expressApp.close();
+      this.karaokeServer.stopRoom();
     });
 
     app.on('will-quit', () => {
