@@ -9,15 +9,39 @@ const ROOM_PORT = 27233;
 const roomCode = () => crypto.randomBytes(3).toString('hex').toUpperCase();
 const roomToken = () => crypto.randomBytes(32).toString('base64url');
 
-function getLanAddress() {
-  const interfaces = os.networkInterfaces();
-  for (const addresses of Object.values(interfaces)) {
+function isPrivateIpv4(address) {
+  return (
+    address.startsWith('10.') ||
+    address.startsWith('192.168.') ||
+    /^172\.(1[6-9]|2\d|3[01])\./.test(address)
+  );
+}
+
+function selectLanAddress(interfaces) {
+  const candidates = [];
+  for (const [interfaceName, addresses] of Object.entries(interfaces)) {
+    const virtualInterface =
+      /tailscale|vmware|virtual|wireguard|docker|loopback|nodebabylink/i.test(
+        interfaceName
+      );
     for (const address of addresses || []) {
-      if (address.family === 'IPv4' && !address.internal)
-        return address.address;
+      if (address.family !== 'IPv4' || address.internal) continue;
+      const privateAddress = isPrivateIpv4(address.address);
+      candidates.push({
+        address: address.address,
+        score:
+          (privateAddress ? 100 : 0) -
+          (virtualInterface ? 80 : 0) -
+          (address.address.startsWith('169.254.') ? 100 : 0),
+      });
     }
   }
-  return null;
+  candidates.sort((left, right) => right.score - left.score);
+  return candidates[0]?.address || null;
+}
+
+function getLanAddress() {
+  return selectLanAddress(os.networkInterfaces());
 }
 
 function contentType(filePath) {
@@ -139,4 +163,4 @@ export class KaraokeServer {
   }
 }
 
-export { ROOM_PORT, getLanAddress };
+export { ROOM_PORT, getLanAddress, selectLanAddress };
