@@ -49,6 +49,14 @@ export default {
   dailyTracks: [],
   lastfm: JSON.parse(localStorage.getItem('lastfm')) || {},
   player: JSON.parse(localStorage.getItem('player')),
+  karaokeManager: null,
+  karaoke: {
+    session: { status: 'idle' },
+    currentItem: null,
+    waitingItems: [],
+    historyItems: [],
+    queueCount: 0,
+  },
   settings: JSON.parse(localStorage.getItem('settings')),
   data: JSON.parse(localStorage.getItem('data')),
 };

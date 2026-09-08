@@ -2,6 +2,9 @@ import shortcuts from '@/utils/shortcuts';
 import cloneDeep from 'lodash/cloneDeep';
 
 export default {
+  replaceKaraokeState(state, karaoke) {
+    state.karaoke = karaoke;
+  },
   updateLikedXXX(state, { name, data }) {
     state.liked[name] = data;
     if (name === 'songs') {

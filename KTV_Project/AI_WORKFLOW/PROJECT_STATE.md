@@ -8,11 +8,11 @@
 - Architecture: Electron Desktop + isolated LAN Karaoke Web
 
 ## Current phase
-- Phase: 1.1 / Conditional Pass repairs validated locally; pending scoped commit and push
-- Branch target for first implementation: `feat/ktv-phase-1`
-- Latest reviewed commit: `856de64d43ab0c11abcee532b238fe2c43909d09`
-- Latest Codex report: `REPORTS/CODEX_STEP_01_REPORT.md`
-- Latest ChatGPT review: `REVIEWS/CHATGPT_PHASE_01_REVIEW.md` (Conditional Pass)
+- Phase: 2 / local KTV session and real temporary queue implemented and validated; final GitHub API push pending
+- Active branch: `feat/ktv-phase-2`
+- Phase 1.1 fixed GitHub parent: `98436df30434432037f8dfc0213b85df33205176`
+- Latest Codex report: `REPORTS/CODEX_STEP_02_REPORT.md`
+- Latest ChatGPT review: `REVIEWS/CHATGPT_PHASE_01_REVIEW.md` (Conditional Pass for Phase 1 only)
 
 ## Invariants
 - Do not expose existing port 27232 to LAN.
@@ -22,8 +22,9 @@
 - Karaoke business state must not be hidden only inside Player internals.
 
 ## Next action
-Commit and push the Phase 1.1 repair gate, then create Phase 2 from that exact
-fixed SHA in this execution. ChatGPT has not reviewed the future repair commit.
+Push the completed Phase 2 implementation and evidence records through the GitHub
+API, then stop before Phase 3. Phase 3 LAN services and Remote integration remain
+out of scope.
 
 ## Phase 1 implementation
 - GitHub branch: `origin/feat/ktv-phase-1` at reviewed SHA `856de64` before the Phase 1.1 repair commit.
@@ -39,8 +40,16 @@ fixed SHA in this execution. ChatGPT has not reviewed the future repair commit.
 - B-04/B-05: lyric-size normalization is shared and Remote mock cancellation resets request state and derived position.
 - B-06: baseline provenance, Phase 1 review archive, and scoped validation CI were added.
 
+## Phase 2 implementation
+- `KaraokeSession`, `KaraokeQueue`, `KaraokeManager`, and `KaraokePlayerAdapter` own local KTV lifecycle and queue state outside Player internals.
+- A narrow public `Player.playTrackByID()` hook lets the manager start, replay, and advance real songs without exposing Player private state.
+- The temporary local queue uses an independent queue-item ID, so duplicate song requests are valid; ending the session clears current, waiting, and history state.
+- Vuex carries a snapshot for rendering only; the manager remains the source of truth. The Remote screen remains mock-only.
+- Natural-end auto-advance is deliberately deferred until the player offers a stable public completion callback.
+
 ## Verification status
 - Production web build passed with the workspace's Node 24 runtime only when `NODE_OPTIONS=--openssl-legacy-provider` was supplied for the legacy Webpack stack.
 - Browser viewport checks passed for remote 390×844, 430×932, 768×1024, and 1440×900, and desktop KTV 1440×900 and 1920×1080.
 - Existing lint remains blocked by eight pre-existing errors outside Phase 1 files. See the Phase 1 report.
-
+- Phase 2 scoped Prettier and ESLint checks passed; the production web build passed with `NODE_OPTIONS=--openssl-legacy-provider`.
+- Logged-in browser validation passed with a real NetEase track: session start, duplicate requests, start queue, replay, and next-song transition. The active temporary session was intentionally left intact rather than clearing local data without confirmation.

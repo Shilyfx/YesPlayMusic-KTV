@@ -925,6 +925,11 @@ export default class {
     }
     this._replaceCurrentTrack(id);
   }
+  // Public single-track playback hook for integrations such as local KTV.
+  // It deliberately does not own or mutate the caller's business queue.
+  playTrackByID(id) {
+    return this._replaceCurrentTrack(id);
+  }
   playIntelligenceListById(id, trackID = 'first', noCache = false) {
     getPlaylistDetail(id, noCache).then(data => {
       const randomId = Math.floor(
