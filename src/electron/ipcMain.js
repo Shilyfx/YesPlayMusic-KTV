@@ -6,6 +6,11 @@ import shortcuts from '@/utils/shortcuts';
 import { createMenu } from './menu';
 import { isCreateTray, isMac } from '@/utils/platform';
 import KaraokeLanLifecycle from './karaoke/KaraokeLanLifecycle';
+import {
+  KaraokeCatalogService,
+  KaraokeRemoteService,
+  RemoteApiRouter,
+} from './karaoke/KaraokeRemoteApi';
 
 const clc = require('cli-color');
 const log = text => {
@@ -139,6 +144,39 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
   // UNM.enableLogging(UNM.LoggingType.ConsoleEnv);
   const unmExecutor = new UNM.Executor();
   const karaokeLanLifecycle = new KaraokeLanLifecycle(karaokeServer);
+  let remoteCommandSequence = 0;
+  const pendingRemoteCommands = new Map();
+  const remoteCommand = (action, payload = {}) =>
+    new Promise((resolve, reject) => {
+      const id = `remote-${Date.now()}-${(remoteCommandSequence += 1)}`;
+      const timeout = setTimeout(() => {
+        pendingRemoteCommands.delete(id);
+        reject(new Error('KTV_NOT_ACTIVE'));
+      }, 10000);
+      pendingRemoteCommands.set(id, { resolve, reject, timeout });
+      win.webContents.send('karaoke:remote:command', { id, action, payload });
+    });
+  const remoteService = new KaraokeRemoteService({
+    catalog: new KaraokeCatalogService(),
+    getRoom: () => karaokeServer.room,
+    managerBridge: {
+      snapshot: () => remoteCommand('snapshot'),
+      enqueue: (track, requester) =>
+        remoteCommand('enqueue', { track, requester }),
+      remove: queueItemId => remoteCommand('remove', { queueItemId }),
+      front: queueItemId => remoteCommand('front', { queueItemId }),
+    },
+  });
+  karaokeServer.setRemoteApi(new RemoteApiRouter(remoteService), remoteService);
+
+  ipcMain.on('karaoke:remote:result', (_, payload) => {
+    const pending = pendingRemoteCommands.get(payload?.id);
+    if (!pending) return;
+    clearTimeout(pending.timeout);
+    pendingRemoteCommands.delete(payload.id);
+    if (payload.ok) pending.resolve(payload.result);
+    else pending.reject(new Error(payload.error || 'KTV_NOT_ACTIVE'));
+  });
 
   ipcMain.handle('karaoke:lan:set-session-active', async (_, active) => {
     const status = await karaokeLanLifecycle.setSessionActive(active);

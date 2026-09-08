@@ -29,6 +29,7 @@ jobs:
           src/electron/karaoke/*.js src/electron/ipcMain.js src/background.js
           src/remote/*.js src/remote/*.css vue.config.js
           scripts/test-karaoke-server.js scripts/test-karaoke-lifecycle.js
+          scripts/test-karaoke-remote-api.js
           scripts/isolate-remote-assets.js package.json
       - name: KTV source lint
         run: >-
@@ -40,6 +41,7 @@ jobs:
           src/electron/karaoke/*.js src/electron/ipcMain.js src/background.js
           src/remote/*.js vue.config.js
           scripts/test-karaoke-server.js scripts/test-karaoke-lifecycle.js
+          scripts/test-karaoke-remote-api.js
           scripts/isolate-remote-assets.js
       - name: KTV domain transitions
         run: node scripts/test-karaoke-domain.js
@@ -47,6 +49,8 @@ jobs:
         run: node scripts/test-karaoke-server.js
       - name: KTV LAN lifecycle bridge
         run: node scripts/test-karaoke-lifecycle.js
+      - name: KTV remote API integration
+        run: node scripts/test-karaoke-remote-api.js
       - name: Full repository lint diagnostic (known upstream failures)
         continue-on-error: true
         run: yarn lint

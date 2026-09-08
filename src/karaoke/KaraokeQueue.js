@@ -14,6 +14,8 @@ function toQueueItem(track, requester) {
     durationMs: track.dt || track.duration || 0,
     requesterId: requester.id,
     requesterName: requester.name,
+    requesterType: requester.type || 'host',
+    priorityRequested: Boolean(requester.priorityRequested),
     requestedAt: new Date().toISOString(),
     status: KARAOKE_ITEM_STATUS.QUEUED,
   };

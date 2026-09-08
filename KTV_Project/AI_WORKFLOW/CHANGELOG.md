@@ -1,6 +1,7 @@
 # CHANGELOG
 
 ## Unreleased
+
 - Project plan and AI workflow scaffolding prepared.
 - Phase 1 local implementation: continuous lyric font size, persisted lyric timing offset, reusable KTV glass tokens/theme switcher, desktop KTV shell, and responsive remote UI shell.
 - Initial Git repository and Phase 1 implementation commit created: `c740ab7` on `feat/ktv-phase-1`.
@@ -14,3 +15,6 @@
 - Phase 3.1 repair: main-process LAN lifecycle gate, transactional room startup,
   isolated remote assets, fragment token bootstrap, candidate selection, lyric
   fullscreen controls, and expanded blocking validation.
+- Phase 4: authenticated per-client Remote sessions, strict LAN HTTP song-request
+  API, server-side NetEase search/playability checks, manager-only queue bridge,
+  requester ownership controls, adaptive polling, and responsive production Remote UI.

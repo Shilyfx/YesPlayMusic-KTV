@@ -14,6 +14,44 @@ export function ipcRenderer(vueInstance) {
   const electron = window.require('electron');
   const ipcRenderer = electron.ipcRenderer;
 
+  ipcRenderer.on('karaoke:remote:command', async (_, command) => {
+    const manager = store.$karaokeManager;
+    try {
+      if (!manager) throw new Error('KTV_NOT_ACTIVE');
+      let result;
+      switch (command.action) {
+        case 'snapshot':
+          result = manager.getSnapshot();
+          break;
+        case 'enqueue':
+          result = manager.enqueueTrack(
+            command.payload.track,
+            command.payload.requester
+          );
+          break;
+        case 'remove':
+          result = manager.removeQueueItem(command.payload.queueItemId);
+          break;
+        case 'front':
+          result = manager.moveQueueItemToFront(command.payload.queueItemId);
+          break;
+        default:
+          throw new Error('KTV_NOT_ACTIVE');
+      }
+      ipcRenderer.send('karaoke:remote:result', {
+        id: command.id,
+        ok: true,
+        result,
+      });
+    } catch (error) {
+      ipcRenderer.send('karaoke:remote:result', {
+        id: command.id,
+        ok: false,
+        error: error.message,
+      });
+    }
+  });
+
   // listens to the main process 'changeRouteTo' event and changes the route from
   // inside this Vue instance, according to what path the main process requires.
   // responds to Menu click() events at the main process and changes the route accordingly.

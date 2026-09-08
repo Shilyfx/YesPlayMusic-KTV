@@ -62,13 +62,22 @@ export class KaraokeServer {
     remoteDistPath,
     port = ROOM_PORT,
     networkInterfaces = () => os.networkInterfaces(),
+    remoteApi = null,
+    remoteService = null,
   }) {
     this.remoteDistPath = remoteDistPath;
     this.port = port;
     this.networkInterfaces = networkInterfaces;
+    this.remoteApi = remoteApi;
+    this.remoteService = remoteService;
     this.server = null;
     this.room = null;
     this.state = 'idle';
+  }
+
+  setRemoteApi(remoteApi, remoteService) {
+    this.remoteApi = remoteApi;
+    this.remoteService = remoteService;
   }
 
   async startRoom({ lanAddress } = {}) {
@@ -103,6 +112,7 @@ export class KaraokeServer {
       this.room = room;
       this.server = server;
       this.state = 'active';
+      this.remoteService?.onRoomStart(room);
       return this.describeRoom();
     } catch (error) {
       this.room = null;
@@ -114,6 +124,7 @@ export class KaraokeServer {
   }
 
   async stopRoom() {
+    this.remoteService?.onRoomStop();
     this.room = null;
     this.state = 'idle';
     if (!this.server) return;
@@ -136,6 +147,8 @@ export class KaraokeServer {
 
   async handleRequest(request, response) {
     const requestUrl = new URL(request.url, 'http://karaoke.local');
+    if (this.remoteApi && (await this.remoteApi.handle(request, response)))
+      return;
     if (request.method !== 'GET') return this.notFound(response);
     if (requestUrl.pathname === '/health') {
       return this.sendJson(response, { active: Boolean(this.room) });

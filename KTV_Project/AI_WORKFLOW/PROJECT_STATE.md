@@ -10,13 +10,14 @@
 
 ## Current phase
 
-- Phase: 3 / isolated LAN room and KTV UI enhancement in progress on `feat/ktv-phase-3`
-- Active branch: `feat/ktv-phase-3`
+- Phase: 4 / authenticated LAN remote song request implementation on `feat/ktv-phase-4`
+- Active branch: `feat/ktv-phase-4`
 - Phase 1.1 fixed GitHub parent: `98436df30434432037f8dfc0213b85df33205176`
 - Phase 2 GitHub implementation commit: `d091844f456bd91cc36b6bac6fc6500d3b55134e`
 - Phase 2.1 fixed GitHub commit: `21385ac20ef56e69f597a5d78b2fb7b2cbb39b54`
 - Phase 2.1 green run: `34187060149`
-- Latest Codex report: `REPORTS/CODEX_STEP_03_REPORT.md`
+- Phase 3.1 repaired GitHub parent: `0c0c57f15da5c91434764de8080021515e91c211`
+- Latest Codex report: `REPORTS/CODEX_STEP_04_REPORT.md`
 - Latest ChatGPT review: `REVIEWS/CHATGPT_PHASE_01_REVIEW.md` (Conditional Pass for Phase 1 only)
 
 ## Invariants
@@ -29,8 +30,8 @@
 
 ## Next action
 
-Push the Phase 3.1 repair and wait for a green GitHub validation gate. Do not
-begin Phase 4 remote search, queue APIs, polling, SSE, or WebSocket work before it.
+Run the Phase 4 scoped and GitHub validation gate, then complete a real LAN and
+logged-in NetEase smoke test. Do not add WebSocket/SSE or general desktop APIs.
 
 ## Phase 1 implementation
 
@@ -63,3 +64,16 @@ begin Phase 4 remote search, queue APIs, polling, SSE, or WebSocket work before 
 - Existing lint remains blocked by eight pre-existing errors outside Phase 1 files. See the Phase 1 report.
 - Phase 2 scoped Prettier and ESLint checks passed; the production web build passed with `NODE_OPTIONS=--openssl-legacy-provider`.
 - Logged-in browser validation passed with a real NetEase track: session start, duplicate requests, start queue, replay, and next-song transition. The active temporary session was intentionally left intact rather than clearing local data without confirmation.
+
+## Phase 4 implementation
+
+- The LAN remote server exposes only an authenticated `/ktv/api` whitelist. A QR
+  fragment join token is exchanged once for a per-browser client session and is
+  removed from the address bar; room stop/restart invalidates all client sessions.
+- `KaraokeManager` remains the only queue source of truth. Main-process HTTP uses
+  a narrow IPC command bridge to its public snapshot/enqueue/remove/front methods.
+- Search and availability checks run server-side through the local NetEase service;
+  Remote clients never receive or call the desktop localhost API. Point-song always
+  performs a fresh playable check, permits duplicates, and never auto-starts audio.
+- The responsive Remote page has real now-playing, search, normal/priority request,
+  own waiting-item controls, theme modes, and 1.5/5 second adaptive polling.
