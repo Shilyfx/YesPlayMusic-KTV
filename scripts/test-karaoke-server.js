@@ -22,6 +22,7 @@ require.extensions['.js'] = function transpileKaraokeServer(module, filename) {
 const { KaraokeServer } = require('../src/electron/karaoke/KaraokeServer');
 
 const interfaces = () => ({
+  Ethernet: [{ family: 'IPv4', internal: false, address: '10.46.8.202' }],
   WiFi: [{ family: 'IPv4', internal: false, address: '192.168.8.20' }],
   Docker: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }],
 });
@@ -85,6 +86,7 @@ async function run() {
   });
   const room = await server.startRoom({ sessionId: 'session-test' });
   const roomUrl = new URL(room.url);
+  assert.equal(roomUrl.hostname, '192.168.8.20');
 
   const health = await request(serverPort, '/health');
   assert.equal(health.status, 200);

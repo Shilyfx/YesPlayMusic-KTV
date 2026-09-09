@@ -33,6 +33,7 @@ function getLanAddressCandidates(interfaces = os.networkInterfaces()) {
         isPrivate: privateAddress,
         priority:
           (privateAddress ? 100 : 0) -
+          (address.address.startsWith('192.168.') ? -20 : 0) -
           (virtualInterface ? 80 : 0) -
           (address.address.startsWith('169.254.') ? 100 : 0),
       });
