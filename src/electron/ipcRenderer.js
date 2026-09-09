@@ -2,7 +2,9 @@ import store from '@/store';
 import { search } from '@/api/others';
 import { getMP3, getTrackDetail } from '@/api/track';
 
-const player = store.state.player;
+function getPlayer() {
+  return store?.state?.player;
+}
 
 export function assertExpectedKaraokeSession(manager, expected) {
   const session = manager.getSnapshot().session;
@@ -133,27 +135,32 @@ export function ipcRenderer(vueInstance) {
   });
 
   ipcRenderer.on('play', () => {
+    const player = getPlayer();
     const manager = store.$karaokeManager;
     if (manager?.isSessionActive) manager.playOrPause();
-    else player.playOrPause();
+    else player?.playOrPause();
   });
 
   ipcRenderer.on('next', () => {
+    const player = getPlayer();
     const manager = store.$karaokeManager;
     if (manager?.isSessionActive) {
       manager.next();
-    } else if (player.isPersonalFM) {
+    } else if (player?.isPersonalFM) {
       player.playNextFMTrack();
-    } else {
+    } else if (player) {
       player.playNextTrack();
     }
   });
 
   ipcRenderer.on('previous', () => {
-    if (!store.$karaokeManager?.isSessionActive) player.playPrevTrack();
+    const player = getPlayer();
+    if (!store.$karaokeManager?.isSessionActive) player?.playPrevTrack();
   });
 
   ipcRenderer.on('increaseVolume', () => {
+    const player = getPlayer();
+    if (!player) return;
     if (player.volume + 0.1 >= 1) {
       return (player.volume = 1);
     }
@@ -161,6 +168,8 @@ export function ipcRenderer(vueInstance) {
   });
 
   ipcRenderer.on('decreaseVolume', () => {
+    const player = getPlayer();
+    if (!player) return;
     if (player.volume - 0.1 <= 0) {
       return (player.volume = 0);
     }
@@ -168,15 +177,18 @@ export function ipcRenderer(vueInstance) {
   });
 
   ipcRenderer.on('like', () => {
-    store.dispatch('likeATrack', player.currentTrack.id);
+    const player = getPlayer();
+    if (player?.currentTrack?.id) {
+      store.dispatch('likeATrack', player.currentTrack.id);
+    }
   });
 
   ipcRenderer.on('repeat', () => {
-    player.switchRepeatMode();
+    getPlayer()?.switchRepeatMode();
   });
 
   ipcRenderer.on('shuffle', () => {
-    player.switchShuffle();
+    getPlayer()?.switchShuffle();
   });
 
   ipcRenderer.on('routerGo', (event, where) => {
@@ -195,6 +207,6 @@ export function ipcRenderer(vueInstance) {
   });
 
   ipcRenderer.on('setPosition', (event, position) => {
-    player._howler.seek(position);
+    getPlayer()?._howler?.seek(position);
   });
 }
