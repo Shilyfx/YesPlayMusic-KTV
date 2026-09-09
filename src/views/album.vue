@@ -278,27 +278,29 @@ export default {
       setTimeout(() => {
         if (!this.show) NProgress.start();
       }, 1000);
-      getAlbum(id).then(data => {
-        this.album = data.album;
-        this.tracks = data.songs;
-        this.formatTitle();
-        NProgress.done();
-        this.show = true;
-
-        // to get explicit mark
-        let trackIDs = this.tracks.map(t => t.id);
-        getTrackDetail(trackIDs.join(',')).then(data => {
-          this.tracks = data.songs;
+      getAlbum(id)
+        .then(data => {
+          this.album = data?.album || {};
+          this.tracks = data?.songs || [];
+          this.formatTitle();
+          const trackIDs = this.tracks.map(track => track.id);
+          if (trackIDs.length)
+            getTrackDetail(trackIDs.join(','))
+              .then(data => (this.tracks = data?.songs || this.tracks))
+              .catch(() => {});
+          if (this.album.artist?.id)
+            getArtistAlbum({ id: this.album.artist.id, limit: 100 })
+              .then(data => (this.moreAlbums = data?.hotAlbums || []))
+              .catch(() => {});
+        })
+        .catch(() => {})
+        .finally(() => {
+          NProgress.done();
+          this.show = true;
         });
-
-        // get more album by this artist
-        getArtistAlbum({ id: this.album.artist.id, limit: 100 }).then(data => {
-          this.moreAlbums = data.hotAlbums;
-        });
-      });
-      albumDynamicDetail(id).then(data => {
-        this.dynamicDetail = data;
-      });
+      albumDynamicDetail(id)
+        .then(data => (this.dynamicDetail = data || {}))
+        .catch(() => {});
     },
     toggleFullDescription() {
       this.showFullDescription = !this.showFullDescription;

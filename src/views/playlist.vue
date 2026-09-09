@@ -450,19 +450,21 @@ export default {
       this.id = id;
       getPlaylistDetail(this.id, true)
         .then(data => {
-          this.playlist = data.playlist;
-          this.tracks = data.playlist.tracks;
-          NProgress.done();
+          this.playlist = data?.playlist || {};
+          this.tracks = this.playlist.tracks || [];
           if (next !== undefined) next();
-          this.show = true;
-          this.lastLoadedTrackIndex = data.playlist.tracks.length - 1;
-          return data;
+          this.lastLoadedTrackIndex = this.tracks.length - 1;
         })
         .then(() => {
           if (this.playlist.trackCount > this.tracks.length) {
             this.loadingMore = true;
             this.loadMore();
           }
+        })
+        .catch(() => {})
+        .finally(() => {
+          NProgress.done();
+          this.show = true;
         });
     },
     loadMore(loadNum = 100) {

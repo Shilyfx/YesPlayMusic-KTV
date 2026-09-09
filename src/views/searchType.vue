@@ -95,36 +95,40 @@ export default {
         keywords: this.keywords,
         type: typeTable[this.type],
         offset: this.result.length,
-      }).then(result => {
-        result = result.result;
-        this.hasMore = result.hasMore ?? true;
-        switch (this.type) {
-          case 'musicVideos':
-            this.result.push(...result.mvs);
-            if (result.mvCount <= this.result.length) {
-              this.hasMore = false;
-            }
-            break;
-          case 'artists':
-            this.result.push(...result.artists);
-            break;
-          case 'albums':
-            this.result.push(...result.albums);
-            if (result.albumCount <= this.result.length) {
-              this.hasMore = false;
-            }
-            break;
-          case 'tracks':
-            this.result.push(...result.songs);
-            this.getTracksDetail();
-            break;
-          case 'playlists':
-            this.result.push(...result.playlists);
-            break;
-        }
-        NProgress.done();
-        this.show = true;
-      });
+      })
+        .then(response => {
+          const result = response?.result || {};
+          this.hasMore = result.hasMore ?? true;
+          switch (this.type) {
+            case 'musicVideos':
+              this.result.push(...result.mvs);
+              if (result.mvCount <= this.result.length) {
+                this.hasMore = false;
+              }
+              break;
+            case 'artists':
+              this.result.push(...result.artists);
+              break;
+            case 'albums':
+              this.result.push(...result.albums);
+              if (result.albumCount <= this.result.length) {
+                this.hasMore = false;
+              }
+              break;
+            case 'tracks':
+              this.result.push(...result.songs);
+              this.getTracksDetail();
+              break;
+            case 'playlists':
+              this.result.push(...result.playlists);
+              break;
+          }
+        })
+        .catch(() => {})
+        .finally(() => {
+          NProgress.done();
+          this.show = true;
+        });
     },
     getTracksDetail() {
       const trackIDs = this.result.map(t => t.id);

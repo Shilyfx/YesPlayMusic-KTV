@@ -322,11 +322,14 @@ export default {
         this.$store.dispatch('fetchLikedSongsWithDetails');
         this.getRandomLyric();
       } else {
-        this.$store.dispatch('fetchLikedSongsWithDetails').then(() => {
-          NProgress.done();
-          this.show = true;
-          this.getRandomLyric();
-        });
+        this.$store
+          .dispatch('fetchLikedSongsWithDetails')
+          .catch(() => {})
+          .finally(() => {
+            NProgress.done();
+            this.show = true;
+            this.getRandomLyric();
+          });
       }
       this.$store.dispatch('fetchLikedSongs');
       this.$store.dispatch('fetchLikedPlaylist');

@@ -62,20 +62,24 @@ export default {
       setTimeout(() => {
         if (!this.show) NProgress.start();
       }, 1000);
-      getArtist(this.id).then(data => {
-        this.artist = data.artist;
-      });
+      getArtist(this.id)
+        .then(data => {
+          this.artist = data?.artist || {};
+        })
+        .catch(() => {});
       this.loadMVs();
     },
     loadMVs() {
-      artistMv({ id: this.id, limit: 100, offset: this.mvs.length }).then(
-        data => {
-          this.mvs.push(...data.mvs);
-          this.hasMore = data.hasMore;
+      artistMv({ id: this.id, limit: 100, offset: this.mvs.length })
+        .then(data => {
+          this.mvs.push(...(data?.mvs || []));
+          this.hasMore = Boolean(data?.hasMore);
+        })
+        .catch(() => {})
+        .finally(() => {
           NProgress.done();
           this.show = true;
-        }
-      );
+        });
     },
   },
 };

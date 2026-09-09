@@ -157,10 +157,12 @@ export default {
         limit: 16,
       })
         .then(result => {
-          return { result: result.result, type };
+          return { result: result?.result, type };
         })
-        .catch(err => {
-          showToast(err.response.data.msg || err.response.data.message);
+        .catch(error => {
+          const message = error?.response?.data?.msg || error?.message;
+          if (message) showToast(message);
+          return { result: undefined, type };
         });
     },
     getData() {
@@ -171,37 +173,43 @@ export default {
 
       const requestAll = requests => {
         const keywords = this.keywords;
-        Promise.all(requests).then(results => {
-          if (keywords != this.keywords) return;
-          results.map(result => {
-            const searchType = result.type;
-            if (result.result === undefined) return;
-            result = result.result;
-            switch (searchType) {
-              case 'all':
-                this.result = result;
-                break;
-              case 'musicVideos':
-                this.musicVideos = result.mvs ?? [];
-                break;
-              case 'artists':
-                this.artists = result.artists ?? [];
-                break;
-              case 'albums':
-                this.albums = result.albums ?? [];
-                break;
-              case 'tracks':
-                this.tracks = result.songs ?? [];
-                this.getTracksDetail();
-                break;
-              case 'playlists':
-                this.playlists = result.playlists ?? [];
-                break;
-            }
+        Promise.all(requests)
+          .then(results => {
+            if (keywords != this.keywords) return;
+            results.forEach(result => {
+              if (!result) return;
+              const searchType = result.type;
+              if (result.result === undefined) return;
+              result = result.result;
+              switch (searchType) {
+                case 'all':
+                  this.result = result;
+                  break;
+                case 'musicVideos':
+                  this.musicVideos = result.mvs ?? [];
+                  break;
+                case 'artists':
+                  this.artists = result.artists ?? [];
+                  break;
+                case 'albums':
+                  this.albums = result.albums ?? [];
+                  break;
+                case 'tracks':
+                  this.tracks = result.songs ?? [];
+                  this.getTracksDetail();
+                  break;
+                case 'playlists':
+                  this.playlists = result.playlists ?? [];
+                  break;
+              }
+            });
+          })
+          .catch(() => {})
+          .finally(() => {
+            if (keywords !== this.keywords) return;
+            NProgress.done();
+            this.show = true;
           });
-          NProgress.done();
-          this.show = true;
-        });
       };
 
       const requests = [
@@ -218,7 +226,7 @@ export default {
       const trackIDs = this.tracks.map(t => t.id);
       if (trackIDs.length === 0) return;
       getTrackDetail(trackIDs.join(',')).then(result => {
-        this.tracks = result.songs;
+        this.tracks = result?.songs || this.tracks;
       });
     },
   },

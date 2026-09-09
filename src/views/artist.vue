@@ -277,13 +277,17 @@ export default {
       }, 1000);
       this.show = false;
       this.$parent.$refs.main.scrollTo({ top: 0 });
-      getArtist(id).then(data => {
-        this.artist = data.artist;
-        this.setPopularTracks(data.hotSongs);
-        if (next !== undefined) next();
-        NProgress.done();
-        this.show = true;
-      });
+      getArtist(id)
+        .then(data => {
+          this.artist = data?.artist || {};
+          this.setPopularTracks(data?.hotSongs || []);
+          if (next !== undefined) next();
+        })
+        .catch(() => {})
+        .finally(() => {
+          NProgress.done();
+          this.show = true;
+        });
       getArtistAlbum({ id: id, limit: 200 }).then(data => {
         this.albumsData = data.hotAlbums;
         this.latestRelease = data.hotAlbums[0];
