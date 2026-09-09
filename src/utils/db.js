@@ -36,7 +36,8 @@ async function waitForSettingsReady(timeoutMs = 5000) {
   const maxTries = Math.ceil(timeoutMs / interval);
   let tries = 0;
   while (
-    (store.state == null ||
+    (store == null ||
+      store.state == null ||
       store.state.settings == null ||
       store.state.settings.cacheLimit === undefined) &&
     tries < maxTries
@@ -44,7 +45,7 @@ async function waitForSettingsReady(timeoutMs = 5000) {
     await new Promise(resolve => setTimeout(resolve, interval));
     tries++;
   }
-  return store.state && store.state.settings;
+  return store?.state?.settings;
 }
 
 // 初始化现有缓存总大小，确保应用启动时能正确判断并清理超限缓存
@@ -71,6 +72,7 @@ async function initTracksCacheBytes() {
 initTracksCacheBytes();
 
 async function deleteExcessCache() {
+  if (!store?.state?.settings) return;
   if (
     store.state.settings.cacheLimit === false ||
     tracksCacheBytes < store.state.settings.cacheLimit * Math.pow(1024, 2)
