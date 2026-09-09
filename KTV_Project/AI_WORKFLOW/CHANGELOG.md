@@ -15,6 +15,8 @@
   Actions `34258369587` / `34258965888`.
 - Real packaged-startup follow-up: guard the cyclic Vuex/IPC player lookup and
   cache initialization so the Electron renderer no longer opens white on launch.
+- LAN test preparation: prefer the active `192.168.*` Wi-Fi adapter for the QR
+  room link when multiple private adapters are present.
 
 - Project plan and AI workflow scaffolding prepared.
 - Phase 1 local implementation: continuous lyric font size, persisted lyric timing offset, reusable KTV glass tokens/theme switcher, desktop KTV shell, and responsive remote UI shell.

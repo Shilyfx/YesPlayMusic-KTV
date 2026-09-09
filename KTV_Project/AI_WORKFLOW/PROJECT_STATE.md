@@ -37,9 +37,11 @@ WebSocket/SSE or general desktop APIs.
 
 ## Final repair checkpoint
 
-- Code checkpoint: `ba075055c46530c38a766c60c570537a83ae249b`; Phase Validation
-  run `34331597136` succeeded. This checkpoint also guards renderer startup
+- Code checkpoint: `f5cc5866390d08565c1eae8d0e824a523a12460a`; Phase Validation
+  run `34331990263` succeeded. This checkpoint also guards renderer startup
   against an early cyclic-store player lookup that produced a white screen.
+- Room-link selection now prefers the active `192.168.*` Wi-Fi adapter when more
+  than one private IPv4 candidate exists.
 - Documentation checkpoint: `a94865958103a8bb4d897df57f0390f23ba1d26b`; Phase
   Validation run `34258965888` succeeded.
 - Scope is limited to P1-01/02/03 and P2-01/02/03 final-audit repairs. No Phase 5

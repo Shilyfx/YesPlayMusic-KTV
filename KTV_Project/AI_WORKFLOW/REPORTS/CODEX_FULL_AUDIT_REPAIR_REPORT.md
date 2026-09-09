@@ -60,9 +60,9 @@ Electron/LAN smoke evidence before declaring the release gate complete.
 - `UNIFIED_REPAIR_BASE_SHA`: `bfa19557c7b16e4d8bb0419cd30e8de837b502cd`
 - `PREVIOUS_REPAIR_CODE_SHA`: `9d0176acb9989465743778a88c7046efa0d1469b`
 - `PREVIOUS_REPAIR_DOC_SHA`: `b6a0b05cb0f25d830a996c196f4bdc325178f8f5`
-- `FINAL_REPAIR_CODE_SHA`: `ba075055c46530c38a766c60c570537a83ae249b`
+- `FINAL_REPAIR_CODE_SHA`: `f5cc5866390d08565c1eae8d0e824a523a12460a`
 - `FINAL_REPAIR_DOC_SHA`: `a94865958103a8bb4d897df57f0390f23ba1d26b`
-- `FINAL_REPAIR_CODE_ACTION_RUN`: [34331597136](https://github.com/Shilyfx/YesPlayMusic-KTV/actions/runs/34331597136) — success.
+- `FINAL_REPAIR_CODE_ACTION_RUN`: [34331990263](https://github.com/Shilyfx/YesPlayMusic-KTV/actions/runs/34331990263) — success.
 - `FINAL_REPAIR_DOC_ACTION_RUN`: [34258965888](https://github.com/Shilyfx/YesPlayMusic-KTV/actions/runs/34258965888) — success.
 
 ### Closed items
@@ -84,6 +84,9 @@ Electron/LAN smoke evidence before declaring the release gate complete.
   renderer lookup that caused a white page. `ipcRenderer.js` now resolves Player
   lazily and `db.js` tolerates Vuex hydration; the rebuilt package is ready for
   user-visible confirmation of the renderer and KTV flow.
+- LAN test preparation: when multiple private adapters are available, room-link
+  candidate sorting now prefers `192.168.*`; the current host exposes
+  `WLAN = 192.168.0.169` and `以太网 = 10.46.8.202`.
 - Cloud: both canonical code and documentation workflow runs above succeeded.
 - Not claimed: packaged Windows runtime, same-Wi-Fi QR connection, logged-in NetEase
   Remote search/request, TV rendering, and physical audio. These remain the real
