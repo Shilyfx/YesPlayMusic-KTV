@@ -37,8 +37,9 @@ WebSocket/SSE or general desktop APIs.
 
 ## Final repair checkpoint
 
-- Code checkpoint: `f8fcf7cfd086e097fff856431b9ff86c3fc25ffa`; Phase Validation
-  run `34258369587` succeeded.
+- Code checkpoint: `ba075055c46530c38a766c60c570537a83ae249b`; Phase Validation
+  run `34331597136` succeeded. This checkpoint also guards renderer startup
+  against an early cyclic-store player lookup that produced a white screen.
 - Documentation checkpoint: `a94865958103a8bb4d897df57f0390f23ba1d26b`; Phase
   Validation run `34258965888` succeeded.
 - Scope is limited to P1-01/02/03 and P2-01/02/03 final-audit repairs. No Phase 5

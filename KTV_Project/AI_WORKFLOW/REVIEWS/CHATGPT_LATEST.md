@@ -10,10 +10,12 @@ GitHub run is green.
 
 ## Final repair review target
 
-Review `bfa19557c7b16e4d8bb0419cd30e8de837b502cd...f8fcf7cfd086e097fff856431b9ff86c3fc25ffa`.
+Review `bfa19557c7b16e4d8bb0419cd30e8de837b502cd...ba075055c46530c38a766c60c570537a83ae249b`.
 Confirm that Electron's packaged Remote tree is self-contained (with no desktop
 bundle fallback), stale Remote mutations are rejected at the renderer last hop,
 active KTV owns all media/playback commands, and the server lifecycle/session
-cleanup regressions are covered. Code validation: Action `34258369587` succeeded;
+cleanup regressions are covered. Renderer startup now defers the player lookup
+until Vuex hydration completes, preventing a white-screen failure. Code validation:
+Action `34331597136` succeeded;
 the documentation checkpoint `a94865958103a8bb4d897df57f0390f23ba1d26b` is also
 green in Action `34258965888`.

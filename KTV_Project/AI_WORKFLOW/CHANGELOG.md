@@ -13,6 +13,8 @@
   persistence, startup cancellation, and expired-session capacity regressions are
   covered by deterministic tests. Code/documentation checkpoints passed GitHub
   Actions `34258369587` / `34258965888`.
+- Real packaged-startup follow-up: guard the cyclic Vuex/IPC player lookup and
+  cache initialization so the Electron renderer no longer opens white on launch.
 
 - Project plan and AI workflow scaffolding prepared.
 - Phase 1 local implementation: continuous lyric font size, persisted lyric timing offset, reusable KTV glass tokens/theme switcher, desktop KTV shell, and responsive remote UI shell.
