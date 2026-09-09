@@ -39,6 +39,7 @@ Vue.use(
 Vue.config.productionTip = false;
 
 NProgress.configure({ showSpinner: false, trickleSpeed: 100 });
+if (store?.state?.settings?.lang) i18n.locale = store.state.settings.lang;
 dailyTask();
 
 new Vue({

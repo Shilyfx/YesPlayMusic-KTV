@@ -194,6 +194,11 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
     return { ok: true, ...status };
   });
 
+  ipcMain.handle('karaoke:lan:candidates', async () => ({
+    ok: true,
+    candidates: karaokeServer.getLanAddressCandidates(),
+  }));
+
   ipcMain.handle('karaoke:lan:start', async (_, options) => {
     try {
       const snapshot = await remoteCommand('snapshot');

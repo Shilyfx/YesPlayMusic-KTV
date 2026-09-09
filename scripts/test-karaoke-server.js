@@ -84,7 +84,15 @@ async function run() {
     port: serverPort,
     networkInterfaces: interfaces,
   });
-  const room = await server.startRoom({ sessionId: 'session-test' });
+  const candidates = server.getLanAddressCandidates();
+  assert.deepEqual(
+    candidates.map(candidate => candidate.address),
+    ['10.46.8.202', '192.168.8.20', '172.17.0.1']
+  );
+  const room = await server.startRoom({
+    sessionId: 'session-test',
+    lanAddress: '192.168.8.20',
+  });
   const roomUrl = new URL(room.url);
   assert.equal(roomUrl.hostname, '192.168.8.20');
 

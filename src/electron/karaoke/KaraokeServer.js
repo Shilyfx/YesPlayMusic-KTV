@@ -33,7 +33,6 @@ function getLanAddressCandidates(interfaces = os.networkInterfaces()) {
         isPrivate: privateAddress,
         priority:
           (privateAddress ? 100 : 0) -
-          (address.address.startsWith('192.168.') ? -20 : 0) -
           (virtualInterface ? 80 : 0) -
           (address.address.startsWith('169.254.') ? 100 : 0),
       });
@@ -87,6 +86,10 @@ export class KaraokeServer {
     this.remoteService = remoteService;
   }
 
+  getLanAddressCandidates() {
+    return getLanAddressCandidates(this.networkInterfaces());
+  }
+
   async startRoom({ lanAddress, sessionId } = {}) {
     if (this.room) return this.describeRoom();
     if (this.startPromise) return this.startPromise;
@@ -101,7 +104,7 @@ export class KaraokeServer {
 
   async _startRoom({ lanAddress, sessionId }) {
     const generation = (this.generation += 1);
-    const candidates = getLanAddressCandidates(this.networkInterfaces());
+    const candidates = this.getLanAddressCandidates();
     const firstCandidate = candidates[0];
     const selectedAddress =
       lanAddress || (firstCandidate && firstCandidate.address);

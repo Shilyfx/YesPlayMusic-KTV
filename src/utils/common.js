@@ -96,7 +96,7 @@ export function isTrackPlayable(track) {
     return result;
   }
   if (track.fee === 1 || track.privilege?.fee === 1) {
-    if (isAccountLoggedIn() && store.state.data.user.vipType === 11) {
+    if (isAccountLoggedIn() && store?.state?.data?.user?.vipType === 11) {
       result.playable = true;
     } else {
       result.playable = false;
@@ -176,7 +176,9 @@ export function updateHttps(url) {
 }
 
 export function dailyTask() {
-  let lastDate = store.state.data.lastRefreshCookieDate;
+  const data = store?.state?.data;
+  if (!data) return;
+  let lastDate = data.lastRefreshCookieDate;
   if (
     isAccountLoggedIn() &&
     (lastDate === undefined || lastDate !== dayjs().date())
@@ -184,7 +186,7 @@ export function dailyTask() {
     console.debug('[debug][common.js] execute dailyTask');
     refreshCookie().then(() => {
       console.debug('[debug][common.js] 刷新cookie');
-      store.commit('updateData', {
+      store?.commit('updateData', {
         key: 'lastRefreshCookieDate',
         value: dayjs().date(),
       });
@@ -282,7 +284,7 @@ export function bytesToSize(bytes) {
   let megaBytes = marker * marker;
   let gigaBytes = marker * marker * marker;
 
-  let lang = store.state.settings.lang;
+  let lang = store?.state?.settings?.lang || 'zh-CN';
 
   if (bytes < kiloBytes) return bytes + (lang === 'en' ? ' Bytes' : '字节');
   else if (bytes < megaBytes)

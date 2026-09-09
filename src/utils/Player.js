@@ -245,11 +245,15 @@ export default class {
       this._personalFMNextTrack.id === 0 ||
       this._personalFMTrack.id === this._personalFMNextTrack.id
     ) {
-      personalFM().then(result => {
-        this._personalFMTrack = result.data[0];
-        this._personalFMNextTrack = result.data[1];
-        return this._personalFMTrack;
-      });
+      personalFM()
+        .then(result => {
+          const tracks = result?.data;
+          if (!Array.isArray(tracks) || tracks.length < 2) return null;
+          this._personalFMTrack = tracks[0];
+          this._personalFMNextTrack = tracks[1];
+          return this._personalFMTrack;
+        })
+        .catch(() => null);
     }
   }
   _setPlaying(isPlaying) {
@@ -1097,7 +1101,9 @@ export default class {
 
   sendSelfToIpcMain() {
     if (process.env.IS_ELECTRON !== true) return false;
-    let liked = store.state.liked.songs.includes(this.currentTrack.id);
+    const liked = Boolean(
+      store?.state?.liked?.songs?.includes(this.currentTrack.id)
+    );
     ipcRenderer?.send('player', {
       playing: this.playing,
       likedCurrentTrack: liked,

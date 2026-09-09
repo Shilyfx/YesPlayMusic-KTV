@@ -29,13 +29,13 @@ export function isLoggedIn() {
 export function isAccountLoggedIn() {
   return (
     getCookie('MUSIC_U') !== undefined &&
-    store.state.data.loginMode === 'account'
+    store?.state?.data?.loginMode === 'account'
   );
 }
 
 // 用户名搜索（用户数据为只读）
 export function isUsernameLoggedIn() {
-  return store.state.data.loginMode === 'username';
+  return store?.state?.data?.loginMode === 'username';
 }
 
 // 账户登录或者用户名搜索都判断为登录，宽松检查

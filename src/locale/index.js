@@ -11,8 +11,12 @@ import tr from './lang/tr.js';
 Vue.use(VueClipboard);
 Vue.use(VueI18n);
 
+// Some renderer entry points import locale while Vuex is still resolving a
+// circular dependency. Do not let that transient module state abort the app.
+const initialLocale = store?.state?.settings?.lang || 'zh-CN';
+
 const i18n = new VueI18n({
-  locale: store.state.settings.lang,
+  locale: initialLocale,
   messages: {
     en,
     'zh-CN': zhCN,

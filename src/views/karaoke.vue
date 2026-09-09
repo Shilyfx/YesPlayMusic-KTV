@@ -36,22 +36,46 @@
       </div>
     </header>
 
-    <section v-if="lanRoom && showRoomCode" class="room-access glass-panel">
-      <img :src="lanRoom.qrDataUrl" alt="局域网 KTV 房间二维码" />
+    <section v-if="isSessionActive" class="room-access glass-panel">
+      <img
+        v-if="lanRoom && showRoomCode"
+        :src="lanRoom.qrDataUrl"
+        alt="局域网 KTV 房间二维码"
+      />
       <div>
-        <strong>用同一局域网设备扫码加入</strong>
-        <p>房间码 {{ lanRoom.code }}。链接仅在本次 KTV 进行期间有效。</p>
-        <label v-if="lanRoom.candidates && lanRoom.candidates.length > 1">
-          对外地址
-          <select v-model="selectedLanAddress" @change="restartLanRoom">
+        <strong>{{
+          lanRoom ? '用同一局域网设备扫码加入' : '选择对外网卡'
+        }}</strong>
+        <p v-if="lanRoom"
+          >房间码 {{ lanRoom.code }}。链接仅在本次 KTV 进行期间有效。</p
+        >
+        <p v-else>服务会监听全部网络；你选择的网卡只决定二维码中的访问地址。</p>
+        <label v-if="lanCandidates.length">
+          网卡地址
+          <select v-model="selectedLanAddress">
             <option
-              v-for="candidate in lanRoom.candidates"
+              v-for="candidate in lanCandidates"
               :key="candidate.address"
               :value="candidate.address"
               >{{ candidate.interfaceName }} · {{ candidate.address }}</option
             >
           </select>
         </label>
+        <button
+          v-if="!lanRoom"
+          type="button"
+          class="generate-room"
+          :disabled="!selectedLanAddress"
+          @click="startLanRoom"
+          >生成房间二维码</button
+        >
+        <button
+          v-else
+          type="button"
+          class="generate-room"
+          @click="restartLanRoom"
+          >按当前网卡更新二维码</button
+        >
       </div>
     </section>
 
@@ -271,6 +295,7 @@ export default {
       systemTheme: 'light',
       themeMedia: null,
       lanRoom: null,
+      lanCandidates: [],
       showRoomCode: false,
       selectedLanAddress: '',
       isLyricFullscreen: false,
@@ -453,8 +478,11 @@ export default {
     toggleSession() {
       if (!this.isSessionActive) {
         this.karaokeManager.startSession();
-        this.setLanSessionActive(true).then(() => this.startLanRoom());
-        this.$store.dispatch('showToast', '本机 KTV 已开始，临时队列已就绪');
+        this.setLanSessionActive(true).then(() => this.loadLanCandidates());
+        this.$store.dispatch(
+          'showToast',
+          '本机 KTV 已开始。选择对外网卡后即可生成房间二维码'
+        );
         return;
       }
       if (this.currentItem || this.waitingItems.length) {
@@ -477,6 +505,16 @@ export default {
       const result = await ipcRenderer.invoke('karaoke:lan:status');
       this.lanRoom = result.room;
       this.selectedLanAddress = result.room?.selectedAddress || '';
+      this.lanCandidates = result.room?.candidates || [];
+      if (!this.lanCandidates.length) await this.loadLanCandidates();
+    },
+    async loadLanCandidates() {
+      const ipcRenderer = this.electronIpc();
+      if (!ipcRenderer) return;
+      const result = await ipcRenderer.invoke('karaoke:lan:candidates');
+      this.lanCandidates = result.candidates || [];
+      if (!this.selectedLanAddress && this.lanCandidates.length)
+        this.selectedLanAddress = this.lanCandidates[0].address;
     },
     async setLanSessionActive(active) {
       const ipcRenderer = this.electronIpc();
@@ -486,11 +524,16 @@ export default {
     async startLanRoom() {
       const ipcRenderer = this.electronIpc();
       if (!ipcRenderer) return;
+      if (!this.selectedLanAddress) {
+        this.$store.dispatch('showToast', '请先选择用于生成二维码的网卡');
+        return;
+      }
       const result = await ipcRenderer.invoke('karaoke:lan:start', {
-        lanAddress: this.selectedLanAddress || undefined,
+        lanAddress: this.selectedLanAddress,
       });
       if (result.ok) {
         this.lanRoom = result.room;
+        this.lanCandidates = result.room.candidates || this.lanCandidates;
         this.selectedLanAddress = result.room.selectedAddress;
         this.showRoomCode = true;
       } else {
@@ -703,6 +746,17 @@ export default {
   border-radius: 8px;
   background: var(--ktv-glass-soft);
   color: var(--ktv-text-primary);
+}
+.generate-room {
+  display: block;
+  min-height: 32px;
+  margin-top: 10px;
+  padding: 0 11px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 8px;
+  background: var(--ktv-accent);
+  color: #fff;
+  font-weight: 700;
 }
 .karaoke-layout {
   flex: 1;
