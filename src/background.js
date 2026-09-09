@@ -161,7 +161,19 @@ class Background {
 
     const expressApp = express();
     expressApp.use('/', express.static(__dirname + '/'));
-    expressApp.use('/api', expressProxy('http://127.0.0.1:10754'));
+    const apiProxy = expressProxy('http://127.0.0.1:10754');
+    // The renderer is created before the bundled NetEase API has necessarily
+    // finished listening. Queue its first requests instead of proxying them to
+    // a closed port and returning an empty response to page components.
+    expressApp.use('/api', async (req, res, next) => {
+      try {
+        await this.neteaseMusicAPI;
+        return apiProxy(req, res, next);
+      } catch (error) {
+        console.error('[NetEase API] unavailable:', error);
+        return res.status(503).json({ code: 503, message: 'API_UNAVAILABLE' });
+      }
+    });
     expressApp.use('/player', (req, res) => {
       this.window.webContents
         .executeJavaScript('window.yesplaymusic.player')
