@@ -77,6 +77,13 @@ function contentType(filePath) {
   return 'text/html; charset=utf-8';
 }
 
+function isImmutableAsset(relativePath) {
+  const fileName = path.posix.basename(
+    String(relativePath).replace(/\\/g, '/')
+  );
+  return /(?:^|[.-])[a-f0-9]{8,}(?:[.-]|$)/i.test(fileName);
+}
+
 export class KaraokeServer {
   constructor({
     remoteDistPath,
@@ -412,7 +419,9 @@ export class KaraokeServer {
     try {
       const content = await fs.readFile(filePath);
       response.writeHead(200, {
-        ...this.securityHeaders(contentType(filePath)),
+        ...this.securityHeaders(contentType(filePath), {
+          immutable: isImmutableAsset(relativePath),
+        }),
       });
       response.end(content);
     } catch (_) {
@@ -433,9 +442,11 @@ export class KaraokeServer {
     response.end('Not found');
   }
 
-  securityHeaders(type) {
+  securityHeaders(type, { immutable = false } = {}) {
     return {
-      'Cache-Control': 'no-store',
+      'Cache-Control': immutable
+        ? 'public, max-age=31536000, immutable'
+        : 'no-store',
       'Content-Type': type,
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',

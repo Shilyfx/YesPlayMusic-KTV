@@ -58,6 +58,10 @@ async function run() {
     path.join(remoteDistPath, 'js', 'remote.js'),
     'window.room=true;'
   );
+  fs.writeFileSync(
+    path.join(remoteDistPath, 'js', 'remote.1234abcd.js'),
+    'window.roomHashed=true;'
+  );
   fs.writeFileSync(path.join(remoteDistPath, 'css', 'remote.css'), 'body{}');
   fs.writeFileSync(
     path.join(desktopDistPath, 'js', 'desktop.js'),
@@ -134,6 +138,7 @@ async function run() {
   assert.equal(health.status, 200);
   const page = await request(serverPort, roomUrl.pathname);
   assert.equal(page.status, 200);
+  assert.equal(page.headers['cache-control'], 'no-store');
   assert.equal(page.headers['x-content-type-options'], 'nosniff');
   assert.equal(page.headers['referrer-policy'], 'no-referrer');
   assert.match(page.headers['content-security-policy'], /default-src 'none'/);
@@ -144,6 +149,21 @@ async function run() {
   assert.equal(
     (await request(serverPort, `${roomUrl.pathname}js/remote.js`)).status,
     200
+  );
+  assert.equal(
+    (await request(serverPort, `${roomUrl.pathname}js/remote.js`)).headers[
+      'cache-control'
+    ],
+    'no-store'
+  );
+  const hashedRemote = await request(
+    serverPort,
+    `${roomUrl.pathname}js/remote.1234abcd.js`
+  );
+  assert.equal(hashedRemote.status, 200);
+  assert.equal(
+    hashedRemote.headers['cache-control'],
+    'public, max-age=31536000, immutable'
   );
   assert.equal(
     (await request(serverPort, `${roomUrl.pathname}js/desktop.js`)).status,
