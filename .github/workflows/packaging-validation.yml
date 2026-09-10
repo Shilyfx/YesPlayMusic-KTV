@@ -68,8 +68,10 @@ jobs:
           ready=false
           for _ in {1..40}; do
             if curl -fsS http://127.0.0.1:27232/__health >"$RUNNER_TEMP/lumasing-health.json"; then
-              ready=true
-              break
+              if node -e "const h=require(process.env.RUNNER_TEMP + '/lumasing-health.json'); process.exit(h.desktopServer==='ready'&&h.renderer==='ready'&&h.neteaseApi==='ready' ? 0 : 1)"; then
+                ready=true
+                break
+              fi
             fi
             if ! kill -0 "$app_pid" 2>/dev/null; then
               cat "$RUNNER_TEMP/lumasing-smoke.log"
@@ -81,7 +83,7 @@ jobs:
             cat "$RUNNER_TEMP/lumasing-smoke.log"
             exit 1
           fi
-          node -e "const h=require(process.env.RUNNER_TEMP + '/lumasing-health.json'); if(h.desktopServer!=='ready'||h.renderer!=='ready'||h.neteaseApi!=='ready') { console.error(h); process.exit(1) }"
+          node -e "const h=require(process.env.RUNNER_TEMP + '/lumasing-health.json'); console.log(h)"
           test -f "$token_path"
       - name: Verify DMG integrity and mounted architecture
         shell: bash
