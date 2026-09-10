@@ -18,6 +18,8 @@ let searchQuery = '';
 let searchResults = [];
 let searchGeneration = 0;
 let playlists = [];
+let playlistsLoaded = false;
+let playlistsPromise;
 let selectedPlaylistId = '';
 let playlistTracks = [];
 let playlistQuery = '';
@@ -27,6 +29,8 @@ let selectedLocalPlaylistId = '';
 let localPlaylistTracks = [];
 let playedHistory = [];
 let recommendations = [];
+let recommendationsLoaded = false;
+let recommendationsPromise;
 let selectedRecommendationId = '';
 let recommendationTracks = [];
 let recommendationTrackGeneration = 0;
@@ -39,6 +43,7 @@ let chartMode = 'recommendations';
 let chartView = 'lists';
 let playlistSource = 'user';
 let localPlaylistsLoaded = false;
+let localPlaylistsPromise;
 let artistSearchTimer;
 let artistSearchAbort;
 let artistSearchGeneration = 0;
@@ -53,6 +58,8 @@ const featuredArtistQueries = [
   '杨宗纬',
 ];
 let featuredArtists = [];
+let featuredArtistsLoaded = false;
+let featuredArtistsPromise;
 let selectedArtistId = '';
 let artistTracks = [];
 let artistTrackGeneration = 0;
@@ -144,6 +151,7 @@ function initializeModuleTabs() {
     panels.forEach(panel => {
       panel.hidden = panel.dataset.modulePanel !== module;
     });
+    ensureModuleLoaded(module);
   };
   tabs.forEach(tab =>
     tab.addEventListener('click', () => update(tab.dataset.moduleTab))
@@ -763,32 +771,40 @@ function renderFeaturedArtists({ loading = false } = {}) {
     .join('');
 }
 
-async function loadFeaturedArtists() {
+async function loadFeaturedArtists({ force = false } = {}) {
+  if (featuredArtistsPromise) return featuredArtistsPromise;
+  if (featuredArtistsLoaded && !force) return;
   renderFeaturedArtists({ loading: true });
-  try {
-    const results = await Promise.all(
-      featuredArtistQueries.map(async query => {
-        try {
-          const response = await api(
-            `/artists/search?q=${encodeURIComponent(query)}`
-          );
-          return response.artists?.[0] || null;
-        } catch (_) {
-          return null;
-        }
-      })
-    );
-    featuredArtists = results
-      .filter(Boolean)
-      .filter(
-        (artist, index, list) =>
-          list.findIndex(item => item.id === artist.id) === index
+  featuredArtistsPromise = (async () => {
+    try {
+      const results = await Promise.all(
+        featuredArtistQueries.map(async query => {
+          try {
+            const response = await api(
+              `/artists/search?q=${encodeURIComponent(query)}`
+            );
+            return response.artists?.[0] || null;
+          } catch (_) {
+            return null;
+          }
+        })
       );
-    renderFeaturedArtists();
-  } catch (_) {
-    featuredArtists = [];
-    renderFeaturedArtists();
-  }
+      featuredArtists = results
+        .filter(Boolean)
+        .filter(
+          (artist, index, list) =>
+            list.findIndex(item => item.id === artist.id) === index
+        );
+      renderFeaturedArtists();
+    } catch (_) {
+      featuredArtists = [];
+      renderFeaturedArtists();
+    } finally {
+      featuredArtistsLoaded = true;
+      featuredArtistsPromise = null;
+    }
+  })();
+  return featuredArtistsPromise;
 }
 
 function renderSelectedArtists() {
@@ -872,11 +888,22 @@ function renderPlaylistSource() {
 function togglePlaylistSource() {
   playlistSource = playlistSource === 'local' ? 'user' : 'local';
   renderPlaylistSource();
-  if (playlistSource === 'local' && !localPlaylistsLoaded) loadLocalPlaylists();
+  ensureModuleLoaded('playlists');
 }
 
 function refreshPlaylistSource() {
-  return playlistSource === 'local' ? loadLocalPlaylists() : loadPlaylists();
+  return playlistSource === 'local'
+    ? loadLocalPlaylists({ force: true })
+    : loadPlaylists({ force: true });
+}
+
+function ensureModuleLoaded(module) {
+  if (module === 'recommendations') return loadRecommendations();
+  if (module === 'artists') return loadFeaturedArtists();
+  if (module === 'playlists') {
+    return playlistSource === 'local' ? loadLocalPlaylists() : loadPlaylists();
+  }
+  return Promise.resolve();
 }
 
 function renderPlaylistPicker() {
@@ -967,36 +994,42 @@ function selectLocalPlaylist(playlistId) {
   renderLocalPlaylistTracks();
 }
 
-async function loadLocalPlaylists() {
+async function loadLocalPlaylists({ force = false } = {}) {
+  if (localPlaylistsPromise) return localPlaylistsPromise;
+  if (localPlaylistsLoaded && !force) return;
   const button = app.querySelector('[data-playlists-refresh]');
   if (button) button.disabled = true;
-  try {
-    const response = await api('/local-playlists');
-    localPlaylists = response.playlists || [];
-    localPlaylistsLoaded = true;
-    const hasSelected = localPlaylists.some(
-      playlist => String(playlist.id) === String(selectedLocalPlaylistId)
-    );
-    selectedLocalPlaylistId = hasSelected
-      ? selectedLocalPlaylistId
-      : localPlaylists[0]?.id || '';
-    renderLocalPlaylistPicker();
-    selectLocalPlaylist(selectedLocalPlaylistId);
-    if (selectedArtistId) {
-      artistTracks = mergeArtistTracks(artistTracks, selectedArtistId);
-      renderArtistTracks();
+  localPlaylistsPromise = (async () => {
+    try {
+      const response = await api('/local-playlists');
+      localPlaylists = response.playlists || [];
+      localPlaylistsLoaded = true;
+      const hasSelected = localPlaylists.some(
+        playlist => String(playlist.id) === String(selectedLocalPlaylistId)
+      );
+      selectedLocalPlaylistId = hasSelected
+        ? selectedLocalPlaylistId
+        : localPlaylists[0]?.id || '';
+      renderLocalPlaylistPicker();
+      selectLocalPlaylist(selectedLocalPlaylistId);
+      if (selectedArtistId) {
+        artistTracks = mergeArtistTracks(artistTracks, selectedArtistId);
+        renderArtistTracks();
+      }
+    } catch (_) {
+      localPlaylistsLoaded = true;
+      localPlaylists = [];
+      selectedLocalPlaylistId = '';
+      localPlaylistTracks = [];
+      renderLocalPlaylistPicker();
+      renderLocalPlaylistTracks();
+    } finally {
+      renderPlaylistSource();
+      if (button) button.disabled = false;
+      localPlaylistsPromise = null;
     }
-  } catch (_) {
-    localPlaylistsLoaded = true;
-    localPlaylists = [];
-    selectedLocalPlaylistId = '';
-    localPlaylistTracks = [];
-    renderLocalPlaylistPicker();
-    renderLocalPlaylistTracks();
-  } finally {
-    renderPlaylistSource();
-    if (button) button.disabled = false;
-  }
+  })();
+  return localPlaylistsPromise;
 }
 
 async function selectRecommendation(playlistId) {
@@ -1054,27 +1087,35 @@ async function selectToplist(playlistId) {
   }
 }
 
-async function loadRecommendations() {
-  try {
-    const response = await api('/recommendations');
-    recommendations = response.playlists || [];
-    const hasSelected = recommendations.some(
-      playlist => playlist.id === selectedRecommendationId
-    );
-    selectedRecommendationId = hasSelected
-      ? selectedRecommendationId
-      : recommendations[0]?.id || '';
-    chartView = 'lists';
-    recommendationTracks = [];
-    renderRecommendations();
-    renderRecommendationTracks();
-  } catch (_) {
-    recommendations = [];
-    selectedRecommendationId = '';
-    renderRecommendations();
-    renderRecommendationTracks();
-    setNotice('推荐歌单暂时无法加载，请稍后重试。', 'error');
-  }
+async function loadRecommendations({ force = false } = {}) {
+  if (recommendationsPromise) return recommendationsPromise;
+  if (recommendationsLoaded && !force) return;
+  recommendationsPromise = (async () => {
+    try {
+      const response = await api('/recommendations');
+      recommendations = response.playlists || [];
+      const hasSelected = recommendations.some(
+        playlist => playlist.id === selectedRecommendationId
+      );
+      selectedRecommendationId = hasSelected
+        ? selectedRecommendationId
+        : recommendations[0]?.id || '';
+      chartView = 'lists';
+      recommendationTracks = [];
+      renderRecommendations();
+      renderRecommendationTracks();
+    } catch (_) {
+      recommendations = [];
+      selectedRecommendationId = '';
+      renderRecommendations();
+      renderRecommendationTracks();
+      setNotice('推荐歌单暂时无法加载，请稍后重试。', 'error');
+    } finally {
+      recommendationsLoaded = true;
+      recommendationsPromise = null;
+    }
+  })();
+  return recommendationsPromise;
 }
 
 async function loadToplists() {
@@ -1215,40 +1256,47 @@ async function selectPlaylist(playlistId) {
   }
 }
 
-async function loadPlaylists() {
+async function loadPlaylists({ force = false } = {}) {
+  if (playlistsPromise) return playlistsPromise;
+  if (playlistsLoaded && !force) return;
   const button = app.querySelector('[data-playlists-refresh]');
   if (button) button.disabled = true;
-  try {
-    const response = await api('/playlists');
-    playlists = response.playlists || [];
-    const hasSelected = playlists.some(
-      playlist => playlist.id === selectedPlaylistId
-    );
-    selectedPlaylistId = hasSelected
-      ? selectedPlaylistId
-      : playlists[0]?.id || '';
-    renderPlaylistPicker();
-    renderPlaylistSource();
-    if (selectedPlaylistId) await selectPlaylist(selectedPlaylistId);
-    else {
+  playlistsPromise = (async () => {
+    try {
+      const response = await api('/playlists');
+      playlists = response.playlists || [];
+      const hasSelected = playlists.some(
+        playlist => playlist.id === selectedPlaylistId
+      );
+      selectedPlaylistId = hasSelected
+        ? selectedPlaylistId
+        : playlists[0]?.id || '';
+      renderPlaylistPicker();
+      renderPlaylistSource();
+      if (selectedPlaylistId) await selectPlaylist(selectedPlaylistId);
+      else {
+        renderPlaylistTracks();
+        setNotice('主机尚未登录网易云账号，暂时无法读取歌单。', 'error');
+      }
+    } catch (error) {
+      playlists = [];
+      selectedPlaylistId = '';
+      renderPlaylistPicker();
       renderPlaylistTracks();
-      setNotice('主机尚未登录网易云账号，暂时无法读取歌单。', 'error');
+      renderPlaylistSource();
+      setNotice(
+        error.code === 'HOST_NOT_LOGGED_IN'
+          ? '请先在 KTV 主机登录网易云账号，再从歌单点歌。'
+          : '歌单暂时无法加载，请点击“刷新歌单”重试。',
+        'error'
+      );
+    } finally {
+      playlistsLoaded = true;
+      if (button) button.disabled = false;
+      playlistsPromise = null;
     }
-  } catch (error) {
-    playlists = [];
-    selectedPlaylistId = '';
-    renderPlaylistPicker();
-    renderPlaylistTracks();
-    renderPlaylistSource();
-    setNotice(
-      error.code === 'HOST_NOT_LOGGED_IN'
-        ? '请先在 KTV 主机登录网易云账号，再从歌单点歌。'
-        : '歌单暂时无法加载，请点击“刷新歌单”重试。',
-      'error'
-    );
-  } finally {
-    if (button) button.disabled = false;
-  }
+  })();
+  return playlistsPromise;
 }
 
 function scheduleSearch(query) {
@@ -1384,12 +1432,6 @@ async function bootstrap() {
     }
     initializeShell();
     await requestRefresh();
-    await Promise.all([
-      loadRecommendations(),
-      loadPlaylists(),
-      loadLocalPlaylists(),
-      loadFeaturedArtists(),
-    ]);
   } catch (_) {
     showEnded();
   }
