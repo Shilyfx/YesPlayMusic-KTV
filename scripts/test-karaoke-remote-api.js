@@ -89,6 +89,32 @@ async function run() {
       session: { ...activeSession },
       currentItem: null,
       waitingItems: [...waitingItems],
+      historyItems: [
+        {
+          queueItemId: 'history-1',
+          trackId: 99,
+          trackName: '已唱歌曲',
+          artists: ['历史歌手'],
+          albumName: '历史专辑',
+          requesterId: 'guest-old',
+          requesterName: '上一位歌手',
+          requesterType: 'guest',
+          priorityRequested: false,
+          status: 'played',
+        },
+        {
+          queueItemId: 'history-skipped',
+          trackId: 98,
+          trackName: '跳过歌曲',
+          artists: ['测试歌手'],
+          albumName: '测试专辑',
+          requesterId: 'guest-old',
+          requesterName: '上一位歌手',
+          requesterType: 'guest',
+          priorityRequested: false,
+          status: 'skipped',
+        },
+      ],
     }),
     enqueue: async (track, requester, expected) => {
       assertExpectedSession(expected);
@@ -231,6 +257,12 @@ async function run() {
   assert.equal(playlistTracks.body.tracks[0].playability, 'playable');
   assert.ok(bridgeCalls.includes('playlists'));
   assert.ok(bridgeCalls.includes('playlistTracks'));
+  const stateResponse = await request(port, 'GET', '/ktv/api/state', {
+    token: guestA.body.clientToken,
+  });
+  assert.equal(stateResponse.status, 200);
+  assert.equal(stateResponse.body.history.length, 1);
+  assert.equal(stateResponse.body.history[0].trackId, '99');
   service.sessions.clients.clear();
   for (let index = 0; index < 32; index += 1) {
     service.sessions.clients.set(`expired-${index}`, {

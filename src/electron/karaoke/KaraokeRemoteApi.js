@@ -366,6 +366,13 @@ export class KaraokeRemoteService {
       room: { active: true, code: this.getRoom().code },
       current: this.sanitizeItem(snapshot.currentItem),
       waiting: snapshot.waitingItems.map(item => this.sanitizeItem(item)),
+      // Only completed songs are exposed as history. Skipped, failed, and
+      // removed queue entries are not songs that guests can meaningfully
+      // replay from the "已播放" list.
+      history: (snapshot.historyItems || [])
+        .filter(item => item?.status === 'played')
+        .slice(0, 50)
+        .map(item => this.sanitizeItem(item)),
       client: {
         clientId: client.clientId,
         displayName: client.displayName,

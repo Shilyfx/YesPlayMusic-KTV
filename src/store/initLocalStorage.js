@@ -17,6 +17,7 @@ let localStorage = {
     lyricFontSize: 45,
     // Positive values make a lyric line appear earlier than its source time.
     lyricOffsetSeconds: 0,
+    karaokeLyricEffect: 'gradient',
     karaokeTheme: 'auto',
     outputDevice: 'default',
     showPlaylistsByAppleMusic: true,

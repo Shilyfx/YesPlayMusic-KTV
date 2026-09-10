@@ -177,6 +177,7 @@
         ref="lyricStage"
         class="stage glass-panel"
         :data-lyric-state="stageLyrics.state"
+        :data-lyric-effect="lyricEffect"
         aria-label="KTV 歌词舞台"
         @mousemove="showLyricControls"
         @touchstart="showLyricControls"
@@ -222,6 +223,26 @@
             {{ player.playing ? '暂停' : '播放' }}
           </button>
           <button type="button" @click="nextTrack">切歌</button>
+          <button
+            type="button"
+            class="volume-toggle"
+            :aria-pressed="player.volume === 0"
+            @click="toggleMute"
+          >
+            {{ player.volume === 0 ? '取消静音' : '静音' }}
+          </button>
+          <label class="fullscreen-volume">
+            <span>音量 {{ volumePercent }}%</span>
+            <input
+              type="range"
+              min="0"
+              max="1"
+              step="0.01"
+              :value="player.volume"
+              aria-label="全屏歌词音量"
+              @input="setVolume($event.target.value)"
+            />
+          </label>
           <button
             type="button"
             @pointerdown.stop.prevent="exitFullscreen"
@@ -383,6 +404,15 @@
           @click="adjustFontSize(1)"
           >+</button
         >
+        <label class="lyric-effect-setting">
+          <span>歌词字效</span>
+          <select v-model="lyricEffect" aria-label="自定义歌词字体效果">
+            <option value="gradient">渐变</option>
+            <option value="neon">霓虹</option>
+            <option value="outline">描边</option>
+            <option value="solid">纯色</option>
+          </select>
+        </label>
       </div>
     </footer>
   </section>
@@ -425,6 +455,7 @@ export default {
       isExitingFullscreen: false,
       lyricControlsVisible: false,
       lyricControlsTimer: null,
+      lastVolumeBeforeMute: 1,
     };
   },
   computed: {
@@ -492,6 +523,30 @@ export default {
     },
     lyricFontSize() {
       return normalizeLyricFontSize(this.settings.lyricFontSize);
+    },
+    lyricEffect: {
+      get() {
+        return ['gradient', 'neon', 'outline', 'solid'].includes(
+          this.settings.karaokeLyricEffect
+        )
+          ? this.settings.karaokeLyricEffect
+          : 'gradient';
+      },
+      set(value) {
+        const effect = ['gradient', 'neon', 'outline', 'solid'].includes(value)
+          ? value
+          : 'gradient';
+        this.$store.commit('updateSettings', {
+          key: 'karaokeLyricEffect',
+          value: effect,
+        });
+      },
+    },
+    volumePercent() {
+      const volume = Number(this.player.volume);
+      return Math.round(
+        Math.min(1, Math.max(0, Number.isFinite(volume) ? volume : 0)) * 100
+      );
     },
     lyricOffset() {
       return normalizeLyricOffset(this.settings.lyricOffsetSeconds);
@@ -962,6 +1017,21 @@ export default {
         normalizeLyricFontSize(this.lyricFontSize + amount)
       );
     },
+    setVolume(value) {
+      const volume = Number(value);
+      if (!Number.isFinite(volume)) return;
+      const normalized = Math.min(1, Math.max(0, volume));
+      if (normalized > 0) this.lastVolumeBeforeMute = normalized;
+      this.player.volume = normalized;
+    },
+    toggleMute() {
+      if (this.player.volume === 0) {
+        this.setVolume(this.lastVolumeBeforeMute || 0.7);
+      } else {
+        this.lastVolumeBeforeMute = this.player.volume;
+        this.setVolume(0);
+      }
+    },
     replay() {
       this.karaokeManager.replay();
     },
@@ -1338,6 +1408,7 @@ button:disabled {
 }
 .stage {
   position: relative;
+  isolation: isolate;
   display: flex;
   flex-direction: column;
   justify-content: center;
@@ -1360,6 +1431,7 @@ button:disabled {
   filter: blur(42px);
   opacity: 0.72;
   pointer-events: none;
+  z-index: 0;
   animation: ktv-stage-glow 8s ease-in-out infinite;
 }
 .stage::after {
@@ -1375,6 +1447,8 @@ button:disabled {
     transparent 67%
   );
   content: '';
+  pointer-events: none;
+  z-index: 0;
 }
 @keyframes ktv-stage-glow {
   0%,
@@ -1408,6 +1482,11 @@ button:disabled {
 .translation {
   position: relative;
   z-index: 1;
+}
+.stage-lines {
+  width: min(100%, 1100px);
+  margin: 0 auto;
+  padding: 52px 0 74px;
 }
 .stage-lines p {
   overflow-wrap: anywhere;
@@ -1458,6 +1537,41 @@ button:disabled {
   filter: none;
   -webkit-text-fill-color: currentColor;
   animation: none;
+}
+.stage[data-lyric-effect='neon'] .active-line {
+  background: none;
+  color: #f7d8ff;
+  -webkit-text-fill-color: currentColor;
+  -webkit-text-stroke: 0.5px rgba(255, 255, 255, 0.3);
+  text-shadow: 0 0 8px rgba(237, 164, 255, 0.8),
+    0 0 26px rgba(162, 103, 255, 0.72), 0 12px 34px rgba(75, 40, 151, 0.42);
+  filter: none;
+}
+.stage[data-lyric-effect='outline'] .active-line {
+  background: none;
+  color: transparent;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 1.5px var(--ktv-accent-strong);
+  text-shadow: 0 0 18px rgba(171, 156, 255, 0.46);
+  filter: none;
+}
+.stage[data-lyric-effect='solid'] .active-line {
+  background: none;
+  color: var(--ktv-text-primary);
+  -webkit-text-fill-color: currentColor;
+  -webkit-text-stroke: 0;
+  text-shadow: 0 12px 28px rgba(52, 37, 124, 0.2);
+  filter: none;
+}
+.stage[data-lyric-state='before-first'][data-lyric-effect] .active-line,
+.stage[data-lyric-state='waiting'][data-lyric-effect] .active-line,
+.stage[data-lyric-state='after-final'][data-lyric-effect] .active-line {
+  color: var(--ktv-text-secondary);
+  background: none;
+  -webkit-text-fill-color: currentColor;
+  -webkit-text-stroke: 0;
+  text-shadow: none;
+  filter: none;
 }
 .translation {
   margin: 4px auto 0;
@@ -1536,6 +1650,14 @@ button:disabled {
 .stage:-ms-fullscreen .active-line {
   font-size: clamp(48px, calc(var(--ktv-active-lyric-size) + 3vw), 132px);
 }
+.stage:fullscreen .stage-lines {
+  padding-bottom: 104px;
+}
+.stage:-webkit-full-screen .stage-lines,
+.stage:-moz-full-screen .stage-lines,
+.stage:-ms-fullscreen .stage-lines {
+  padding-bottom: 104px;
+}
 .stage:fullscreen .before-line,
 .stage:fullscreen .after-line {
   font-size: clamp(20px, calc(var(--ktv-active-lyric-size) * 0.52 + 1vw), 58px);
@@ -1583,11 +1705,19 @@ button:disabled {
   );
 }
 .lyric-fullscreen-overlay {
-  position: fixed;
+  position: absolute;
   right: 24px;
   bottom: 24px;
+  z-index: 30;
   display: flex;
+  align-items: center;
   gap: 8px;
+  max-width: calc(100% - 48px);
+  padding: 8px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 16px;
+  background: var(--ktv-glass-strong);
+  box-shadow: 0 14px 36px rgba(18, 11, 55, 0.22);
   opacity: 0;
   pointer-events: none;
   transition: opacity 180ms ease;
@@ -1604,6 +1734,26 @@ button:disabled {
   background: var(--ktv-glass-strong);
   color: var(--ktv-text-primary);
   font-weight: 700;
+}
+.lyric-fullscreen-overlay button:focus-visible,
+.fullscreen-volume input:focus-visible {
+  outline: 2px solid var(--ktv-accent);
+  outline-offset: 2px;
+}
+.fullscreen-volume {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 150px;
+  padding: 0 5px;
+  color: var(--ktv-text-secondary);
+  font-size: 11px;
+  white-space: nowrap;
+}
+.fullscreen-volume input {
+  width: 90px;
+  accent-color: var(--ktv-accent);
+  cursor: pointer;
 }
 .panel-title {
   display: flex;
@@ -1715,6 +1865,24 @@ button:disabled {
   gap: 18px;
   min-height: 68px;
   padding: 10px 18px;
+}
+.lyric-effect-setting {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: 4px;
+  color: var(--ktv-text-secondary);
+  font-size: 12px;
+}
+.lyric-effect-setting select {
+  min-height: 34px;
+  padding: 0 8px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 9px;
+  background: var(--ktv-glass-soft);
+  color: var(--ktv-text-primary);
+  font: inherit;
+  cursor: pointer;
 }
 .quick-setting {
   display: flex;
@@ -1854,6 +2022,21 @@ button:disabled {
   .stage-footer {
     flex-direction: column;
     gap: 4px;
+  }
+  .lyric-fullscreen-overlay {
+    right: 12px;
+    bottom: 12px;
+    left: 12px;
+    max-width: none;
+    flex-wrap: wrap;
+    justify-content: center;
+  }
+  .fullscreen-volume {
+    flex: 1 1 100%;
+    justify-content: center;
+  }
+  .lyric-effect-setting {
+    margin-left: 0;
   }
 }
 </style>

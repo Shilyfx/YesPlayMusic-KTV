@@ -18,6 +18,7 @@ let selectedPlaylistId = '';
 let playlistTracks = [];
 let playlistQuery = '';
 let playlistTrackGeneration = 0;
+let playedHistory = [];
 
 function escape(value = '') {
   return String(value).replace(
@@ -86,7 +87,7 @@ function initializeShell() {
   document.documentElement.dataset.theme = theme;
   app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1>房间 ${escape(
     roomCode || '—'
-  )}</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
+  )}</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
   app.querySelector('[data-theme]').value = theme;
   app.querySelector('[data-theme]').addEventListener('change', event => {
     localStorage.setItem('yesplaymusic-ktv-theme', event.target.value);
@@ -146,6 +147,35 @@ function renderQueue() {
     : '<div class="empty">还没有待唱歌曲</div>';
   app.querySelector('[data-guest-name]').textContent =
     client?.displayName || '访客';
+}
+
+function renderHistory() {
+  const count = app.querySelector('[data-history-count]');
+  const container = app.querySelector('[data-history-list]');
+  if (!count || !container) return;
+  count.textContent = `${playedHistory.length} 首`;
+  if (!playedHistory.length) {
+    container.innerHTML = '<div class="empty">本场还没有已唱歌曲</div>';
+    return;
+  }
+  container.innerHTML = playedHistory
+    .map(
+      (item, index) =>
+        `<article class="result-card history-card"><div class="history-index">${
+          index + 1
+        }</div><div class="result-info"><strong>${escape(
+          item.name
+        )}</strong><p>${escape(
+          (item.artists || []).join(' / ')
+        )}</p><small>已播放 · ${escape(
+          item.requesterName || '主机'
+        )}</small></div><div class="request-actions"><button data-request="${escape(
+          item.trackId
+        )}">再唱一次</button><button class="priority-button" data-priority="${escape(
+          item.trackId
+        )}">优先再唱</button></div></article>`
+    )
+    .join('');
 }
 
 function renderResults(results, { searching = false } = {}) {
@@ -390,8 +420,10 @@ function scheduleRefresh(delay) {
 async function refresh() {
   try {
     state = await api('/state');
+    playedHistory = state?.history || [];
     retryDelay = 2000;
     renderNowPlaying();
+    renderHistory();
     renderQueue();
     scheduleRefresh(document.hidden ? 5000 : 1500);
   } catch (error) {
