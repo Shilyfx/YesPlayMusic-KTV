@@ -4,6 +4,11 @@ import axios from 'axios';
 import { safeJsonRead, isSettings } from '@/utils/safeStorage';
 
 let baseURL = '';
+let settingsProvider = null;
+
+export function configureRequestSettings(provider) {
+  settingsProvider = typeof provider === 'function' ? provider : null;
+}
 // Web 和 Electron 跑在不同端口避免同时启动时冲突
 if (process.env.IS_ELECTRON) {
   if (process.env.NODE_ENV === 'production') {
@@ -41,7 +46,8 @@ service.interceptors.request.use(function (config) {
   }
 
   // Force real_ip
-  const settings = safeJsonRead('settings', {}, isSettings);
+  const providedSettings = settingsProvider?.();
+  const settings = providedSettings || safeJsonRead('settings', {}, isSettings);
   const enableRealIP = settings.enableRealIP;
   const realIP = settings.realIP;
   if (process.env.VUE_APP_REAL_IP) {

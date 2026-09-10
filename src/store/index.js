@@ -16,6 +16,7 @@ import saveToLocalStorage from './plugins/localStorage';
 import { getSendSettingsPlugin } from './plugins/sendSettings';
 import { configureCachePolicy, initTracksCacheBytes } from '@/utils/db';
 import { configureAuthStore } from '@/utils/auth';
+import { configureRequestSettings } from '@/utils/request';
 
 const PLAYER_PERSISTED_KEYS = new Set([
   '_enabled',
@@ -54,6 +55,7 @@ const options = {
 const store = new Vuex.Store(options);
 
 configureAuthStore(store);
+configureRequestSettings(() => store.state.settings);
 configurePlayerStore(store);
 configureCommonStore(store);
 configureTrackStore(store);
