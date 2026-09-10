@@ -28,10 +28,21 @@ let artistSearchAbort;
 let artistSearchGeneration = 0;
 let artistQuery = '';
 let artists = [];
+const featuredArtistQueries = [
+  '周杰伦',
+  '林俊杰',
+  '邓紫棋',
+  '陈奕迅',
+  '薛之谦',
+];
+let featuredArtists = [];
 let selectedArtistId = '';
 let artistTracks = [];
 let artistTrackGeneration = 0;
 let artistSelections = [];
+let selectedModule = 'search';
+const availabilityState = new Map();
+const availabilityChecking = new Set();
 
 function escape(value = '') {
   return String(value).replace(
@@ -95,6 +106,26 @@ function itemMarkup(item, index, own = false) {
   }${controls}</article>`;
 }
 
+function initializeModuleTabs() {
+  const panels = [...app.querySelectorAll('[data-module-panel]')];
+  const tabs = [...app.querySelectorAll('[data-module-tab]')];
+  const update = module => {
+    selectedModule = module;
+    tabs.forEach(tab => {
+      const active = tab.dataset.moduleTab === module;
+      tab.classList.toggle('active', active);
+      tab.setAttribute('aria-selected', String(active));
+    });
+    panels.forEach(panel => {
+      panel.hidden = panel.dataset.modulePanel !== module;
+    });
+  };
+  tabs.forEach(tab =>
+    tab.addEventListener('click', () => update(tab.dataset.moduleTab))
+  );
+  update(selectedModule);
+}
+
 function initializeShell() {
   const theme = localStorage.getItem('yesplaymusic-ktv-theme') || 'auto';
   document.documentElement.dataset.theme = theme;
@@ -105,8 +136,28 @@ function initializeShell() {
     .querySelector('.history-area')
     .insertAdjacentHTML(
       'afterend',
-      '<section class="recommendation-area glass"><div class="section-heading"><div><p class="section-label">YESPLAYMUSIC 推荐</p><h2>为你推荐</h2></div><button class="quiet recommendation-refresh" type="button" data-recommendations-refresh>换一批</button></div><div class="recommendation-list" data-recommendations><div class="hint">正在加载推荐歌单…</div></div><div class="recommendation-track-list" data-recommendation-tracks><div class="hint">选择一个歌单查看歌曲。</div></div></section><section class="artist-area glass"><div class="section-heading"><div><p class="section-label">按歌手点歌</p><h2>找歌手</h2></div><span class="section-helper">搜索后可连续选择多个歌手</span></div><label class="artist-search-box"><span>⌕</span><input data-artist-search maxlength="60" autocomplete="off" placeholder="输入歌手名，例如：周杰伦" /></label><div class="artist-picker" data-artists><div class="hint">输入歌手名开始查找。</div></div><div class="selected-artists" data-selected-artists></div><div class="artist-track-list" data-artist-tracks><div class="hint">选择歌手后显示热门歌曲。</div></div></section>'
+      '<section class="recommendation-area glass"><div class="section-heading"><div><p class="section-label">YESPLAYMUSIC 推荐</p><h2>为你推荐</h2></div><button class="quiet recommendation-refresh" type="button" data-recommendations-refresh>换一批</button></div><div class="recommendation-list" data-recommendations><div class="hint">正在加载推荐歌单…</div></div><div class="recommendation-track-list" data-recommendation-tracks><div class="hint">选择一个歌单查看歌曲。</div></div></section><section class="artist-area glass"><div class="section-heading"><div><p class="section-label">按歌手点歌</p><h2>找歌手</h2></div><span class="section-helper">选择一位歌手后，可继续添加其他歌手</span></div><div class="featured-artist-list" data-featured-artists><div class="hint">正在加载常用歌手…</div></div><label class="artist-search-box"><span>⌕</span><input data-artist-search maxlength="60" autocomplete="off" placeholder="搜索更多歌手，例如：周杰伦" /></label><div class="artist-picker" data-artists><div class="hint">输入歌手名开始查找。</div></div><div class="selected-artists" data-selected-artists></div><div class="artist-track-list" data-artist-tracks><div class="hint">选择歌手后显示热门歌曲。</div></div></section>'
     );
+  const moduleMap = [
+    ['.search-area', 'search'],
+    ['.recommendation-area', 'recommendations'],
+    ['.artist-area', 'artists'],
+    ['.playlist-area', 'playlists'],
+    ['.history-area', 'history'],
+    ['.queue-grid', 'queue'],
+  ];
+  const firstPanel = app.querySelector('.search-area');
+  moduleMap.forEach(([selector, module]) => {
+    const panel = app.querySelector(selector);
+    if (panel) {
+      panel.dataset.modulePanel = module;
+      panel.classList.add('module-panel');
+    }
+  });
+  firstPanel?.insertAdjacentHTML(
+    'beforebegin',
+    '<nav class="module-tabs" role="tablist" aria-label="点歌模块"><button type="button" role="tab" data-module-tab="search">搜索歌曲</button><button type="button" role="tab" data-module-tab="recommendations">推荐歌单</button><button type="button" role="tab" data-module-tab="artists">歌手点歌</button><button type="button" role="tab" data-module-tab="playlists">我的歌单</button><button type="button" role="tab" data-module-tab="history">已播放</button><button type="button" role="tab" data-module-tab="queue">等待队列</button></nav>'
+  );
   app.querySelector('[data-theme]').value = theme;
   app.querySelector('[data-theme]').addEventListener('change', event => {
     localStorage.setItem('yesplaymusic-ktv-theme', event.target.value);
@@ -135,6 +186,8 @@ function initializeShell() {
     if (button.dataset.request) requestSong(button.dataset.request, false);
     else if (button.dataset.priority)
       requestSong(button.dataset.priority, true);
+    else if (button.dataset.checkAvailability)
+      checkAvailability(button.dataset.checkAvailability);
     else if (button.dataset.recommendation)
       selectRecommendation(button.dataset.recommendation);
     else if (button.dataset.artist) selectArtist(button.dataset.artist);
@@ -145,6 +198,7 @@ function initializeShell() {
     else if (button.dataset.front)
       mutate(`/requests/${button.dataset.front}/front`, 'POST');
   });
+  initializeModuleTabs();
 }
 
 function renderNowPlaying() {
@@ -212,8 +266,41 @@ function renderHistory() {
     .join('');
 }
 
+function getTrackAvailability(track) {
+  return (
+    availabilityState.get(String(track.trackId)) ||
+    track.playability ||
+    'unknown'
+  );
+}
+
+async function checkAvailability(trackId) {
+  const id = String(trackId);
+  if (availabilityChecking.has(id)) return;
+  availabilityChecking.add(id);
+  renderResults(searchResults);
+  renderPlaylistTracks();
+  renderRecommendationTracks();
+  renderArtistTracks();
+  try {
+    const response = await api(`/track/${encodeURIComponent(id)}/availability`);
+    availabilityState.set(id, response.playability || 'error');
+  } catch (_) {
+    availabilityState.set(id, 'error');
+    setNotice('歌曲可用性检测失败，请稍后重试。', 'error');
+  } finally {
+    availabilityChecking.delete(id);
+    renderResults(searchResults);
+    renderPlaylistTracks();
+    renderRecommendationTracks();
+    renderArtistTracks();
+  }
+}
+
 function trackRequestMarkup(track, className = '') {
-  const availability = track.playability || 'unknown';
+  const trackId = String(track.trackId);
+  const availability = getTrackAvailability(track);
+  const checking = availabilityChecking.has(trackId);
   const label =
     availability === 'playable'
       ? '可播放'
@@ -221,20 +308,36 @@ function trackRequestMarkup(track, className = '') {
       ? '仅试听'
       : availability === 'unavailable'
       ? '不可播放'
-      : '点歌时检测';
+      : availability === 'error'
+      ? checking
+        ? '检测中…'
+        : '检测失败'
+      : checking
+      ? '检测中…'
+      : '待检测';
   const disabled = availability !== 'unknown' && availability !== 'playable';
+  const checkButton =
+    availability === 'unknown' || availability === 'error'
+      ? `<button class="quiet availability-button" data-check-availability="${escape(
+          trackId
+        )}" ${checking ? 'disabled' : ''}>${
+          checking ? '检测中…' : '检测可用'
+        }</button>`
+      : '';
   return `<article class="result-card ${className}"><div class="result-info"><strong>${escape(
     track.name
   )}</strong><p>${escape((track.artists || []).join(' / '))} · ${escape(
     track.album || '未知专辑'
-  )}</p><small>${formatDuration(
+  )}</p><small>${
+    track.versionLabel ? `${escape(track.versionLabel)} · ` : ''
+  }${formatDuration(
     track.duration
-  )} · <b class="availability ${availability}">${label}</b></small></div><div class="request-actions"><button data-request="${escape(
-    track.trackId
+  )} · <b class="availability ${availability}">${label}</b></small></div><div class="request-actions">${checkButton}<button data-request="${escape(
+    trackId
   )}" ${
     disabled ? 'disabled' : ''
   }>点歌</button><button class="priority-button" data-priority="${escape(
-    track.trackId
+    trackId
   )}" ${disabled ? 'disabled' : ''}>优先点歌</button></div></article>`;
 }
 
@@ -313,6 +416,62 @@ function renderArtists() {
     .join('');
 }
 
+function renderFeaturedArtists({ loading = false } = {}) {
+  const container = app.querySelector('[data-featured-artists]');
+  if (!container) return;
+  if (loading) {
+    container.innerHTML = '<div class="hint">正在加载常用歌手…</div>';
+    return;
+  }
+  if (!featuredArtists.length) {
+    container.innerHTML =
+      '<div class="hint">常用歌手暂时无法加载，可使用下方搜索。</div>';
+    return;
+  }
+  container.innerHTML = featuredArtists
+    .map(
+      artist =>
+        `<button type="button" class="featured-artist-card ${
+          artist.id === selectedArtistId ? 'selected' : ''
+        }" data-artist="${escape(artist.id)}">${
+          artist.coverUrl
+            ? `<img src="${escape(artist.coverUrl)}" alt="" loading="lazy" />`
+            : '<span class="artist-placeholder">♪</span>'
+        }<strong>${escape(
+          artist.name
+        )}</strong><small>热门歌曲</small></button>`
+    )
+    .join('');
+}
+
+async function loadFeaturedArtists() {
+  renderFeaturedArtists({ loading: true });
+  try {
+    const results = await Promise.all(
+      featuredArtistQueries.map(async query => {
+        try {
+          const response = await api(
+            `/artists/search?q=${encodeURIComponent(query)}`
+          );
+          return response.artists?.[0] || null;
+        } catch (_) {
+          return null;
+        }
+      })
+    );
+    featuredArtists = results
+      .filter(Boolean)
+      .filter(
+        (artist, index, list) =>
+          list.findIndex(item => item.id === artist.id) === index
+      );
+    renderFeaturedArtists();
+  } catch (_) {
+    featuredArtists = [];
+    renderFeaturedArtists();
+  }
+}
+
 function renderSelectedArtists() {
   const container = app.querySelector('[data-selected-artists]');
   if (!container) return;
@@ -365,32 +524,7 @@ function renderResults(results, { searching = false } = {}) {
     return;
   }
   container.innerHTML = results
-    .map(
-      track =>
-        `<article class="result-card"><div class="result-info"><strong>${escape(
-          track.name
-        )}</strong><p>${escape(track.artists.join(' / '))} · ${escape(
-          track.album || '未知专辑'
-        )}</p><small>${escape(track.versionLabel)} · ${formatDuration(
-          track.duration
-        )} · <b class="availability ${track.playability}">${
-          track.playability === 'playable'
-            ? '可播放'
-            : track.playability === 'trial-only'
-            ? '仅试听'
-            : track.playability === 'error'
-            ? '检测失败'
-            : '不可播放'
-        }</b></small></div><div class="request-actions"><button data-request="${escape(
-          track.trackId
-        )}" ${
-          track.playability !== 'playable' ? 'disabled' : ''
-        }>点歌</button><button class="priority-button" data-priority="${escape(
-          track.trackId
-        )}" ${
-          track.playability !== 'playable' ? 'disabled' : ''
-        }>优先点歌</button></div></article>`
-    )
+    .map(track => trackRequestMarkup(track, 'search-track-card'))
     .join('');
 }
 
@@ -433,36 +567,7 @@ function renderPlaylistTracks({ loading = false } = {}) {
     return;
   }
   container.innerHTML = visibleTracks
-    .map(
-      track =>
-        `<article class="result-card playlist-track-card"><div class="result-info"><strong>${escape(
-          track.name
-        )}</strong><p>${escape((track.artists || []).join(' / '))} · ${escape(
-          track.album || '未知专辑'
-        )}</p><small>${formatDuration(
-          track.duration
-        )} · <b class="availability ${track.playability || 'unknown'}">${
-          track.playability === 'playable'
-            ? '可播放'
-            : track.playability === 'trial-only'
-            ? '仅试听'
-            : track.playability === 'unavailable'
-            ? '不可播放'
-            : '点歌时检测'
-        }</b></small></div><div class="request-actions"><button data-request="${escape(
-          track.trackId
-        )}" ${
-          track.playability && track.playability !== 'playable'
-            ? 'disabled'
-            : ''
-        }>点歌</button><button class="priority-button" data-priority="${escape(
-          track.trackId
-        )}" ${
-          track.playability && track.playability !== 'playable'
-            ? 'disabled'
-            : ''
-        }>优先点歌</button></div></article>`
-    )
+    .map(track => trackRequestMarkup(track, 'playlist-track-card'))
     .join('');
 }
 
@@ -523,6 +628,7 @@ function scheduleArtistSearch(query) {
   artists = [];
   selectedArtistId = '';
   artistTracks = [];
+  renderFeaturedArtists();
   renderArtists();
   renderArtistTracks();
   if (!clean) return;
@@ -557,11 +663,14 @@ function scheduleArtistSearch(query) {
 
 async function selectArtist(artistId) {
   selectedArtistId = artistId;
-  const selected = artists.find(artist => artist.id === String(artistId));
+  const selected = [...artists, ...featuredArtists].find(
+    artist => artist.id === String(artistId)
+  );
   if (selected && !artistSelections.some(artist => artist.id === selected.id))
     artistSelections.push(selected);
   renderSelectedArtists();
   artistTracks = [];
+  renderFeaturedArtists();
   renderArtists();
   renderArtistTracks({ loading: Boolean(artistId) });
   if (!artistId) return;
@@ -745,7 +854,11 @@ async function bootstrap() {
     }
     initializeShell();
     await refresh();
-    await Promise.all([loadRecommendations(), loadPlaylists()]);
+    await Promise.all([
+      loadRecommendations(),
+      loadPlaylists(),
+      loadFeaturedArtists(),
+    ]);
   } catch (_) {
     showEnded();
   }

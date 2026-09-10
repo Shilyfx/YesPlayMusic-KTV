@@ -28,6 +28,17 @@
     border-color: #ffffff;
   }
 }
+:root[data-theme='light'] .module-tabs button {
+  color: #59627a;
+}
+:root[data-theme='light'] .module-tabs button:hover {
+  color: #17203b;
+  background: #eef1f9;
+}
+:root[data-theme='light'] .module-tabs button.active {
+  color: #fff;
+  background: #6452e9;
+}
 * {
   box-sizing: border-box;
 }
@@ -173,6 +184,108 @@ h2 {
   min-height: 170px;
   padding: 24px;
   border-radius: 24px;
+}
+.module-tabs {
+  display: flex;
+  gap: 8px;
+  margin: 24px 0 14px;
+  padding: 6px;
+  overflow-x: auto;
+  border: 1px solid #ffffff2e;
+  border-radius: 18px;
+  background: #111731b8;
+  scrollbar-width: thin;
+}
+.module-tabs button {
+  min-height: 38px;
+  flex: 1 0 auto;
+  padding: 8px 14px;
+  border: 1px solid transparent;
+  border-radius: 12px;
+  color: #b7bdd2;
+  background: transparent;
+  white-space: nowrap;
+}
+.module-tabs button:hover {
+  color: #fff;
+  background: #ffffff12;
+}
+.module-tabs button.active {
+  border-color: #a69bff66;
+  color: #fff;
+  background: #6452e9;
+  box-shadow: 0 8px 20px #34257c44;
+}
+.module-panel[hidden] {
+  display: none;
+}
+.module-panel {
+  animation: module-reveal 180ms ease both;
+}
+@keyframes module-reveal {
+  from {
+    opacity: 0;
+    transform: translateY(4px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.featured-artist-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.featured-artist-card {
+  display: grid;
+  min-width: 0;
+  gap: 7px;
+  justify-items: center;
+  padding: 11px 9px 12px;
+  border: 1px solid #ffffff1e;
+  border-radius: 17px;
+  color: inherit;
+  background: #ffffff0e;
+  text-align: center;
+}
+.featured-artist-card:hover,
+.featured-artist-card.selected {
+  border-color: #a69bff99;
+  background: #ffffff1c;
+}
+.featured-artist-card img,
+.featured-artist-card .artist-placeholder {
+  display: grid;
+  width: 74px;
+  height: 74px;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  object-fit: cover;
+  background: linear-gradient(135deg, #6653dc, #bb5aa0);
+  box-shadow: 0 8px 18px #0b0d1b33;
+}
+.featured-artist-card strong,
+.featured-artist-card small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.featured-artist-card strong {
+  font-size: 13px;
+}
+.featured-artist-card small {
+  color: #aeb4ca;
+  font-size: 10px;
+}
+.availability-button {
+  min-height: 36px;
+  padding: 7px 10px;
+  color: #c9c4ff;
+  background: #7b6df02b;
 }
 .history-area {
   margin-top: 24px;
@@ -383,6 +496,9 @@ h2 {
 }
 @media (max-width: 960px) and (min-width: 721px) {
   .recommendation-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .featured-artist-list {
     grid-template-columns: repeat(3, minmax(0, 1fr));
   }
   .artist-picker {
@@ -614,6 +730,15 @@ h2 {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 9px;
   }
+  .featured-artist-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 9px;
+  }
+  .featured-artist-card img,
+  .featured-artist-card .artist-placeholder {
+    width: 58px;
+    height: 58px;
+  }
   .recommendation-copy {
     padding: 0 9px 10px;
   }
@@ -671,16 +796,37 @@ h2 {
   }
 }
 :root[data-theme='light'] .theme-picker select,
-:root[data-theme='light'] .playlist-picker select {
+:root[data-theme='light'] .playlist-picker select,
+:root[data-theme='light'] .playlist-picker input,
+:root[data-theme='light'] .search-box,
+:root[data-theme='light'] .artist-search-box,
+:root[data-theme='light'] .module-tabs {
   border-color: #cbd1e3;
   color: #17203b;
   background: #ffffff;
+  box-shadow: none;
 }
 @media (prefers-color-scheme: light) {
   :root[data-theme='auto'] .theme-picker select,
-  :root[data-theme='auto'] .playlist-picker select {
+  :root[data-theme='auto'] .playlist-picker select,
+  :root[data-theme='auto'] .playlist-picker input,
+  :root[data-theme='auto'] .search-box,
+  :root[data-theme='auto'] .artist-search-box,
+  :root[data-theme='auto'] .module-tabs {
     border-color: #cbd1e3;
     color: #17203b;
     background: #ffffff;
+    box-shadow: none;
+  }
+  :root[data-theme='auto'] .module-tabs button {
+    color: #59627a;
+  }
+  :root[data-theme='auto'] .module-tabs button:hover {
+    color: #17203b;
+    background: #eef1f9;
+  }
+  :root[data-theme='auto'] .module-tabs button.active {
+    color: #fff;
+    background: #6452e9;
   }
 }
