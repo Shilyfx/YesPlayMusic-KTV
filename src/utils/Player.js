@@ -44,6 +44,8 @@ const delay = ms =>
   });
 export const TRANSIENT_PLAYER_KEYS = [
   '_playing',
+  '_progress',
+  '_lastTimeCheckpointAt',
   '_personalFMLoading',
   '_personalFMNextLoading',
   '_playbackOwner',
@@ -75,6 +77,7 @@ export default class {
     // 播放器状态
     this._playing = false; // 是否正在播放中
     this._progress = 0; // 当前播放歌曲的进度
+    this._lastTimeCheckpointAt = 0;
     this._enabled = false; // 是否启用Player
     this._repeatMode = 'off'; // off | on | one
     this._shuffle = false; // true | false
@@ -282,7 +285,8 @@ export default class {
     setInterval(() => {
       if (this._howler === null) return;
       this._progress = this._howler.seek();
-      localStorage.setItem('playerCurrentTrackTime', this._progress);
+      if (Date.now() - this._lastTimeCheckpointAt >= 5000)
+        this._saveCurrentTrackTime();
       if (isCreateMpris) {
         ipcRenderer?.send('playerCurrentTrackTime', this._progress);
       }
@@ -547,6 +551,7 @@ export default class {
     ifUnplayableThen = UNPLAYABLE_CONDITION.PLAY_NEXT_TRACK
   ) {
     if (autoplay && this._currentTrack.name) {
+      this._saveCurrentTrackTime();
       this._scrobble(this.currentTrack, this._howler?.seek());
     }
     return getTrackDetail(id).then(data => {
@@ -875,7 +880,16 @@ export default class {
     localStorage.setItem('player', JSON.stringify(player));
   }
 
+  _saveCurrentTrackTime() {
+    if (this._howler === null || typeof this._howler.seek !== 'function')
+      return;
+    this._progress = this._howler.seek();
+    this._lastTimeCheckpointAt = Date.now();
+    localStorage.setItem('playerCurrentTrackTime', this._progress);
+  }
+
   pause() {
+    this._saveCurrentTrackTime();
     this._howler?.fade(this.volume, 0, PLAY_PAUSE_FADE_DURATION);
 
     this._howler?.once('fade', () => {
@@ -939,12 +953,14 @@ export default class {
     }
   }
   setOutputDevice() {
-    if (this._howler?._sounds.length <= 0 || !this._howler?._sounds[0]._node) {
-      return;
-    }
-    this._howler?._sounds[0]._node.setSinkId(
-      storeRef?.state?.settings?.outputDevice
-    );
+    const node = this._howler?._sounds?.[0]?._node;
+    const deviceId = storeRef?.state?.settings?.outputDevice;
+    if (!node || typeof node.setSinkId !== 'function' || !deviceId)
+      return false;
+    return Promise.resolve(node.setSinkId(deviceId)).catch(error => {
+      console.warn('[player] output device unavailable:', error);
+      return false;
+    });
   }
 
   replacePlaylist(
@@ -1024,6 +1040,7 @@ export default class {
     // A KTV attempt owns the output from its first moment.  Stopping ordinary
     // audio before fetching avoids two songs sounding together; metadata is not
     // changed until a usable source has arrived and the attempt is still valid.
+    this._saveCurrentTrackTime();
     this._howler?.stop();
     this._setPlaying(false);
     try {
@@ -1058,6 +1075,7 @@ export default class {
     const generation = (this._karaokePlaybackGeneration += 1);
     this._playbackOwner = 'karaoke';
     this._karaokePlaybackPending = true;
+    this._saveCurrentTrackTime();
     this._howler?.stop();
     this._setPlaying(false);
     try {
@@ -1141,12 +1159,19 @@ export default class {
   stopKaraokePlayback() {
     if (this._playbackOwner !== 'karaoke' && !this._karaokePlaybackPending)
       return false;
+    this._saveCurrentTrackTime();
     this._karaokePlaybackGeneration += 1;
     this._howler?.stop();
     this._setPlaying(false);
     this._playbackOwner = null;
     this._karaokePlaybackPending = false;
     return true;
+  }
+
+  flushState() {
+    this._saveCurrentTrackTime();
+    this.saveSelfToLocalStorage();
+    this.sendSelfToIpcMain();
   }
   playIntelligenceListById(id, trackID = 'first', noCache = false) {
     getPlaylistDetail(id, noCache).then(data => {

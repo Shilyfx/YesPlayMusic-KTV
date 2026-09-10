@@ -17,6 +17,26 @@ import { getSendSettingsPlugin } from './plugins/sendSettings';
 import { configureCachePolicy, initTracksCacheBytes } from '@/utils/db';
 import { configureAuthStore } from '@/utils/auth';
 
+const PLAYER_PERSISTED_KEYS = new Set([
+  '_enabled',
+  '_repeatMode',
+  '_shuffle',
+  '_reversed',
+  '_volume',
+  '_volumeBeforeMuted',
+  '_list',
+  '_current',
+  '_shuffledList',
+  '_shuffledCurrent',
+  '_playlistSource',
+  '_currentTrack',
+  '_playNextList',
+  '_isPersonalFM',
+  '_personalFMTrack',
+  '_personalFMNextTrack',
+]);
+const PLAYER_IPC_KEYS = new Set(['_playing', '_currentTrack']);
+
 Vue.use(Vuex);
 
 let plugins = [saveToLocalStorage];
@@ -68,17 +88,34 @@ window
     }
   });
 
+let playerSaveTimer;
+let playerIpcTimer;
+const schedulePlayerSave = target => {
+  clearTimeout(playerSaveTimer);
+  playerSaveTimer = setTimeout(() => target.saveSelfToLocalStorage(), 250);
+};
+const schedulePlayerIpc = target => {
+  clearTimeout(playerIpcTimer);
+  playerIpcTimer = setTimeout(() => target.sendSelfToIpcMain(), 100);
+};
+const flushPlayerState = target => {
+  clearTimeout(playerSaveTimer);
+  clearTimeout(playerIpcTimer);
+  target.flushState();
+};
+
 let player = new Player();
 player = new Proxy(player, {
   set(target, prop, val) {
     // console.log({ prop, val });
     target[prop] = val;
     if (prop === '_howler') return true;
-    target.saveSelfToLocalStorage();
-    target.sendSelfToIpcMain();
+    if (PLAYER_PERSISTED_KEYS.has(prop)) schedulePlayerSave(target);
+    if (PLAYER_IPC_KEYS.has(prop)) schedulePlayerIpc(target);
     return true;
   },
 });
+window.addEventListener('beforeunload', () => flushPlayerState(player));
 store.state.player = player;
 store.$karaokeManager = createKaraokeRuntime(player, store);
 player.initialize().catch(error => {
