@@ -1263,7 +1263,7 @@ async function loadPlaylists({ force = false } = {}) {
   if (button) button.disabled = true;
   playlistsPromise = (async () => {
     try {
-      const response = await api('/playlists');
+      const response = await api(force ? '/playlists?force=1' : '/playlists');
       playlists = response.playlists || [];
       const hasSelected = playlists.some(
         playlist => playlist.id === selectedPlaylistId
