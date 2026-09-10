@@ -469,6 +469,9 @@ h2 {
   overflow: auto;
   padding-right: 3px;
 }
+.chart-content[data-view='tracks'] .recommendation-track-list {
+  max-height: 800px;
+}
 .recommendation-track-card,
 .artist-track-card {
   padding: 12px 14px;
@@ -628,6 +631,9 @@ h2 {
   max-height: 440px;
   overflow: auto;
   padding-right: 3px;
+}
+.playlist-area .playlist-track-list {
+  max-height: 880px;
 }
 .playlist-track-card {
   padding: 12px 14px;

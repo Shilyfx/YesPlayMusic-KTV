@@ -614,9 +614,11 @@ function activeChartTracks() {
 function renderChartView() {
   const lists = app.querySelector('[data-recommendations]');
   const tracks = app.querySelector('[data-recommendation-tracks]');
+  const content = app.querySelector('[data-chart-content]');
   const showingTracks = chartView === 'tracks';
   if (lists) lists.hidden = showingTracks;
   if (tracks) tracks.hidden = !showingTracks;
+  if (content) content.dataset.view = showingTracks ? 'tracks' : 'lists';
   renderChartHeader();
 }
 
@@ -829,6 +831,7 @@ function renderResults(results, { searching = false } = {}) {
 
 function renderPlaylistSource() {
   const isLocal = playlistSource === 'local';
+  const playlistArea = app.querySelector('.playlist-area');
   const label = app.querySelector('[data-playlist-label]');
   const title = app.querySelector('[data-playlist-title]');
   const refresh = app.querySelector('[data-playlists-refresh]');
@@ -837,6 +840,7 @@ function renderPlaylistSource() {
   if (title) title.textContent = isLocal ? '本地歌单' : '从歌单点歌';
   if (refresh) refresh.textContent = isLocal ? '刷新本地歌单' : '刷新歌单';
   if (toggle) toggle.textContent = isLocal ? '用户歌单' : '本地歌单';
+  if (playlistArea) playlistArea.dataset.source = isLocal ? 'local' : 'user';
   app.querySelectorAll('[data-user-playlist-panel]').forEach(panel => {
     panel.hidden = isLocal;
   });
