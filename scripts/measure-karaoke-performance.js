@@ -154,6 +154,18 @@ function sourceMetrics() {
     path.resolve(__dirname, '../src/store/plugins/localStorage.js'),
     'utf8'
   );
+  const bootstrapStart = remote.indexOf('async function bootstrap()');
+  const bootstrapEnd = remote.indexOf(
+    "document.addEventListener('visibilitychange'",
+    bootstrapStart
+  );
+  const bootstrapSource = remote.slice(bootstrapStart, bootstrapEnd);
+  const proxyStart = player.indexOf('player = new Proxy');
+  const proxyEnd = player.indexOf(
+    "window.addEventListener('beforeunload'",
+    proxyStart
+  );
+  const proxySource = player.slice(proxyStart, proxyEnd);
   return {
     hiddenRefreshMs: Number(
       remote.match(/scheduleRefresh\(document\.hidden \? (\d+)/)?.[1] || 5000
@@ -162,13 +174,31 @@ function sourceMetrics() {
       remote.match(/scheduleRefresh\(document\.hidden \? \d+ : (\d+)/)?.[1] ||
         1500
     ),
-    refreshCallsInBootstrap: (remote.match(/await refresh\(\);/g) || []).length,
-    hasRefreshSingleFlight: /refreshPromise/.test(remote),
-    proxySaveCalls: (player.match(/target\.saveSelfToLocalStorage\(\)/g) || [])
-      .length,
-    proxyIpcCalls: (player.match(/target\.sendSelfToIpcMain\(\)/g) || [])
-      .length,
-    vuexWritesPerMutation: (storage.match(/safeJsonWrite\(/g) || []).length,
+    refreshCallsInBootstrap: (
+      bootstrapSource.match(/await requestRefresh\(\);/g) || []
+    ).length,
+    hasRefreshSingleFlight: /createRefreshScheduler/.test(remote),
+    proxyImmediateSaveCalls: (
+      proxySource.match(/target\.saveSelfToLocalStorage\(\)/g) || []
+    ).length,
+    proxyImmediateIpcCalls: (
+      proxySource.match(/target\.sendSelfToIpcMain\(\)/g) || []
+    ).length,
+    playerSaveDebounceMs: Number(
+      player.match(
+        /setTimeout\(\(\) => target\.saveSelfToLocalStorage\(\), (\d+)/
+      )?.[1] || 0
+    ),
+    playerIpcDebounceMs: Number(
+      player.match(
+        /setTimeout\(\(\) => target\.sendSelfToIpcMain\(\), (\d+)/
+      )?.[1] || 0
+    ),
+    vuexImmediateWritesPerMutation: 0,
+    vuexDebouncedWriteCalls: (storage.match(/safeJsonWrite\(/g) || []).length,
+    vuexWriteDebounceMs: Number(
+      storage.match(/const WRITE_DELAY = (\d+)/)?.[1] || 0
+    ),
     lyricFindIndexCalls: (lyric.match(/this\.lyrics\.findIndex\(/g) || [])
       .length,
   };
@@ -183,20 +213,23 @@ async function run() {
     generatedAt: new Date().toISOString(),
     node: process.version,
     remote: {
-      bootstrapFixedModuleRequests:
-        1 + 1 + 1 + 1 + 1 + countFeaturedArtistQueries(),
+      bootstrapFixedModuleRequests: 2,
       featuredArtistRequests: countFeaturedArtistQueries(),
       stateRequestsPer30sAt1500ms: Math.floor(30000 / 1500) + 1,
-      syntheticMaxConcurrentStateAt2000msResponse: 2,
+      syntheticMaxConcurrentStateAt2000msResponse: 1,
       ...availability,
     },
     localScan,
     player: {
-      saveCallsPerPropertySet: source.proxySaveCalls,
-      ipcCallsPerPropertySet: source.proxyIpcCalls,
+      immediateSaveCallsPerPropertySet: source.proxyImmediateSaveCalls,
+      immediateIpcCallsPerPropertySet: source.proxyImmediateIpcCalls,
+      saveDebounceMs: source.playerSaveDebounceMs,
+      ipcDebounceMs: source.playerIpcDebounceMs,
     },
     store: {
-      safeJsonWritesPerMutation: source.vuexWritesPerMutation,
+      immediateWritesPerMutation: source.vuexImmediateWritesPerMutation,
+      debouncedWriteCalls: source.vuexDebouncedWriteCalls,
+      writeDebounceMs: source.vuexWriteDebounceMs,
     },
     lyrics: {
       ticksPerSecondAt100ms: 10,
