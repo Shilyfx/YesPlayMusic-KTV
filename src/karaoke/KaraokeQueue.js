@@ -10,7 +10,7 @@ function toQueueItem(track, requester) {
     trackName: track.name || '未知歌曲',
     artists: (track.ar || track.artists || []).map(artist => artist.name),
     albumName: track.al?.name || track.album?.name || '',
-    coverUrl: track.al?.picUrl || track.album?.picUrl || '',
+    coverUrl: track.coverUrl || track.al?.picUrl || track.album?.picUrl || '',
     durationMs: track.dt || track.duration || 0,
     requesterId: requester.id,
     requesterName: requester.name,

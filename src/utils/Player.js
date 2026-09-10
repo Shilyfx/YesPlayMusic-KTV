@@ -1087,7 +1087,7 @@ export default class {
         })),
         al: {
           name: item.albumName || '',
-          picUrl: '',
+          picUrl: resolved.coverUrl || item.coverUrl || '',
         },
         dt: item.durationMs || 0,
         source: 'local',

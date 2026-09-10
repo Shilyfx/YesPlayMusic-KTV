@@ -299,11 +299,22 @@ export function initIpcMain(
     return { ok: true, directories };
   });
 
-  ipcMain.handle('karaoke:local:scan', async () => ({
-    ok: true,
-    directories: karaokeLocalLibrary.listDirectories(),
-    playlists: await karaokeLocalLibrary.scan(),
-  }));
+  ipcMain.handle('karaoke:local:scan', async () => {
+    const playlists = await karaokeLocalLibrary.scan();
+    return {
+      ok: true,
+      directories: karaokeLocalLibrary.listDirectories(),
+      playlists: playlists.map(playlist => ({
+        ...playlist,
+        tracks: (playlist.tracks || []).map(track => ({
+          ...track,
+          coverUrl:
+            karaokeServer.getLocalCoverUrl(track.localId || track.trackId) ||
+            '',
+        })),
+      })),
+    };
+  });
 
   ipcMain.handle('karaoke:local:resolve', async (_, localId) => {
     const resolved = await karaokeLocalLibrary.resolve(localId);
@@ -312,6 +323,9 @@ export function initIpcMain(
       ok: true,
       ...resolved,
       audioUrl: karaokeServer.getLocalAudioUrl(localId),
+      coverUrl: resolved.coverPath
+        ? karaokeServer.getLocalCoverUrl(localId)
+        : null,
     };
   });
 

@@ -563,9 +563,10 @@ export default {
       return this.track.al?.name || '临时 KTV 队列不会修改网易云歌单';
     },
     cover() {
-      return this.track.al?.picUrl
-        ? `${this.track.al.picUrl}?param=640y640`
-        : '';
+      const coverUrl = this.track.al?.picUrl || '';
+      if (!coverUrl) return '';
+      if (this.track.source === 'local') return coverUrl;
+      return `${coverUrl}${coverUrl.includes('?') ? '&' : '?'}param=640y640`;
     },
     coverStyle() {
       return this.cover ? { backgroundImage: `url(${this.cover})` } : {};
@@ -695,6 +696,7 @@ export default {
     else this.themeMedia.addListener(this.syncSystemTheme);
     this.loadLyrics();
     this.loadLanRoom();
+    if (!this.isSessionActive) this.startDefaultSession();
     if (this.isElectron) this.loadLocalLibrary();
     this.lyricFontSizeDraft = String(this.lyricFontSize);
     this.lyricOffsetDraft = this.lyricOffset.toFixed(1);
@@ -757,6 +759,16 @@ export default {
     window.clearTimeout(this.lyricControlsTimer);
   },
   methods: {
+    async startDefaultSession() {
+      if (this.isSessionActive) return;
+      this.karaokeManager.startSession();
+      try {
+        await this.setLanSessionActive(true);
+        await this.loadLanCandidates();
+      } catch (error) {
+        console.warn('[karaoke] default session startup failed', error);
+      }
+    },
     syncSystemTheme() {
       this.systemTheme = this.themeMedia?.matches ? 'dark' : 'light';
     },

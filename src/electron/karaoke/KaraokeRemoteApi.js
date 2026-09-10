@@ -105,6 +105,7 @@ function sanitizeTrack(track) {
     album:
       (track.album && track.album.name) || (track.al && track.al.name) || '',
     coverUrl:
+      track.coverUrl ||
       (track.album && track.album.picUrl) ||
       (track.al && track.al.picUrl) ||
       '',

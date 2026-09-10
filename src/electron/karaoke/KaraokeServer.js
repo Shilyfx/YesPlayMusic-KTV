@@ -66,6 +66,9 @@ function contentType(filePath) {
   if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
   if (filePath.endsWith('.svg')) return 'image/svg+xml';
   if (filePath.endsWith('.png')) return 'image/png';
+  if (filePath.endsWith('.jpg') || filePath.endsWith('.jpeg'))
+    return 'image/jpeg';
+  if (filePath.endsWith('.webp')) return 'image/webp';
   if (filePath.endsWith('.mp3')) return 'audio/mpeg';
   if (filePath.endsWith('.flac')) return 'audio/flac';
   if (filePath.endsWith('.m4a')) return 'audio/mp4';
@@ -117,6 +120,13 @@ export class KaraokeServer {
     const encodedId = encodeURIComponent(String(localId));
     const token = encodeURIComponent(this.room.token);
     return `http://127.0.0.1:${this.port}/ktv/local/audio/${encodedId}?token=${token}`;
+  }
+
+  getLocalCoverUrl(localId) {
+    if (!this.room || !this.localLibrary) return null;
+    const encodedId = encodeURIComponent(String(localId));
+    const token = encodeURIComponent(this.room.token);
+    return `http://${this.room.lanAddress}:${this.port}/ktv/local/cover/${encodedId}?token=${token}`;
   }
 
   async startRoom({ lanAddress, sessionId, roomName } = {}) {
@@ -302,6 +312,21 @@ export class KaraokeServer {
       return this.sendLocalAudio(resolved.audioPath, request, response);
     }
 
+    const localCover = requestUrl.pathname.match(
+      /^\/ktv\/local\/cover\/(local-[a-f0-9]{16})$/i
+    );
+    if (localCover) {
+      if (
+        !this.room ||
+        requestUrl.searchParams.get('token') !== this.room.token ||
+        !this.localLibrary
+      )
+        return this.notFound(response);
+      const resolved = await this.localLibrary.resolve(localCover[1]);
+      if (!resolved || !resolved.coverPath) return this.notFound(response);
+      return this.sendLocalCover(resolved.coverPath, response);
+    }
+
     const roomPath = `/room/${this.room && this.room.code}`;
     if (
       !this.room ||
@@ -354,6 +379,18 @@ export class KaraokeServer {
       createReadStream(filePath, { start, end })
         .on('error', () => response.destroy())
         .pipe(response);
+    } catch (_) {
+      this.notFound(response);
+    }
+  }
+
+  async sendLocalCover(filePath, response) {
+    try {
+      const content = await fs.readFile(filePath);
+      response.writeHead(200, {
+        ...this.securityHeaders(contentType(filePath)),
+      });
+      response.end(content);
     } catch (_) {
       this.notFound(response);
     }
