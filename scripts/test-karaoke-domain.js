@@ -133,6 +133,58 @@ async function run() {
   assert.strictEqual(semanticManager.queue.currentItem.trackId, 12);
   assert.strictEqual(semanticManager.queue.historyItems[0].trackId, 11);
   assert.strictEqual(semanticManager.queue.historyItems[0].status, 'skipped');
+
+  const raceAdapter = new FakePlayerAdapter();
+  let releaseRacePlay;
+  raceAdapter.playTrack = trackId => {
+    raceAdapter.calls.push(['play', trackId]);
+    return new Promise(resolve => {
+      releaseRacePlay = resolve;
+    });
+  };
+  const raceManager = new KaraokeManager(raceAdapter);
+  raceManager.startSession();
+  raceManager.enqueueTrack(track(21), {
+    id: 'guest-1',
+    name: '游客 1',
+    type: 'guest',
+  });
+  raceManager.enqueueTrack(track(22), {
+    id: 'guest-2',
+    name: '游客 2',
+    type: 'guest',
+  });
+  const firstStart = raceManager.startQueue();
+  const duplicateStart = raceManager.startQueue();
+  assert.strictEqual(
+    raceAdapter.calls.filter(call => call[0] === 'play').length,
+    1
+  );
+  releaseRacePlay({ success: true });
+  await Promise.all([firstStart, duplicateStart]);
+  assert.strictEqual(raceManager.queue.currentItem.trackId, 21);
+
+  raceManager.enqueueTrack(track(23), {
+    id: 'guest-3',
+    name: '游客 3',
+    type: 'guest',
+  });
+  raceManager.enqueueTrack(track(24), {
+    id: 'guest-4',
+    name: '游客 4',
+    type: 'guest',
+  });
+  const nextRequests = Array.from({ length: 5 }, () => raceManager.next());
+  assert.strictEqual(raceManager.queue.historyItems.length, 1);
+  assert.strictEqual(raceManager.queue.historyItems[0].trackId, 21);
+  assert.strictEqual(raceManager.queue.waitingItems.length, 2);
+  assert.strictEqual(
+    raceAdapter.calls.filter(call => call[0] === 'play').length,
+    2
+  );
+  releaseRacePlay({ success: true });
+  await Promise.all(nextRequests);
+  assert.strictEqual(raceManager.queue.currentItem.trackId, 22);
   console.log('KTV domain transition tests passed');
 }
 
