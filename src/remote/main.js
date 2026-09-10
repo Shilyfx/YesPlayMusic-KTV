@@ -45,8 +45,6 @@ let artistTracks = [];
 let artistTrackGeneration = 0;
 let artistSelections = [];
 let selectedModule = 'search';
-const availabilityState = new Map();
-const availabilityChecking = new Set();
 let previewTrackId = '';
 let previewGeneration = 0;
 
@@ -184,7 +182,7 @@ function initializeShell() {
   });
   firstPanel?.insertAdjacentHTML(
     'afterend',
-    '<nav class="module-tabs" role="tablist" aria-label="点歌模块"><button type="button" role="tab" data-module-tab="search">搜索歌曲</button><button type="button" role="tab" data-module-tab="recommendations">推荐歌单</button><button type="button" role="tab" data-module-tab="artists">歌手点歌</button><button type="button" role="tab" data-module-tab="playlists">我的歌单</button><button type="button" role="tab" data-module-tab="history">已播放</button><button type="button" role="tab" data-module-tab="queue">等待队列</button></nav>'
+    '<nav class="module-tabs" role="tablist" aria-label="点歌模块"><button type="button" role="tab" data-module-tab="search">搜索歌曲</button><button type="button" role="tab" data-module-tab="recommendations">推荐歌单</button><button type="button" role="tab" data-module-tab="artists">歌手点歌</button><button type="button" role="tab" data-module-tab="playlists">我的歌单</button><button type="button" role="tab" data-module-tab="queue">等待队列</button><button type="button" role="tab" data-module-tab="history">已播放</button></nav>'
   );
   app.querySelector('[data-theme]').value = theme;
   app.querySelector('[data-theme]').addEventListener('change', event => {
@@ -219,8 +217,6 @@ function initializeShell() {
     if (button.dataset.request) requestSong(button.dataset.request, false);
     else if (button.dataset.priority)
       requestSong(button.dataset.priority, true);
-    else if (button.dataset.checkAvailability)
-      checkAvailability(button.dataset.checkAvailability);
     else if (button.dataset.preview) previewTrack(button.dataset.preview);
     else if (button.hasAttribute('data-preview-toggle'))
       togglePreviewPlayback();
@@ -301,39 +297,6 @@ function renderHistory() {
         )}">优先再唱</button></div></article>`
     )
     .join('');
-}
-
-function getTrackAvailability(track) {
-  return (
-    availabilityState.get(String(track.trackId)) ||
-    track.playability ||
-    'unknown'
-  );
-}
-
-async function checkAvailability(trackId) {
-  const id = String(trackId);
-  if (availabilityChecking.has(id)) return;
-  availabilityChecking.add(id);
-  renderResults(searchResults);
-  renderPlaylistTracks();
-  renderLocalPlaylistTracks();
-  renderRecommendationTracks();
-  renderArtistTracks();
-  try {
-    const response = await api(`/track/${encodeURIComponent(id)}/availability`);
-    availabilityState.set(id, response.playability || 'error');
-  } catch (_) {
-    availabilityState.set(id, 'error');
-    setNotice('歌曲可用性检测失败，请稍后重试。', 'error');
-  } finally {
-    availabilityChecking.delete(id);
-    renderResults(searchResults);
-    renderPlaylistTracks();
-    renderLocalPlaylistTracks();
-    renderRecommendationTracks();
-    renderArtistTracks();
-  }
 }
 
 function findTrack(trackId) {
@@ -452,8 +415,8 @@ function togglePreviewPlayback() {
 
 function trackRequestMarkup(track, className = '') {
   const trackId = String(track.trackId);
-  const availability = getTrackAvailability(track);
-  const checking = availabilityChecking.has(trackId);
+  const availability =
+    track.source === 'local' ? 'playable' : track.playability || 'unknown';
   const label =
     availability === 'playable'
       ? '可播放'
@@ -462,21 +425,9 @@ function trackRequestMarkup(track, className = '') {
       : availability === 'unavailable'
       ? '不可播放'
       : availability === 'error'
-      ? checking
-        ? '检测中…'
-        : '检测失败'
-      : checking
-      ? '检测中…'
+      ? '检测失败'
       : '待检测';
   const disabled = availability !== 'unknown' && availability !== 'playable';
-  const checkButton =
-    availability === 'unknown' || availability === 'error'
-      ? `<button class="quiet availability-button" data-check-availability="${escape(
-          trackId
-        )}" ${checking ? 'disabled' : ''}>${
-          checking ? '检测中…' : '检测可用'
-        }</button>`
-      : '';
   const previewButton =
     track.source === 'local'
       ? ''
@@ -492,7 +443,7 @@ function trackRequestMarkup(track, className = '') {
     track.versionLabel ? `${escape(track.versionLabel)} · ` : ''
   }${formatDuration(
     track.duration
-  )} · <b class="availability ${availability}">${label}</b></small></div><div class="request-actions">${previewButton}${checkButton}<button data-request="${escape(
+  )} · <b class="availability ${availability}">${label}</b></small></div><div class="request-actions">${previewButton}<button data-request="${escape(
     trackId
   )}" ${
     disabled ? 'disabled' : ''

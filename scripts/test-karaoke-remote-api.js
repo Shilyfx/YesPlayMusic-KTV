@@ -365,6 +365,7 @@ async function run() {
   );
   assert.equal(recommendationTracks.status, 200);
   assert.equal(recommendationTracks.body.tracks[0].trackId, '101');
+  assert.equal(recommendationTracks.body.tracks[0].playability, 'playable');
   const artistSearch = await request(
     port,
     'GET',
@@ -381,6 +382,7 @@ async function run() {
   );
   assert.equal(artistTracks.status, 200);
   assert.equal(artistTracks.body.tracks[0].trackId, '101');
+  assert.equal(artistTracks.body.tracks[0].playability, 'playable');
   assert.ok(bridgeCalls.includes('recommendations'));
   assert.ok(bridgeCalls.includes('recommendationTracks'));
   assert.ok(bridgeCalls.includes('artistSearch'));

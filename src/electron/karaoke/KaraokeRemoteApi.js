@@ -549,12 +549,33 @@ export class KaraokeRemoteService {
     return this.catalog.recommendations();
   }
 
+  async withAvailability(tracks) {
+    const source = Array.isArray(tracks) ? tracks : [];
+    const results = new Array(source.length);
+    let nextIndex = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, source.length) }, async () => {
+        while (nextIndex < source.length) {
+          const index = nextIndex++;
+          const track = source[index];
+          results[index] = {
+            ...track,
+            playability: await this.catalog.availability(track.trackId),
+          };
+        }
+      })
+    );
+    return results;
+  }
+
   async recommendationTracks(client, playlistId) {
     if (!this.limiter.check(`recommendationTracks:${client.clientId}`, 12))
       throw new Error('RATE_LIMIT');
     if (!this.limiter.check('recommendationTracks:room', 80))
       throw new Error('RATE_LIMIT');
-    return this.catalog.recommendationTracks(playlistId);
+    return this.withAvailability(
+      await this.catalog.recommendationTracks(playlistId)
+    );
   }
 
   async artistSearch(client, query) {
@@ -572,7 +593,7 @@ export class KaraokeRemoteService {
       throw new Error('RATE_LIMIT');
     if (!/^\d{1,20}$/.test(String(artistId)))
       throw new Error('ARTIST_NOT_FOUND');
-    return this.catalog.artistTracks(artistId);
+    return this.withAvailability(await this.catalog.artistTracks(artistId));
   }
 
   async playlistTracks(client, playlistId) {
