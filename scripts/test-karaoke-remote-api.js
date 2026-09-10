@@ -308,9 +308,11 @@ async function run() {
   );
   assert.equal(results.status, 200);
   assert.equal(results.body.results[0].versionLabel, 'Live');
-  assert.equal(results.body.results[0].playability, 'playable');
+  assert.equal(results.body.results[0].playability, 'unknown');
   assert.ok(bridgeCalls.includes('search'));
-  assert.ok(bridgeCalls.includes('availability'));
+  const availabilityCallsBeforeCatalog = bridgeCalls.filter(
+    action => action === 'availability'
+  ).length;
   const preview = await request(port, 'GET', '/ktv/api/track/101/preview', {
     token: guestA.body.clientToken,
   });
@@ -335,6 +337,15 @@ async function run() {
   });
   assert.equal(localRequest.status, 201);
   assert.equal(localRequest.body.item.source, 'local');
+  const freshRemoteRequest = await request(port, 'POST', '/ktv/api/requests', {
+    token: guestA.body.clientToken,
+    body: { trackId: '102' },
+  });
+  assert.equal(freshRemoteRequest.status, 201);
+  assert.equal(
+    bridgeCalls.filter(action => action === 'availability').length,
+    availabilityCallsBeforeCatalog + 1
+  );
   const next = await request(port, 'POST', '/ktv/api/next', {
     token: guestA.body.clientToken,
   });
@@ -353,7 +364,11 @@ async function run() {
   );
   assert.equal(playlistTracks.status, 200);
   assert.equal(playlistTracks.body.tracks[0].trackId, '101');
-  assert.equal(playlistTracks.body.tracks[0].playability, 'playable');
+  assert.equal(playlistTracks.body.tracks[0].playability, 'unknown');
+  assert.equal(
+    bridgeCalls.filter(action => action === 'availability').length,
+    availabilityCallsBeforeCatalog + 1
+  );
   assert.ok(bridgeCalls.includes('playlists'));
   assert.ok(bridgeCalls.includes('playlistTracks'));
   const recommendations = await request(
@@ -372,7 +387,7 @@ async function run() {
   );
   assert.equal(recommendationTracks.status, 200);
   assert.equal(recommendationTracks.body.tracks[0].trackId, '101');
-  assert.equal(recommendationTracks.body.tracks[0].playability, 'playable');
+  assert.equal(recommendationTracks.body.tracks[0].playability, 'unknown');
   const toplists = await request(port, 'GET', '/ktv/api/toplists', {
     token: guestA.body.clientToken,
   });
@@ -386,7 +401,7 @@ async function run() {
   );
   assert.equal(toplistTracks.status, 200);
   assert.equal(toplistTracks.body.tracks[0].trackId, '101');
-  assert.equal(toplistTracks.body.tracks[0].playability, 'playable');
+  assert.equal(toplistTracks.body.tracks[0].playability, 'unknown');
   const artistSearch = await request(
     port,
     'GET',
@@ -403,7 +418,7 @@ async function run() {
   );
   assert.equal(artistTracks.status, 200);
   assert.equal(artistTracks.body.tracks[0].trackId, '101');
-  assert.equal(artistTracks.body.tracks[0].playability, 'playable');
+  assert.equal(artistTracks.body.tracks[0].playability, 'unknown');
   assert.ok(bridgeCalls.includes('recommendations'));
   assert.ok(bridgeCalls.includes('recommendationTracks'));
   assert.ok(bridgeCalls.includes('toplists'));
@@ -468,7 +483,7 @@ async function run() {
     token: guestA.body.clientToken,
   });
   assert.equal(state.status, 200);
-  assert.equal(state.body.waiting.length, 3);
+  assert.equal(state.body.waiting.length, 4);
   assert.equal(JSON.stringify(state.body).includes('joinToken'), false);
   assert.equal(JSON.stringify(state.body).includes('clientToken'), false);
   const removed = await request(
@@ -487,6 +502,7 @@ async function run() {
   assert.equal(alreadyFront.status, 200);
 
   const clientA = service.client(guestA.body.clientToken);
+  const waitingBeforeStaleEnqueue = waitingItems.map(item => item.queueItemId);
   const waitForMutation = method =>
     new Promise(resolve => {
       bridge[method] = (...args) => {
@@ -510,9 +526,9 @@ async function run() {
   activeSession = { status: 'active', sessionId: 'session-new' };
   bridge.releaseenqueue();
   await assert.rejects(() => staleEnqueue, /ROOM_ENDED/);
-  assert.equal(
-    waitingItems.some(item => item.requesterId === clientA.clientId),
-    false
+  assert.deepStrictEqual(
+    waitingItems.map(item => item.queueItemId),
+    waitingBeforeStaleEnqueue
   );
 
   activeSession = { status: 'active', sessionId: 'session-test' };

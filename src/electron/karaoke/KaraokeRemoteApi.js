@@ -328,6 +328,15 @@ export class KaraokeCatalogService {
     }
   }
 
+  peekAvailability(trackId) {
+    const key = String(trackId);
+    if (key.startsWith('local-') && this.localTrackCache.has(key))
+      return 'playable';
+    const cached = this.availabilityCache.get(key);
+    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    return 'unknown';
+  }
+
   async preview(trackId) {
     if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
     const url = await this.hostCatalogBridge('preview', {
@@ -531,22 +540,7 @@ export class KaraokeRemoteService {
     if (!this.limiter.check(`search:${client.clientId}`, 10))
       throw new Error('RATE_LIMIT');
     if (!this.limiter.check('search:room', 80)) throw new Error('RATE_LIMIT');
-    const tracks = await this.catalog.search(query);
-    const results = new Array(tracks.length);
-    let nextIndex = 0;
-    await Promise.all(
-      Array.from({ length: Math.min(4, tracks.length) }, async () => {
-        while (nextIndex < tracks.length) {
-          const index = nextIndex++;
-          const track = tracks[index];
-          results[index] = {
-            ...track,
-            playability: await this.catalog.availability(track.trackId),
-          };
-        }
-      })
-    );
-    return results;
+    return this.withAvailability(await this.catalog.search(query));
   }
 
   async playlists(client) {
@@ -582,21 +576,13 @@ export class KaraokeRemoteService {
 
   async withAvailability(tracks) {
     const source = Array.isArray(tracks) ? tracks : [];
-    const results = new Array(source.length);
-    let nextIndex = 0;
-    await Promise.all(
-      Array.from({ length: Math.min(4, source.length) }, async () => {
-        while (nextIndex < source.length) {
-          const index = nextIndex++;
-          const track = source[index];
-          results[index] = {
-            ...track,
-            playability: await this.catalog.availability(track.trackId),
-          };
-        }
-      })
-    );
-    return results;
+    return source.map(track => ({
+      ...track,
+      playability:
+        track.source === 'local'
+          ? 'playable'
+          : this.catalog.peekAvailability(track.trackId),
+    }));
   }
 
   async recommendationTracks(client, playlistId) {
@@ -642,22 +628,7 @@ export class KaraokeRemoteService {
       throw new Error('RATE_LIMIT');
     if (!/^\d{1,20}$/.test(String(playlistId)))
       throw new Error('PLAYLIST_NOT_FOUND');
-    const tracks = await this.catalog.playlistTracks(playlistId);
-    const results = new Array(tracks.length);
-    let nextIndex = 0;
-    await Promise.all(
-      Array.from({ length: Math.min(4, tracks.length) }, async () => {
-        while (nextIndex < tracks.length) {
-          const index = nextIndex++;
-          const track = tracks[index];
-          results[index] = {
-            ...track,
-            playability: await this.catalog.availability(track.trackId),
-          };
-        }
-      })
-    );
-    return results;
+    return this.withAvailability(await this.catalog.playlistTracks(playlistId));
   }
 
   async availability(client, trackId) {
