@@ -1,6 +1,13 @@
 import Cookies from 'js-cookie';
 import { logout } from '@/api/auth';
-import store from '@/store';
+
+// The auth utility is imported by the store and by router guards. Keep the
+// store reference injectable so importing auth never creates a store cycle.
+let storeRef = null;
+
+export function configureAuthStore(store) {
+  storeRef = store;
+}
 
 export function setCookies(string) {
   const cookies = string.split(';;');
@@ -29,13 +36,13 @@ export function isLoggedIn() {
 export function isAccountLoggedIn() {
   return (
     getCookie('MUSIC_U') !== undefined &&
-    store?.state?.data?.loginMode === 'account'
+    storeRef?.state?.data?.loginMode === 'account'
   );
 }
 
 // 用户名搜索（用户数据为只读）
 export function isUsernameLoggedIn() {
-  return store?.state?.data?.loginMode === 'username';
+  return storeRef?.state?.data?.loginMode === 'username';
 }
 
 // 账户登录或者用户名搜索都判断为登录，宽松检查
@@ -48,9 +55,12 @@ export function doLogout() {
   removeCookie('MUSIC_U');
   removeCookie('__csrf');
   // 更新状态仓库中的用户信息
-  store.commit('updateData', { key: 'user', value: {} });
+  storeRef?.commit('updateData', { key: 'user', value: {} });
   // 更新状态仓库中的登录状态
-  store.commit('updateData', { key: 'loginMode', value: null });
+  storeRef?.commit('updateData', { key: 'loginMode', value: null });
   // 更新状态仓库中的喜欢列表
-  store.commit('updateData', { key: 'likedSongPlaylistID', value: undefined });
+  storeRef?.commit('updateData', {
+    key: 'likedSongPlaylistID',
+    value: undefined,
+  });
 }

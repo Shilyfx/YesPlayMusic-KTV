@@ -1,10 +1,5 @@
-import store from '@/store';
 import { search } from '@/api/others';
 import { getMP3, getTrackDetail } from '@/api/track';
-
-function getPlayer() {
-  return store?.state?.player;
-}
 
 export function assertExpectedKaraokeSession(manager, expected) {
   const session = manager.getSnapshot().session;
@@ -60,6 +55,8 @@ async function hostCatalog(action, payload = {}) {
 
 export function ipcRenderer(vueInstance) {
   const self = vueInstance;
+  const store = self.$store;
+  const getPlayer = () => store?.state?.player;
   // 添加专有的类名
   document.body.setAttribute('data-electron', 'yes');
   document.body.setAttribute(

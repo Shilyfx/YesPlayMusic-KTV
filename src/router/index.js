@@ -157,6 +157,7 @@ router.beforeEach((to, from, next) => {
     } else {
       next({ path: '/login/account' });
     }
+    return;
   }
   if (to.meta.requireLogin) {
     if (isLooseLoggedIn()) {
@@ -167,10 +168,10 @@ router.beforeEach((to, from, next) => {
       } else {
         next({ path: '/login' });
       }
+      return;
     }
-  } else {
-    next();
   }
+  next();
 });
 
 export default router;

@@ -101,14 +101,18 @@ export default {
     },
     fetchData() {
       if (!isLooseLoggedIn()) return;
-      this.$store.dispatch('fetchLikedSongs');
-      this.$store.dispatch('fetchLikedSongsWithDetails');
-      this.$store.dispatch('fetchLikedPlaylist');
+      const load = action =>
+        Promise.resolve(this.$store.dispatch(action)).catch(error => {
+          console.warn(`[app] ${action} failed during bootstrap`, error);
+        });
+      load('fetchLikedSongs');
+      load('fetchLikedSongsWithDetails');
+      load('fetchLikedPlaylist');
       if (isAccountLoggedIn()) {
-        this.$store.dispatch('fetchLikedAlbums');
-        this.$store.dispatch('fetchLikedArtists');
-        this.$store.dispatch('fetchLikedMVs');
-        this.$store.dispatch('fetchCloudDisk');
+        load('fetchLikedAlbums');
+        load('fetchLikedArtists');
+        load('fetchLikedMVs');
+        load('fetchCloudDisk');
       }
     },
     handleScroll() {

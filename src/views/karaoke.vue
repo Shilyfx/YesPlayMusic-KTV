@@ -38,7 +38,7 @@
 
     <section v-if="isSessionActive" class="room-access glass-panel">
       <img
-        v-if="lanRoom && showRoomCode"
+        v-if="lanRoom && showRoomCode && lanRoom.qrDataUrl"
         :src="lanRoom.qrDataUrl"
         alt="局域网 KTV 房间二维码"
       />
@@ -49,6 +49,12 @@
         <p v-if="lanRoom"
           >房间码 {{ lanRoom.code }}。链接仅在本次 KTV 进行期间有效。</p
         >
+        <p v-if="lanRoom && lanRoom.qrError" class="room-warning">
+          {{ lanRoom.qrError }}
+        </p>
+        <p v-if="lanRoom" class="room-link">{{
+          lanRoom.joinUrl || lanRoom.url
+        }}</p>
         <p v-else>服务会监听全部网络；你选择的网卡只决定二维码中的访问地址。</p>
         <label v-if="lanCandidates.length">
           网卡地址
@@ -76,6 +82,23 @@
           @click="restartLanRoom"
           >按当前网卡更新二维码</button
         >
+        <div v-if="lanRoom" class="room-tools">
+          <button type="button" class="room-tool" @click="copyLanLink">
+            复制加入链接
+          </button>
+          <button type="button" class="room-tool" @click="retryLanQr">
+            重试二维码
+          </button>
+          <button type="button" class="room-tool" @click="selfTestLan">
+            {{ lanSelfTest === 'checking' ? '检测中…' : '检测当前网卡' }}
+          </button>
+        </div>
+        <p v-if="lanSelfTest === 'ok'" class="room-success"
+          >当前网卡可访问 KTV 服务</p
+        >
+        <p v-else-if="lanSelfTest === 'error'" class="room-warning">
+          当前网卡自检失败，请确认手机与主机处于同一局域网
+        </p>
       </div>
     </section>
 
@@ -298,6 +321,7 @@ export default {
       lanCandidates: [],
       showRoomCode: false,
       selectedLanAddress: '',
+      lanSelfTest: 'idle',
       isLyricFullscreen: false,
       lyricControlsVisible: false,
       lyricControlsTimer: null,
@@ -502,19 +526,28 @@ export default {
     async loadLanRoom() {
       const ipcRenderer = this.electronIpc();
       if (!ipcRenderer) return;
-      const result = await ipcRenderer.invoke('karaoke:lan:status');
-      this.lanRoom = result.room;
-      this.selectedLanAddress = result.room?.selectedAddress || '';
-      this.lanCandidates = result.room?.candidates || [];
-      if (!this.lanCandidates.length) await this.loadLanCandidates();
+      try {
+        const result = await ipcRenderer.invoke('karaoke:lan:status');
+        this.lanRoom = result.room;
+        this.selectedLanAddress = result.room?.selectedAddress || '';
+        this.lanCandidates = result.room?.candidates || [];
+        if (!this.lanCandidates.length) await this.loadLanCandidates();
+        if (this.lanRoom) this.selfTestLan();
+      } catch (error) {
+        console.warn('[karaoke] LAN status unavailable', error);
+      }
     },
     async loadLanCandidates() {
       const ipcRenderer = this.electronIpc();
       if (!ipcRenderer) return;
-      const result = await ipcRenderer.invoke('karaoke:lan:candidates');
-      this.lanCandidates = result.candidates || [];
-      if (!this.selectedLanAddress && this.lanCandidates.length)
-        this.selectedLanAddress = this.lanCandidates[0].address;
+      try {
+        const result = await ipcRenderer.invoke('karaoke:lan:candidates');
+        this.lanCandidates = result.candidates || [];
+        if (!this.selectedLanAddress && this.lanCandidates.length)
+          this.selectedLanAddress = this.lanCandidates[0].address;
+      } catch (error) {
+        console.warn('[karaoke] LAN candidates unavailable', error);
+      }
     },
     async setLanSessionActive(active) {
       const ipcRenderer = this.electronIpc();
@@ -528,27 +561,85 @@ export default {
         this.$store.dispatch('showToast', '请先选择用于生成二维码的网卡');
         return;
       }
-      const result = await ipcRenderer.invoke('karaoke:lan:start', {
-        lanAddress: this.selectedLanAddress,
-      });
-      if (result.ok) {
-        this.lanRoom = result.room;
-        this.lanCandidates = result.room.candidates || this.lanCandidates;
-        this.selectedLanAddress = result.room.selectedAddress;
-        this.showRoomCode = true;
-      } else {
-        this.$store.dispatch('showToast', `局域网房间未开启：${result.error}`);
+      try {
+        const result = await ipcRenderer.invoke('karaoke:lan:start', {
+          lanAddress: this.selectedLanAddress,
+        });
+        if (result.ok) {
+          this.lanRoom = result.room;
+          this.lanCandidates = result.room.candidates || this.lanCandidates;
+          this.selectedLanAddress = result.room.selectedAddress;
+          this.showRoomCode = true;
+          this.selfTestLan();
+        } else {
+          this.$store.dispatch(
+            'showToast',
+            `局域网房间未开启：${result.error}`
+          );
+        }
+      } catch (error) {
+        this.$store.dispatch('showToast', `局域网房间未开启：${error.message}`);
       }
     },
     async stopLanRoom() {
       const ipcRenderer = this.electronIpc();
-      if (ipcRenderer) await ipcRenderer.invoke('karaoke:lan:stop');
+      if (ipcRenderer) {
+        try {
+          await ipcRenderer.invoke('karaoke:lan:stop');
+        } catch (error) {
+          console.warn('[karaoke] LAN stop failed', error);
+        }
+      }
       this.lanRoom = null;
       this.showRoomCode = false;
+      this.lanSelfTest = 'idle';
     },
     async restartLanRoom() {
       await this.stopLanRoom();
       await this.startLanRoom();
+    },
+    async retryLanQr() {
+      const ipcRenderer = this.electronIpc();
+      if (!ipcRenderer || !this.lanRoom) return;
+      try {
+        const result = await ipcRenderer.invoke('karaoke:lan:refresh-qr');
+        if (result.ok) this.lanRoom = result.room;
+      } catch (error) {
+        console.warn('[karaoke] QR retry failed', error);
+      }
+    },
+    async selfTestLan() {
+      const ipcRenderer = this.electronIpc();
+      if (!ipcRenderer || !this.lanRoom) return;
+      this.lanSelfTest = 'checking';
+      try {
+        const result = await ipcRenderer.invoke(
+          'karaoke:lan:self-test',
+          this.lanRoom.selectedAddress
+        );
+        this.lanSelfTest = result.ok ? 'ok' : 'error';
+      } catch (error) {
+        this.lanSelfTest = 'error';
+        console.warn('[karaoke] LAN self-test failed', error);
+      }
+    },
+    async copyLanLink() {
+      if (!this.lanRoom) return;
+      const value = this.lanRoom.joinUrl || this.lanRoom.url;
+      try {
+        await navigator.clipboard.writeText(value);
+      } catch (_) {
+        const input = document.createElement('textarea');
+        input.value = value;
+        input.setAttribute('readonly', '');
+        input.style.position = 'fixed';
+        input.style.opacity = '0';
+        document.body.appendChild(input);
+        input.select();
+        document.execCommand('copy');
+        document.body.removeChild(input);
+      }
+      this.$store.dispatch('showToast', 'KTV 加入链接已复制');
     },
     enterKtvFullscreen() {
       this.$refs.karaokeSurface.requestFullscreen();
@@ -717,8 +808,9 @@ export default {
   padding: 12px;
 }
 .room-access img {
-  width: 104px;
-  height: 104px;
+  width: 240px;
+  height: 240px;
+  flex: 0 0 240px;
   border-radius: 10px;
   background: #fff;
 }
@@ -726,6 +818,33 @@ export default {
 .room-access p {
   display: block;
   margin: 0;
+}
+.room-link {
+  max-width: 220px;
+  overflow-wrap: anywhere;
+  color: var(--ktv-text-muted);
+  font-size: 11px;
+}
+.room-warning {
+  color: #f2b56b !important;
+}
+.room-success {
+  color: var(--ktv-success) !important;
+}
+.room-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 8px;
+}
+.room-tool {
+  min-height: 28px;
+  padding: 0 9px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 7px;
+  background: var(--ktv-glass-soft);
+  color: var(--ktv-text-primary);
+  font-size: 11px;
 }
 .room-access p {
   margin-top: 6px;
@@ -1133,6 +1252,16 @@ button:disabled {
   .karaoke-header {
     flex-wrap: wrap;
     padding: 12px;
+  }
+  .room-access {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+  .room-access img {
+    width: min(240px, 100%);
+    height: auto;
+    aspect-ratio: 1;
+    align-self: center;
   }
   .header-actions {
     width: 100%;

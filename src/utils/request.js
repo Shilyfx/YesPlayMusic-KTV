@@ -1,17 +1,19 @@
 import router from '@/router';
 import { doLogout, getCookie } from '@/utils/auth';
 import axios from 'axios';
+import { safeJsonRead, isSettings } from '@/utils/safeStorage';
 
 let baseURL = '';
 // Web 和 Electron 跑在不同端口避免同时启动时冲突
 if (process.env.IS_ELECTRON) {
   if (process.env.NODE_ENV === 'production') {
-    baseURL = process.env.VUE_APP_ELECTRON_API_URL;
+    baseURL = process.env.VUE_APP_ELECTRON_API_URL || '/api';
   } else {
-    baseURL = process.env.VUE_APP_ELECTRON_API_URL_DEV;
+    baseURL =
+      process.env.VUE_APP_ELECTRON_API_URL_DEV || 'http://127.0.0.1:10754';
   }
 } else {
-  baseURL = process.env.VUE_APP_NETEASE_API_URL;
+  baseURL = process.env.VUE_APP_NETEASE_API_URL || '/api';
 }
 
 const service = axios.create({
@@ -39,17 +41,16 @@ service.interceptors.request.use(function (config) {
   }
 
   // Force real_ip
-  const enableRealIP = JSON.parse(
-    localStorage.getItem('settings')
-  ).enableRealIP;
-  const realIP = JSON.parse(localStorage.getItem('settings')).realIP;
+  const settings = safeJsonRead('settings', {}, isSettings);
+  const enableRealIP = settings.enableRealIP;
+  const realIP = settings.realIP;
   if (process.env.VUE_APP_REAL_IP) {
     config.params.realIP = process.env.VUE_APP_REAL_IP;
   } else if (enableRealIP) {
     config.params.realIP = realIP;
   }
 
-  const proxy = JSON.parse(localStorage.getItem('settings')).proxyConfig;
+  const proxy = settings.proxyConfig || {};
   if (['HTTP', 'HTTPS'].includes(proxy.protocol)) {
     config.params.proxy = `${proxy.protocol}://${proxy.server}:${proxy.port}`;
   }
@@ -93,6 +94,15 @@ service.interceptors.response.use(
         router.push({ name: 'login' });
       }
     }
+    const appError = new Error(
+      data?.msg || data?.message || error?.message || '网络请求失败'
+    );
+    appError.name = 'AppError';
+    appError.code = data?.code || error?.code || 'NETWORK_ERROR';
+    appError.status = response?.status || 0;
+    appError.recoverable = true;
+    appError.response = response;
+    return Promise.reject(appError);
   }
 );
 

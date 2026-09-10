@@ -80,10 +80,16 @@ export default {
     ...mapMutations(['updateData']),
     search() {
       if (!this.keyword) return;
-      search({ keywords: this.keyword, limit: 9, type: 1002 }).then(data => {
-        this.result = data.result.userprofiles;
-        this.activeUser = this.result[0];
-      });
+      search({ keywords: this.keyword, limit: 9, type: 1002 })
+        .then(data => {
+          this.result = data?.result?.userprofiles || [];
+          this.activeUser = this.result[0] || {};
+        })
+        .catch(error => {
+          this.result = [];
+          this.activeUser = {};
+          console.warn('[login-username] search failed', error);
+        });
     },
     confirm() {
       this.updateData({ key: 'user', value: this.activeUser });
@@ -91,13 +97,15 @@ export default {
       userPlaylist({
         uid: this.activeUser.userId,
         limit: 1,
-      }).then(data => {
-        this.updateData({
-          key: 'likedSongPlaylistID',
-          value: data.playlist[0].id,
-        });
-        this.$router.push({ path: '/library' });
-      });
+      })
+        .then(data => {
+          this.updateData({
+            key: 'likedSongPlaylistID',
+            value: data?.playlist?.[0]?.id || 0,
+          });
+          this.$router.push({ path: '/library' });
+        })
+        .catch(error => console.warn('[login-username] profile failed', error));
     },
     throttleSearch: throttle(function () {
       this.search();

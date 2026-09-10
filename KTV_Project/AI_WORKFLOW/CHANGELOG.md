@@ -2,6 +2,16 @@
 
 ## Unreleased
 
+- Release stabilization: deterministic Electron/web API defaults, structured
+  Axios errors, Vuex/player/auth/API cycle removal, safe storage validation and
+  lazy native UNM loading.
+- Added `/__health`, renderer readiness and startup retry/log diagnostics;
+  packaged app now waits for the localhost listener before loading the renderer.
+- LAN QR generation is decoupled from room startup, with copy-link/retry/self-test
+  controls and a 240px QR presentation.
+- Added safe-storage regression coverage and Windows/macOS packaging validation
+  workflow. See `REPORTS/CODEX_RELEASE_STABILIZATION_REPORT.md`.
+
 - Unified Phase 1–4 audit repair branch established from the canonical Phase 4 snapshot.
 - Unified audit hardening: Player transient migration and cancellation generation,
   session-bound LAN lifecycle, server race/static-header checks, host-context

@@ -1,4 +1,3 @@
-import store from '@/store';
 import request from '@/utils/request';
 import { mapTrackPlayableStatus } from '@/utils/common';
 import {
@@ -7,6 +6,12 @@ import {
   cacheLyric,
   getLyricFromCache,
 } from '@/utils/db';
+
+let storeRef = null;
+
+export function configureTrackStore(store) {
+  storeRef = store;
+}
 
 /**
  * 获取音乐 url
@@ -17,7 +22,7 @@ import {
 export function getMP3(id) {
   const getBr = () => {
     // 当返回的 quality >= 400000时，就会优先返回 hi-res
-    const quality = store?.state?.settings?.musicQuality ?? '320000';
+    const quality = storeRef?.state?.settings?.musicQuality ?? '320000';
     return quality === 'flac' ? '350000' : quality;
   };
 
@@ -45,6 +50,9 @@ export function getTrackDetail(ids) {
         ids,
       },
     }).then(data => {
+      if (!data || !Array.isArray(data.songs)) {
+        throw new Error('TRACK_DETAIL_UNAVAILABLE');
+      }
       data.songs.map(song => {
         const privileges = data.privileges.find(t => t.id === song.id);
         cacheTrackDetail(song, privileges);
@@ -53,8 +61,6 @@ export function getTrackDetail(ids) {
       return data;
     });
   };
-  fetchLatest();
-
   let idsInArray = [String(ids)];
   if (typeof ids === 'string') {
     idsInArray = ids.split(',');
@@ -87,8 +93,6 @@ export function getLyric(id) {
     });
   };
 
-  fetchLatest();
-
   return getLyricFromCache(id).then(result => {
     return result ?? fetchLatest();
   });
@@ -119,8 +123,6 @@ export function getCloudLyric(songId, userId) {
       return result;
     });
   };
-
-  fetchLatest();
 
   return getLyricFromCache(songId).then(result => {
     return result ?? fetchLatest();

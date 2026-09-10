@@ -77,6 +77,14 @@
           <div class="qr-code-info">
             {{ qrCodeInformation }}
           </div>
+          <button
+            v-if="qrCodeLoadFailed"
+            type="button"
+            class="qr-code-retry"
+            @click="getQrCodeKey"
+          >
+            重试二维码
+          </button>
         </div>
       </div>
       <div v-show="mode !== 'qrCode'" class="confirm">
@@ -223,11 +231,16 @@ export default {
       if (data.code === 200) {
         setCookies(data.cookie);
         this.updateData({ key: 'loginMode', value: 'account' });
-        this.$store.dispatch('fetchUserProfile').then(() => {
-          this.$store.dispatch('fetchLikedPlaylist').then(() => {
-            this.$router.push({ path: '/library' });
+        this.$store
+          .dispatch('fetchUserProfile')
+          .then(() => this.$store.dispatch('fetchLikedPlaylist'))
+          .then(() => this.$router.push({ path: '/library' }))
+          .catch(error => {
+            this.processing = false;
+            nativeAlert(
+              `登录成功但用户数据加载失败：${error.message || error}`
+            );
           });
-        });
       } else {
         this.processing = false;
         nativeAlert(data.msg ?? data.message ?? '账号或密码错误，请检查');
@@ -237,6 +250,7 @@ export default {
       return loginQrCodeKey()
         .then(result => {
           if (result?.code === 200) {
+            this.qrCodeLoadFailed = false;
             this.qrCodeKey = result.data.unikey;
             QRCode.toString(
               `https://music.163.com/login?codekey=${this.qrCodeKey}`,
@@ -275,23 +289,28 @@ export default {
       clearInterval(this.qrCodeCheckInterval);
       this.qrCodeCheckInterval = setInterval(() => {
         if (this.qrCodeKey === '') return;
-        loginQrCodeCheck(this.qrCodeKey).then(result => {
-          if (!result) return;
-          if (result.code === 800) {
-            this.getQrCodeKey(); // 重新生成QrCode
-            this.qrCodeInformation = '二维码已失效，请重新扫码';
-          } else if (result.code === 802) {
-            this.qrCodeInformation = '扫描成功，请在手机上确认登录';
-          } else if (result.code === 801) {
-            this.qrCodeInformation = '打开网易云音乐APP扫码登录';
-          } else if (result.code === 803) {
-            clearInterval(this.qrCodeCheckInterval);
-            this.qrCodeInformation = '登录成功，请稍等...';
-            result.code = 200;
-            result.cookie = result.cookie.replaceAll(' HTTPOnly', '');
-            this.handleLoginResponse(result);
-          }
-        });
+        loginQrCodeCheck(this.qrCodeKey)
+          .then(result => {
+            if (!result) return;
+            if (result.code === 800) {
+              this.getQrCodeKey(); // 重新生成QrCode
+              this.qrCodeInformation = '二维码已失效，请重新扫码';
+            } else if (result.code === 802) {
+              this.qrCodeInformation = '扫描成功，请在手机上确认登录';
+            } else if (result.code === 801) {
+              this.qrCodeInformation = '打开网易云音乐APP扫码登录';
+            } else if (result.code === 803) {
+              clearInterval(this.qrCodeCheckInterval);
+              this.qrCodeInformation = '登录成功，请稍等...';
+              result.code = 200;
+              result.cookie = result.cookie.replaceAll(' HTTPOnly', '');
+              this.handleLoginResponse(result);
+            }
+          })
+          .catch(error => {
+            this.qrCodeInformation = '登录服务暂不可用，请点击重试';
+            console.warn('[login] QR polling failed', error);
+          });
       }, 1000);
     },
     changeMode(mode) {
@@ -495,5 +514,14 @@ button.loading {
   color: var(--color-text);
   text-align: center;
   margin-bottom: 28px;
+}
+.qr-code-retry {
+  min-height: 34px;
+  padding: 0 14px;
+  border: 1px solid var(--color-primary);
+  border-radius: 8px;
+  background: var(--color-primary-bg);
+  color: var(--color-primary);
+  font-weight: 600;
 }
 </style>

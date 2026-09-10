@@ -102,31 +102,43 @@ export default {
   methods: {
     ...mapActions(['showToast']),
     getData(id) {
-      mvDetail(id).then(data => {
-        this.mv = data;
-        let requests = data.data.brs.map(br => {
-          return mvUrl({ id, r: br.br });
-        });
-        Promise.all(requests).then(results => {
-          let sources = results.map(result => {
-            return {
-              src: result.data.url.replace(/^http:/, 'https:'),
-              type: 'video/mp4',
-              size: result.data.r,
-            };
+      mvDetail(id)
+        .then(data => {
+          this.mv = data || this.mv;
+          const requests = (data?.data?.brs || []).map(br =>
+            mvUrl({ id, r: br.br })
+          );
+          return Promise.all(requests).then(results => {
+            const sources = results
+              .map(result => result?.data)
+              .filter(source => source?.url)
+              .map(source => ({
+                src: source.url.replace(/^http:/, 'https:'),
+                type: 'video/mp4',
+                size: source.r,
+              }));
+            if (sources.length && this.player) {
+              this.player.source = {
+                type: 'video',
+                title: this.mv.data.name,
+                sources,
+                poster: this.mv.data.cover.replace(/^http:/, 'https:'),
+              };
+            }
+            NProgress.done();
           });
-          this.player.source = {
-            type: 'video',
-            title: this.mv.data.name,
-            sources: sources,
-            poster: this.mv.data.cover.replace(/^http:/, 'https:'),
-          };
+        })
+        .catch(error => {
           NProgress.done();
+          console.warn('[mv] loading failed', error);
         });
-      });
-      simiMv(id).then(data => {
-        this.simiMvs = data.mvs;
-      });
+      simiMv(id)
+        .then(data => {
+          this.simiMvs = data?.mvs || [];
+        })
+        .catch(() => {
+          this.simiMvs = [];
+        });
     },
     likeMV() {
       if (!isAccountLoggedIn()) {

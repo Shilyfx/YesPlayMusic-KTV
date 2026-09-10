@@ -1,6 +1,13 @@
 import initLocalStorage from './initLocalStorage';
 import pkg from '../../package.json';
 import updateApp from '@/utils/updateApp';
+import {
+  isData,
+  isLastfm,
+  isPlayer,
+  isSettings,
+  safeJsonRead,
+} from '@/utils/safeStorage';
 
 if (localStorage.getItem('appVersion') === null) {
   localStorage.setItem('settings', JSON.stringify(initLocalStorage.settings));
@@ -9,6 +16,13 @@ if (localStorage.getItem('appVersion') === null) {
 }
 
 updateApp();
+
+const persistedSettings = safeJsonRead(
+  'settings',
+  initLocalStorage.settings,
+  isSettings
+);
+const persistedData = safeJsonRead('data', initLocalStorage.data, isData);
 
 export default {
   showLyrics: false,
@@ -47,8 +61,8 @@ export default {
     },
   },
   dailyTracks: [],
-  lastfm: JSON.parse(localStorage.getItem('lastfm')) || {},
-  player: JSON.parse(localStorage.getItem('player')),
+  lastfm: safeJsonRead('lastfm', {}, isLastfm),
+  player: safeJsonRead('player', {}, isPlayer),
   karaoke: {
     session: { status: 'idle' },
     currentItem: null,
@@ -56,6 +70,16 @@ export default {
     historyItems: [],
     queueCount: 0,
   },
-  settings: JSON.parse(localStorage.getItem('settings')),
-  data: JSON.parse(localStorage.getItem('data')),
+  // Merge persisted values with the current defaults so upgrades cannot
+  // leave newly introduced settings undefined. Nested proxy settings are
+  // merged independently for the same reason.
+  settings: {
+    ...initLocalStorage.settings,
+    ...persistedSettings,
+    proxyConfig: {
+      ...initLocalStorage.settings.proxyConfig,
+      ...(persistedSettings.proxyConfig || {}),
+    },
+  },
+  data: { ...initLocalStorage.data, ...persistedData },
 };

@@ -10,6 +10,7 @@
       type="playlist"
       dbclick-track-func="dailyTracks"
     />
+    <p v-if="error" class="load-error">每日推荐暂时不可用，请稍后重试</p>
   </div>
 </template>
 
@@ -28,6 +29,7 @@ export default {
   data() {
     return {
       show: false,
+      error: false,
     };
   },
   computed: {
@@ -47,11 +49,19 @@ export default {
   methods: {
     ...mapMutations(['updateDailyTracks']),
     loadDailyTracks() {
-      dailyRecommendTracks().then(result => {
-        this.updateDailyTracks(result.data.dailySongs);
-        NProgress.done();
-        this.show = true;
-      });
+      this.error = false;
+      dailyRecommendTracks()
+        .then(result => {
+          this.updateDailyTracks(result?.data?.dailySongs || []);
+          NProgress.done();
+          this.show = true;
+        })
+        .catch(error => {
+          NProgress.done();
+          this.show = true;
+          this.error = true;
+          console.warn('[daily-tracks] loading failed', error);
+        });
     },
   },
 };
@@ -128,5 +138,10 @@ export default {
 
 .gradient {
   background: linear-gradient(to left, #dd2476, #ff512f);
+}
+.load-error {
+  padding: 24px;
+  color: var(--color-secondary);
+  text-align: center;
 }
 </style>

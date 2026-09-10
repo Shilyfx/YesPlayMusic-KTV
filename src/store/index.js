@@ -3,12 +3,19 @@ import Vuex from 'vuex';
 import state from './state';
 import mutations from './mutations';
 import actions from './actions';
-import { changeAppearance, changeThemeColor } from '@/utils/common';
-import Player from '@/utils/Player';
+import {
+  changeAppearance,
+  changeThemeColor,
+  configureCommonStore,
+} from '@/utils/common';
+import { configureTrackStore } from '@/api/track';
+import Player, { configurePlayerStore } from '@/utils/Player';
 import { createKaraokeRuntime } from '@/karaoke/runtime';
 // vuex 自定义插件
 import saveToLocalStorage from './plugins/localStorage';
 import { getSendSettingsPlugin } from './plugins/sendSettings';
+import { configureCachePolicy, initTracksCacheBytes } from '@/utils/db';
+import { configureAuthStore } from '@/utils/auth';
 
 Vue.use(Vuex);
 
@@ -25,6 +32,13 @@ const options = {
 };
 
 const store = new Vuex.Store(options);
+
+configureAuthStore(store);
+configurePlayerStore(store);
+configureCommonStore(store);
+configureTrackStore(store);
+configureCachePolicy(store.state.settings);
+if (process.env.IS_ELECTRON === true) initTracksCacheBytes();
 
 if ([undefined, null].includes(store.state.settings.lang)) {
   const defaultLang = 'en';
@@ -67,5 +81,8 @@ player = new Proxy(player, {
 });
 store.state.player = player;
 store.$karaokeManager = createKaraokeRuntime(player, store);
+player.initialize().catch(error => {
+  console.warn('[player] initialization deferred:', error);
+});
 
 export default store;

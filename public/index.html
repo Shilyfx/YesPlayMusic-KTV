@@ -1,25 +1,78 @@
 <!DOCTYPE html>
 <html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta http-equiv="X-UA-Compatible" content="IE=edge" />
+    <meta name="referrer" content="no-referrer" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <link rel="icon" href="<%= BASE_URL %>favicon.ico" />
+    <title> <%= htmlWebpackPlugin.options.title %> </title>
+  </head>
 
-<head>
-  <meta charset="utf-8" />
-  <meta http-equiv="X-UA-Compatible" content="IE=edge" />
-  <meta name="referrer" content="no-referrer" />
-  <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <link rel="icon" href="<%= BASE_URL %>favicon.ico" />
-  <title>
-    <%= htmlWebpackPlugin.options.title %>
-  </title>
-</head>
-
-<body>
-  <noscript>
-    <strong>We're sorry but <%= htmlWebpackPlugin.options.title %> doesn't work
+  <body>
+    <noscript>
+      <strong
+        >We're sorry but <%= htmlWebpackPlugin.options.title %> doesn't work
         properly without JavaScript enabled. Please enable it to
-        continue.</strong>
-  </noscript>
-  <div id="app"></div>
-  <!-- built files will be auto injected -->
-</body>
-
+        continue.</strong
+      >
+    </noscript>
+    <div id="boot-status" role="status">正在启动 YesPlayMusic...</div>
+    <div id="app"></div>
+    <script>
+      window.setTimeout(function () {
+        var boot = document.getElementById('boot-status');
+        if (boot && !document.body.hasAttribute('data-renderer-ready')) {
+          boot.innerHTML =
+            '应用启动时间较长，请重试或查看日志。<div class="boot-actions"><button id="boot-retry" type="button">重试</button><button id="boot-logs" type="button">打开日志目录</button></div>';
+          document.getElementById('boot-retry').onclick = function () {
+            window.location.reload();
+          };
+          document.getElementById('boot-logs').onclick = function () {
+            try {
+              window.require('electron').ipcRenderer.invoke('app:open-logs');
+            } catch (_) {
+              // Browser builds do not expose Electron IPC.
+            }
+          };
+          boot.className = 'boot-failed';
+        }
+      }, 12000);
+    </script>
+    <style>
+      #boot-status {
+        position: fixed;
+        inset: 0;
+        display: grid;
+        place-items: center;
+        align-content: center;
+        gap: 16px;
+        color: #335eea;
+        font: 600 16px sans-serif;
+        background: #fff;
+        z-index: 9999;
+        text-align: center;
+      }
+      #boot-status.boot-failed {
+        color: #b42318;
+      }
+      .boot-actions {
+        display: flex;
+        justify-content: center;
+        gap: 8px;
+      }
+      .boot-actions button {
+        padding: 8px 14px;
+        border: 1px solid #d0d5dd;
+        border-radius: 8px;
+        background: #fff;
+        color: #344054;
+        cursor: pointer;
+      }
+      body[data-renderer-ready] #boot-status {
+        display: none;
+      }
+    </style>
+    <!-- built files will be auto injected -->
+  </body>
 </html>

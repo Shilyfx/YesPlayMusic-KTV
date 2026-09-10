@@ -98,3 +98,21 @@ Remote assets only from that tree; it must never fall back to desktop bundle ass
 Validation evidence: code checkpoint `f8fcf7cfd086e097fff856431b9ff86c3fc25ffa`
 and documentation checkpoint `a94865958103a8bb4d897df57f0390f23ba1d26b` passed
 Actions `34258369587` and `34258965888`, respectively.
+
+## D-014 Stabilization keeps readiness explicit
+
+Status: Accepted
+
+Renderer startup readiness is reported through `renderer:ready`; the desktop
+server and bundled NetEase API expose explicit states through `/__health`. A
+failed API returns a structured 503 and a failed QR render leaves the room
+reachable through its join URL. These states must remain observable instead of
+being hidden behind broad catches or silent fallbacks.
+
+## D-015 Network adapter choice is presentation-only
+
+Status: Accepted
+
+The KTV listener remains bound to `0.0.0.0`; the selected IPv4 adapter controls
+only the URL encoded in the QR/join link. A self-test probes that selected
+address and `/health`, so changing adapters never changes the server bind.

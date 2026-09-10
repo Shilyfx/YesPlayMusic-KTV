@@ -46,13 +46,17 @@ export function createMpris(window) {
     player.getPosition = () => position * 1000 * 1000;
     try {
       player.seeked(position * 1000 * 1000);
-    } catch {}
+    } catch (error) {
+      console.debug('[mpris] seek update ignored', error);
+    }
   });
 
   ipcMain.on('seeked', (e, position) => {
     try {
       player.seeked(position * 1000 * 1000);
-    } catch {}
+    } catch (error) {
+      console.debug('[mpris] seek command ignored', error);
+    }
   });
 
   ipcMain.on('switchRepeatMode', (e, mode) => {

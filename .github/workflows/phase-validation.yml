@@ -30,7 +30,9 @@ jobs:
           src/remote/*.js src/remote/*.css vue.config.js
           scripts/test-karaoke-server.js scripts/test-karaoke-lifecycle.js
           scripts/test-karaoke-remote-api.js scripts/test-karaoke-player.js
-          scripts/isolate-remote-assets.js package.json
+          scripts/test-safe-storage.js scripts/isolate-remote-assets.js
+          src/utils/safeStorage.js src/utils/request.js src/utils/updateApp.js
+          src/utils/auth.js src/api/track.js src/utils/common.js package.json
       - name: KTV source lint
         run: >-
           ./node_modules/.bin/eslint
@@ -42,7 +44,9 @@ jobs:
           src/remote/*.js vue.config.js
           scripts/test-karaoke-server.js scripts/test-karaoke-lifecycle.js
           scripts/test-karaoke-remote-api.js scripts/test-karaoke-player.js
-          scripts/isolate-remote-assets.js
+          scripts/test-safe-storage.js scripts/isolate-remote-assets.js
+          src/utils/safeStorage.js src/utils/request.js src/utils/updateApp.js
+          src/utils/auth.js src/api/track.js src/utils/common.js
       - name: KTV domain transitions
         run: node scripts/test-karaoke-domain.js
       - name: KTV Player persistence and cancellation
@@ -53,6 +57,8 @@ jobs:
         run: node scripts/test-karaoke-lifecycle.js
       - name: KTV remote API integration
         run: node scripts/test-karaoke-remote-api.js
+      - name: Safe storage validation
+        run: node scripts/test-safe-storage.js
       - name: Full repository lint diagnostic (known upstream failures)
         continue-on-error: true
         run: yarn lint

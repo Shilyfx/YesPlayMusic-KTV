@@ -1,8 +1,9 @@
 import initLocalStorage from '@/store/initLocalStorage.js';
 import pkg from '../../package.json';
+import { safeJsonRead, safeJsonWrite } from './safeStorage';
 
 const updateSetting = () => {
-  const parsedSettings = JSON.parse(localStorage.getItem('settings'));
+  const parsedSettings = safeJsonRead('settings', {});
   const settings = {
     ...initLocalStorage.settings,
     ...parsedSettings,
@@ -27,11 +28,11 @@ const updateSetting = () => {
     settings.lyricsBackground = true;
   }
 
-  localStorage.setItem('settings', JSON.stringify(settings));
+  safeJsonWrite('settings', settings);
 };
 
 const updateData = () => {
-  const parsedData = JSON.parse(localStorage.getItem('data'));
+  const parsedData = safeJsonRead('data', {});
   const data = { ...parsedData };
   [
     '_playbackOwner',
@@ -41,11 +42,11 @@ const updateData = () => {
     '_karaokePlaybackGeneration',
     '_karaokePlaybackPending',
   ].forEach(key => delete data[key]);
-  localStorage.setItem('data', JSON.stringify(data));
+  safeJsonWrite('data', data);
 };
 
 export const updatePlayer = () => {
-  let parsedData = JSON.parse(localStorage.getItem('player'));
+  let parsedData = safeJsonRead('player', {});
   let appVersion = localStorage.getItem('appVersion');
   if (appVersion === `"0.2.5"`) parsedData = {}; // 0.2.6版本重构了player
   const data = {
@@ -59,7 +60,7 @@ export const updatePlayer = () => {
     '_karaokePlaybackGeneration',
     '_karaokePlaybackPending',
   ].forEach(key => delete data[key]);
-  localStorage.setItem('player', JSON.stringify(data));
+  safeJsonWrite('player', data);
 };
 
 const removeOldStuff = () => {

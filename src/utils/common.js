@@ -1,7 +1,12 @@
 import { isAccountLoggedIn } from './auth';
 import { refreshCookie } from '@/api/auth';
 import dayjs from 'dayjs';
-import store from '@/store';
+
+let storeRef = null;
+
+export function configureCommonStore(store) {
+  storeRef = store;
+}
 
 const themeColorPresets = {
   default: {
@@ -96,7 +101,7 @@ export function isTrackPlayable(track) {
     return result;
   }
   if (track.fee === 1 || track.privilege?.fee === 1) {
-    if (isAccountLoggedIn() && store?.state?.data?.user?.vipType === 11) {
+    if (isAccountLoggedIn() && storeRef?.state?.data?.user?.vipType === 11) {
       result.playable = true;
     } else {
       result.playable = false;
@@ -176,7 +181,7 @@ export function updateHttps(url) {
 }
 
 export function dailyTask() {
-  const data = store?.state?.data;
+  const data = storeRef?.state?.data;
   if (!data) return;
   let lastDate = data.lastRefreshCookieDate;
   if (
@@ -184,13 +189,17 @@ export function dailyTask() {
     (lastDate === undefined || lastDate !== dayjs().date())
   ) {
     console.debug('[debug][common.js] execute dailyTask');
-    refreshCookie().then(() => {
-      console.debug('[debug][common.js] 刷新cookie');
-      store?.commit('updateData', {
-        key: 'lastRefreshCookieDate',
-        value: dayjs().date(),
+    refreshCookie()
+      .then(() => {
+        console.debug('[debug][common.js] 刷新cookie');
+        storeRef?.commit('updateData', {
+          key: 'lastRefreshCookieDate',
+          value: dayjs().date(),
+        });
+      })
+      .catch(error => {
+        console.warn('[debug][common.js] cookie refresh failed', error);
       });
-    });
   }
 }
 
@@ -284,7 +293,7 @@ export function bytesToSize(bytes) {
   let megaBytes = marker * marker;
   let gigaBytes = marker * marker * marker;
 
-  let lang = store?.state?.settings?.lang || 'zh-CN';
+  let lang = storeRef?.state?.settings?.lang || 'zh-CN';
 
   if (bytes < kiloBytes) return bytes + (lang === 'en' ? ' Bytes' : '字节');
   else if (bytes < megaBytes)

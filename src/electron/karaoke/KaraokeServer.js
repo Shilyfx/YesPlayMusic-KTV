@@ -182,13 +182,64 @@ export class KaraokeServer {
   async describeRoom() {
     if (!this.room) return null;
     const url = `http://${this.room.lanAddress}:${this.port}/room/${this.room.code}/#token=${this.room.token}`;
+    let qrDataUrl = null;
+    let qrError = null;
+    try {
+      // QR rendering is presentation-only. A renderer failure must not tear
+      // down an already listening room; the plain URL remains usable.
+      qrDataUrl = await QRCode.toDataURL(url, { margin: 3, width: 520 });
+    } catch (error) {
+      qrError = '二维码生成失败，可复制下方链接加入';
+      console.warn('[karaoke] QR generation failed', error);
+    }
     return {
       code: this.room.code,
       url,
+      joinUrl: url,
       candidates: this.room.candidates,
       selectedAddress: this.room.lanAddress,
-      qrDataUrl: await QRCode.toDataURL(url, { margin: 1, width: 280 }),
+      qrDataUrl,
+      qrError,
     };
+  }
+
+  async selfTestAddress(address) {
+    address = address || (this.room && this.room.lanAddress);
+    if (!address || !this.room) {
+      return { ok: false, error: '局域网房间尚未启动' };
+    }
+    return new Promise(resolve => {
+      const request = http.get(
+        {
+          hostname: address,
+          port: this.port,
+          path: '/health',
+          timeout: 2000,
+        },
+        response => {
+          let body = '';
+          response.setEncoding('utf8');
+          response.on('data', chunk => {
+            body += chunk;
+          });
+          response.on('end', () => {
+            try {
+              const parsed = JSON.parse(body);
+              resolve({
+                ok: response.statusCode === 200 && parsed.active === true,
+                statusCode: response.statusCode,
+              });
+            } catch (_) {
+              resolve({ ok: false, error: '健康检查返回内容无效' });
+            }
+          });
+        }
+      );
+      request.on('timeout', () => request.destroy(new Error('请求超时')));
+      request.on('error', error =>
+        resolve({ ok: false, error: `网卡地址不可访问：${error.message}` })
+      );
+    });
   }
 
   async handleRequest(request, response) {

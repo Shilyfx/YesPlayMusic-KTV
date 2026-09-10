@@ -1,7 +1,6 @@
 import Vue from 'vue';
 import VueClipboard from 'vue-clipboard2';
 import VueI18n from 'vue-i18n';
-import store from '@/store';
 
 import en from './lang/en.js';
 import zhCN from './lang/zh-CN.js';
@@ -11,9 +10,18 @@ import tr from './lang/tr.js';
 Vue.use(VueClipboard);
 Vue.use(VueI18n);
 
-// Some renderer entry points import locale while Vuex is still resolving a
-// circular dependency. Do not let that transient module state abort the app.
-const initialLocale = store?.state?.settings?.lang || 'zh-CN';
+// Locale is loaded during the renderer bootstrap. Read only the persisted
+// primitive here so i18n never imports Vuex (which would recreate the store
+// initialization cycle).
+let initialLocale = 'zh-CN';
+try {
+  const persisted = JSON.parse(localStorage.getItem('settings') || '{}');
+  if (typeof persisted.lang === 'string' && persisted.lang) {
+    initialLocale = persisted.lang;
+  }
+} catch (_) {
+  // Vuex safe storage validation will recover malformed settings later.
+}
 
 const i18n = new VueI18n({
   locale: initialLocale,

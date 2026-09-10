@@ -1,6 +1,5 @@
 import axios from 'axios';
 import Dexie from 'dexie';
-import store from '@/store';
 // import pkg from "../../package.json";
 
 const db = new Dexie('yesplaymusic');
@@ -29,30 +28,16 @@ db.version(1).stores({
 });
 
 let tracksCacheBytes = 0;
+let cacheLimit = null;
 
-// 等待 settings 可用
-async function waitForSettingsReady(timeoutMs = 5000) {
-  const interval = 100;
-  const maxTries = Math.ceil(timeoutMs / interval);
-  let tries = 0;
-  while (
-    (store == null ||
-      store.state == null ||
-      store.state.settings == null ||
-      store.state.settings.cacheLimit === undefined) &&
-    tries < maxTries
-  ) {
-    await new Promise(resolve => setTimeout(resolve, interval));
-    tries++;
-  }
-  return store?.state?.settings;
+export function configureCachePolicy(settings) {
+  cacheLimit = settings?.cacheLimit ?? null;
 }
 
 // 初始化现有缓存总大小，确保应用启动时能正确判断并清理超限缓存
-async function initTracksCacheBytes() {
+export async function initTracksCacheBytes() {
   if (!process.env.IS_ELECTRON) return;
   try {
-    await waitForSettingsReady();
     const all = await db.trackSources.toArray();
     tracksCacheBytes = all.reduce(
       (sum, t) => sum + (t?.source?.byteLength || 0),
@@ -68,21 +53,19 @@ async function initTracksCacheBytes() {
   }
 }
 
-// 模块加载时触发初始化
-initTracksCacheBytes();
-
 async function deleteExcessCache() {
-  if (!store?.state?.settings) return;
   if (
-    store.state.settings.cacheLimit === false ||
-    tracksCacheBytes < store.state.settings.cacheLimit * Math.pow(1024, 2)
+    cacheLimit === false ||
+    cacheLimit === null ||
+    tracksCacheBytes < cacheLimit * Math.pow(1024, 2)
   ) {
     return;
   }
   try {
     const delCache = await db.trackSources.orderBy('createTime').first();
+    if (!delCache) return;
     await db.trackSources.delete(delCache.id);
-    tracksCacheBytes -= delCache.source.byteLength;
+    tracksCacheBytes -= delCache.source?.byteLength || 0;
     console.debug(
       `[debug][db.js] deleteExcessCacheSucces, track: ${delCache.name}, size: ${delCache.source.byteLength}, cacheSize:${tracksCacheBytes}`
     );

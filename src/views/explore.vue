@@ -39,7 +39,17 @@
     </div>
 
     <div class="playlists">
+      <div v-if="error" class="load-state load-error">
+        加载失败，请检查本地服务后重试
+        <ButtonTwoTone color="grey" @click.native="getPlaylist"
+          >重试</ButtonTwoTone
+        >
+      </div>
+      <div v-else-if="show && !playlists.length" class="load-state">
+        暂无可显示的歌单
+      </div>
       <CoverRow
+        v-else
         type="playlist"
         :items="playlists"
         :sub-text="subText"
@@ -93,6 +103,7 @@ export default {
   data() {
     return {
       show: false,
+      error: false,
       playlists: [],
       activeCategory: '全部',
       loadingMore: false,
@@ -141,6 +152,7 @@ export default {
       this.show = true;
     },
     getPlaylist() {
+      this.error = false;
       this.loadingMore = true;
       if (this.activeCategory === '推荐歌单') {
         return this.getRecommendPlayList();
@@ -154,34 +166,49 @@ export default {
       return this.getTopPlayList();
     },
     getRecommendPlayList() {
-      getRecommendPlayList(100, true).then(list => {
-        this.playlists = [];
-        this.updatePlaylist(list);
-      });
+      return getRecommendPlayList(100, true)
+        .then(list => {
+          this.playlists = [];
+          this.updatePlaylist(list);
+        })
+        .catch(error => this.handleLoadError(error));
     },
     getHighQualityPlaylist() {
       let playlists = this.playlists;
       let before =
         playlists.length !== 0 ? playlists[playlists.length - 1].updateTime : 0;
-      highQualityPlaylist({ limit: 50, before }).then(data => {
-        this.updatePlaylist(data.playlists);
-        this.hasMore = data.more;
-      });
+      return highQualityPlaylist({ limit: 50, before })
+        .then(data => {
+          this.updatePlaylist(data.playlists || []);
+          this.hasMore = data.more;
+        })
+        .catch(error => this.handleLoadError(error));
     },
     getTopLists() {
-      toplists().then(data => {
-        this.playlists = [];
-        this.updatePlaylist(data.list);
-      });
+      return toplists()
+        .then(data => {
+          this.playlists = [];
+          this.updatePlaylist(data.list || []);
+        })
+        .catch(error => this.handleLoadError(error));
     },
     getTopPlayList() {
-      topPlaylist({
+      return topPlaylist({
         cat: this.activeCategory,
         offset: this.playlists.length,
-      }).then(data => {
-        this.updatePlaylist(data.playlists);
-        this.hasMore = data.more;
-      });
+      })
+        .then(data => {
+          this.updatePlaylist(data.playlists || []);
+          this.hasMore = data.more;
+        })
+        .catch(error => this.handleLoadError(error));
+    },
+    handleLoadError(error) {
+      this.loadingMore = false;
+      this.show = true;
+      this.error = true;
+      NProgress.done();
+      console.warn('[explore] playlist loading failed', error);
     },
     getCatsByBigCat(name) {
       return playlistCategories.filter(c => c.bigCat === name);
@@ -286,6 +313,18 @@ h1 {
 
 .playlists {
   margin-top: 24px;
+}
+
+.load-state {
+  width: 100%;
+  padding: 56px 0;
+  color: var(--color-secondary);
+  text-align: center;
+}
+.load-error {
+  display: grid;
+  justify-items: center;
+  gap: 12px;
 }
 
 .load-more {

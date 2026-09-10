@@ -288,25 +288,43 @@ export default {
           NProgress.done();
           this.show = true;
         });
-      getArtistAlbum({ id: id, limit: 200 }).then(data => {
-        this.albumsData = data.hotAlbums;
-        this.latestRelease = data.hotAlbums[0];
-      });
-      artistMv({ id }).then(data => {
-        this.mvs = data.mvs;
-        this.hasMoreMV = data.hasMore;
-      });
-      if (isAccountLoggedIn()) {
-        similarArtists(id).then(data => {
-          this.similarArtists = data.artists;
+      getArtistAlbum({ id: id, limit: 200 })
+        .then(data => {
+          this.albumsData = data?.hotAlbums || [];
+          this.latestRelease = this.albumsData[0] || null;
+        })
+        .catch(() => {
+          this.albumsData = [];
+          this.latestRelease = null;
         });
+      artistMv({ id })
+        .then(data => {
+          this.mvs = data?.mvs || [];
+          this.hasMoreMV = data?.hasMore;
+        })
+        .catch(() => {
+          this.mvs = [];
+          this.hasMoreMV = false;
+        });
+      if (isAccountLoggedIn()) {
+        similarArtists(id)
+          .then(data => {
+            this.similarArtists = data?.artists || [];
+          })
+          .catch(() => {
+            this.similarArtists = [];
+          });
       }
     },
     setPopularTracks(hotSongs) {
       const trackIDs = hotSongs.map(t => t.id);
-      getTrackDetail(trackIDs.join(',')).then(data => {
-        this.popularTracks = data.songs;
-      });
+      getTrackDetail(trackIDs.join(','))
+        .then(data => {
+          this.popularTracks = data?.songs || [];
+        })
+        .catch(() => {
+          this.popularTracks = [];
+        });
     },
     goToAlbum(id) {
       this.$router.push({

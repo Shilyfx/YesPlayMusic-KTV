@@ -874,6 +874,7 @@ import {
   bytesToSize,
 } from '@/utils/common';
 import { countDBSize, clearDB } from '@/utils/db';
+import { safeJsonRead, isLastfm } from '@/utils/safeStorage';
 import pkg from '../../package.json';
 
 const electron =
@@ -1495,7 +1496,10 @@ export default {
       let lastfmChecker = setInterval(() => {
         const session = localStorage.getItem('lastfm');
         if (session) {
-          this.$store.commit('updateLastfm', JSON.parse(session));
+          this.$store.commit(
+            'updateLastfm',
+            safeJsonRead('lastfm', {}, isLastfm)
+          );
           clearInterval(lastfmChecker);
         }
       }, 1000);

@@ -4,17 +4,23 @@ import { trackScrobble, trackUpdateNowPlaying } from '@/api/lastfm';
 import { fmTrash, personalFM } from '@/api/others';
 import { getPlaylistDetail, intelligencePlaylist } from '@/api/playlist';
 import { getLyric, getMP3, getTrackDetail, scrobble } from '@/api/track';
-import store from '@/store';
 import { isAccountLoggedIn } from '@/utils/auth';
 import { cacheTrackSource, getTrackSource } from '@/utils/db';
 import { isCreateMpris, isCreateTray } from '@/utils/platform';
 import { Howl, Howler } from 'howler';
 import shuffle from 'lodash/shuffle';
 import { decode as base642Buffer } from '@/utils/base64';
+import { safeJsonRead, isPlayer } from '@/utils/safeStorage';
 
 const PLAY_PAUSE_FADE_DURATION = 200;
 
 const INDEX_IN_PLAY_NEXT = -1;
+
+let storeRef = null;
+
+export function configurePlayerStore(store) {
+  storeRef = store;
+}
 
 /**
  * @readonly
@@ -55,7 +61,7 @@ function setTitle(track) {
   if (isCreateTray) {
     ipcRenderer?.send('updateTrayTooltip', document.title);
   }
-  store.commit('updateTitle', document.title);
+  storeRef?.commit('updateTitle', document.title);
 }
 
 function setTrayLikeState(isLiked) {
@@ -112,8 +118,10 @@ export default class {
       enumerable: false,
     });
 
-    // init
-    this._init();
+    // Bootstrap only restores local state and creates timers. Network/DB work
+    // is started explicitly by store/index after the store exports.
+    this._loadSelfFromLocalStorage();
+    this._setIntervals();
 
     window.yesplaymusic = {};
     window.yesplaymusic.player = this;
@@ -222,22 +230,27 @@ export default class {
     }
   }
   get isCurrentTrackLiked() {
-    return store.state.liked.songs.includes(this.currentTrack.id);
+    return (
+      storeRef?.state?.liked?.songs?.includes(this.currentTrack.id) || false
+    );
   }
 
-  _init() {
-    this._loadSelfFromLocalStorage();
+  async initialize() {
     this._howler?.volume(this.volume);
 
     if (this._enabled) {
       // 恢复当前播放歌曲
-      this._replaceCurrentTrack(this.currentTrackID, false).then(() => {
-        this._howler?.seek(localStorage.getItem('playerCurrentTrackTime') ?? 0);
-      }); // update audio source and init howler
+      this._replaceCurrentTrack(this.currentTrackID, false)
+        .then(() => {
+          this._howler?.seek(
+            localStorage.getItem('playerCurrentTrackTime') ?? 0
+          );
+        })
+        .catch(error =>
+          console.warn('[player] unable to restore current track:', error)
+        ); // update audio source and init howler
       this._initMediaSession();
     }
-
-    this._setIntervals();
 
     // 初始化私人FM
     if (
@@ -332,7 +345,7 @@ export default class {
       time,
     });
     if (
-      store.state.lastfm.key !== undefined &&
+      storeRef?.state?.lastfm?.key !== undefined &&
       (time >= trackDuration / 2 || time >= 240)
     ) {
       const timestamp = ~~(new Date().getTime() / 1000) - time;
@@ -378,7 +391,7 @@ export default class {
         this._playNextTrack(this._isPersonalFM);
       } else if (errCode === 4) {
         // code 4: MEDIA_ERR_SRC_NOT_SUPPORTED
-        store.dispatch('showToast', `无法播放: 不支持的音频格式`);
+        storeRef?.dispatch('showToast', `无法播放: 不支持的音频格式`);
         this._playNextTrack(this._isPersonalFM);
       } else {
         const t = this.progress;
@@ -399,7 +412,9 @@ export default class {
       if (this._currentTrack.name) {
         setTitle(this._currentTrack);
       }
-      setTrayLikeState(store.state.liked.songs.includes(this.currentTrack.id));
+      setTrayLikeState(
+        storeRef?.state?.liked?.songs?.includes(this.currentTrack.id)
+      );
     }
     this.setOutputDevice();
   }
@@ -433,7 +448,7 @@ export default class {
         if (!result.data[0].url) return null;
         if (result.data[0].freeTrialInfo !== null) return null; // 跳过只能试听的歌曲
         const source = result.data[0].url.replace(/^http:/, 'https:');
-        if (store.state.settings.automaticallyCacheSongs) {
+        if (storeRef?.state?.settings?.automaticallyCacheSongs) {
           cacheTrackSource(track, source, result.data[0].br);
         }
         return source;
@@ -449,7 +464,7 @@ export default class {
 
     if (
       process.env.IS_ELECTRON !== true ||
-      store.state.settings.enableUnblockNeteaseMusic === false
+      storeRef?.state?.settings?.enableUnblockNeteaseMusic === false
     ) {
       return null;
     }
@@ -476,21 +491,26 @@ export default class {
 
     const retrieveSongInfo = await ipcRenderer.invoke(
       'unblock-music',
-      store.state.settings.unmSource,
+      storeRef?.state?.settings?.unmSource,
       track,
       {
-        enableFlac: store.state.settings.unmEnableFlac || null,
-        proxyUri: store.state.settings.unmProxyUri || null,
-        searchMode: determineSearchMode(store.state.settings.unmSearchMode),
+        enableFlac: storeRef?.state?.settings?.unmEnableFlac || null,
+        proxyUri: storeRef?.state?.settings?.unmProxyUri || null,
+        searchMode: determineSearchMode(
+          storeRef?.state?.settings?.unmSearchMode
+        ),
         config: {
-          'joox:cookie': store.state.settings.unmJooxCookie || null,
-          'qq:cookie': store.state.settings.unmQQCookie || null,
-          'ytdl:exe': store.state.settings.unmYtDlExe || null,
+          'joox:cookie': storeRef?.state?.settings?.unmJooxCookie || null,
+          'qq:cookie': storeRef?.state?.settings?.unmQQCookie || null,
+          'ytdl:exe': storeRef?.state?.settings?.unmYtDlExe || null,
         },
       }
     );
 
-    if (store.state.settings.automaticallyCacheSongs && retrieveSongInfo?.url) {
+    if (
+      storeRef?.state?.settings?.automaticallyCacheSongs &&
+      retrieveSongInfo?.url
+    ) {
       // 对于来自 bilibili 的音源
       // retrieveSongInfo.url 是音频数据的base64编码
       // 其他音源为实际url
@@ -562,7 +582,7 @@ export default class {
         }
         return replaced;
       } else {
-        store.dispatch('showToast', `无法播放 ${track.name}`);
+        storeRef?.dispatch('showToast', `无法播放 ${track.name}`);
         switch (ifUnplayableThen) {
           case UNPLAYABLE_CONDITION.PLAY_NEXT_TRACK:
             this._playNextTrack(this.isPersonalFM);
@@ -573,7 +593,7 @@ export default class {
           case UNPLAYABLE_CONDITION.NONE:
             break;
           default:
-            store.dispatch(
+            storeRef?.dispatch(
               'showToast',
               `undefined Unplayable condition: ${ifUnplayableThen}`
             );
@@ -595,8 +615,7 @@ export default class {
     });
   }
   _loadSelfFromLocalStorage() {
-    const player = JSON.parse(localStorage.getItem('player'));
-    if (!player) return;
+    const player = safeJsonRead('player', {}, isPlayer);
     for (const [key, value] of Object.entries(player)) {
       if (TRANSIENT_PLAYER_KEYS.includes(key)) continue;
       this[key] = value;
@@ -677,7 +696,7 @@ export default class {
   }
   // OSDLyrics 会检测 Mpris 状态并寻找对应歌词文件，所以要在更新 Mpris 状态之前保证歌词下载完成
   async _updateMprisState(track, metadata) {
-    if (!store.state.settings.enableOsdlyricsSupport) {
+    if (!storeRef?.state?.settings?.enableOsdlyricsSupport) {
       return ipcRenderer?.send('metadata', metadata);
     }
 
@@ -741,7 +760,7 @@ export default class {
   _playDiscordPresence(track, seekTime = 0) {
     if (
       process.env.IS_ELECTRON !== true ||
-      store.state.settings.enableDiscordRichPresence === false
+      storeRef?.state?.settings?.enableDiscordRichPresence === false
     ) {
       return null;
     }
@@ -752,7 +771,7 @@ export default class {
   _pauseDiscordPresence(track) {
     if (
       process.env.IS_ELECTRON !== true ||
-      store.state.settings.enableDiscordRichPresence === false
+      storeRef?.state?.settings?.enableDiscordRichPresence === false
     ) {
       return null;
     }
@@ -800,7 +819,7 @@ export default class {
         result = await personalFM().catch(() => null);
         if (!result) {
           this._personalFMLoading = false;
-          store.dispatch('showToast', 'personal fm timeout');
+          storeRef?.dispatch('showToast', 'personal fm timeout');
           return false;
         }
         if (result.data?.length > 0) {
@@ -813,7 +832,7 @@ export default class {
 
       if (retryCount < 0) {
         let content = '获取私人FM数据时重试次数过多，请手动切换下一首';
-        store.dispatch('showToast', content);
+        storeRef?.dispatch('showToast', content);
         console.log(content);
         return false;
       }
@@ -878,7 +897,7 @@ export default class {
         setTitle(this._currentTrack);
       }
       this._playDiscordPresence(this._currentTrack, this.seek());
-      if (store.state.lastfm.key !== undefined) {
+      if (storeRef?.state?.lastfm?.key !== undefined) {
         trackUpdateNowPlaying({
           artist: this.currentTrack.ar[0].name,
           track: this.currentTrack.name,
@@ -919,7 +938,9 @@ export default class {
     if (this._howler?._sounds.length <= 0 || !this._howler?._sounds[0]._node) {
       return;
     }
-    this._howler?._sounds[0]._node.setSinkId(store.state.settings.outputDevice);
+    this._howler?._sounds[0]._node.setSinkId(
+      storeRef?.state?.settings?.outputDevice
+    );
   }
 
   replacePlaylist(
@@ -1011,7 +1032,7 @@ export default class {
       if (generation !== this._karaokePlaybackGeneration)
         return { success: false, cancelled: true };
       if (!source) {
-        store.dispatch('showToast', `无法播放 ${track.name}`);
+        storeRef?.dispatch('showToast', `无法播放 ${track.name}`);
         this._playbackOwner = null;
         return { success: false };
       }
@@ -1102,7 +1123,7 @@ export default class {
   sendSelfToIpcMain() {
     if (process.env.IS_ELECTRON !== true) return false;
     const liked = Boolean(
-      store?.state?.liked?.songs?.includes(this.currentTrack.id)
+      storeRef?.state?.liked?.songs?.includes(this.currentTrack.id)
     );
     ipcRenderer?.send('player', {
       playing: this.playing,

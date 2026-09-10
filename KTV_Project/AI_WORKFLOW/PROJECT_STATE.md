@@ -21,6 +21,14 @@
 - Latest Codex report: `REPORTS/CODEX_STEP_04_REPORT.md`
 - Latest ChatGPT review: `REVIEWS/CHATGPT_PHASE_01_REVIEW.md` (Conditional Pass for Phase 1 only)
 
+## Release stabilization checkpoint (2026-09-10)
+
+- Branch: `fix/ktv-release-stabilization`
+- Base SHA: `a4c5c9c0d84a2d331f005e1a9deee6b37986c6e2`
+- Scope: unified product stabilization per `CODEX_KTV_FULL_PRODUCT_STABILIZATION_PROMPT.md`.
+- Local lint, web build, KTV regressions, safe-storage test and Windows package build passed.
+- GitHub Actions and physical phone/TV/audio gates remain pending after push; do not mark release-ready before those gates are green.
+
 ## Invariants
 
 - Do not expose existing port 27232 to LAN.
@@ -34,6 +42,8 @@
 Review the unified audit diff, wait for the repair-branch GitHub validation, then
 complete the logged-in NetEase and physical LAN/TV/audio smoke test. Do not add
 WebSocket/SSE or general desktop APIs.
+
+For this stabilization branch, first wait for `KTV Phase Validation` and `KTV Packaging Validation`, then submit only the stabilization diff for ChatGPT review.
 
 ## Final repair checkpoint
 

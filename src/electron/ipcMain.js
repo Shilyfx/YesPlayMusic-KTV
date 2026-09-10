@@ -1,5 +1,4 @@
-import { app, dialog, globalShortcut, ipcMain } from 'electron';
-import UNM from '@unblockneteasemusic/rust-napi';
+import { app, dialog, globalShortcut, ipcMain, shell } from 'electron';
 import { registerGlobalShortcut } from '@/electron/globalShortcut';
 import cloneDeep from 'lodash/cloneDeep';
 import shortcuts from '@/utils/shortcuts';
@@ -139,11 +138,41 @@ function parseSourceStringToList(executor, sourceString) {
     });
 }
 
-export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
+let unmExecutorPromise;
+async function getUnmExecutor() {
+  if (!unmExecutorPromise) {
+    unmExecutorPromise = import('@unblockneteasemusic/rust-napi')
+      .then(module => new module.default.Executor())
+      .catch(error => {
+        unmExecutorPromise = null;
+        throw new Error(`UnblockMusic 不可用：${error.message}`);
+      });
+  }
+  return unmExecutorPromise;
+}
+
+export function initIpcMain(
+  win,
+  store,
+  trayEventEmitter,
+  karaokeServer,
+  runtime = null
+) {
   // WIP: Do not enable logging as it has some issues in non-blocking I/O environment.
   // UNM.enableLogging(UNM.LoggingType.ConsoleEnv);
-  const unmExecutor = new UNM.Executor();
   const karaokeLanLifecycle = new KaraokeLanLifecycle(karaokeServer);
+  ipcMain.on('renderer:ready', (_, payload = {}) => {
+    if (!runtime) return;
+    runtime.renderer = 'ready';
+    runtime.rendererReadyAt = new Date().toISOString();
+    runtime.stage = 'RENDERER_READY';
+    log(`[RENDERER_READY] route=${payload.route || 'unknown'}`);
+  });
+  ipcMain.handle('app:open-logs', async () => {
+    const logPath = app.getPath('logs');
+    await shell.openPath(logPath);
+    return { ok: true, path: logPath };
+  });
   let remoteCommandSequence = 0;
   const pendingRemoteCommands = new Map();
   const remoteCommand = (action, payload = {}) =>
@@ -221,6 +250,15 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
     ...(await karaokeLanLifecycle.status()),
   }));
 
+  ipcMain.handle('karaoke:lan:refresh-qr', async () => {
+    const room = await karaokeServer.describeRoom();
+    return { ok: Boolean(room), room };
+  });
+
+  ipcMain.handle('karaoke:lan:self-test', async (_, address) => {
+    return karaokeServer.selfTestAddress(address);
+  });
+
   ipcMain.handle(
     'unblock-music',
     /**
@@ -251,8 +289,9 @@ export function initIpcMain(win, store, trayEventEmitter, karaokeServer) {
 
       const sourceList =
         typeof sourceListString === 'string'
-          ? parseSourceStringToList(unmExecutor, sourceListString)
+          ? parseSourceStringToList(await getUnmExecutor(), sourceListString)
           : ['ytdl', 'bilibili', 'pyncm', 'kugou'];
+      const unmExecutor = await getUnmExecutor();
       log(`[UNM] using source: ${sourceList.join(', ')}`);
       log(`[UNM] using configuration: ${JSON.stringify(context)}`);
 

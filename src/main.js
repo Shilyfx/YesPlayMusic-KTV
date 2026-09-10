@@ -48,3 +48,12 @@ new Vue({
   router,
   render: h => h(App),
 }).$mount('#app');
+
+Vue.nextTick(() => {
+  if (process.env.IS_ELECTRON === true && window.require) {
+    window.require('electron').ipcRenderer.send('renderer:ready', {
+      route: router.currentRoute?.name || router.currentRoute?.path,
+    });
+  }
+  document.body.setAttribute('data-renderer-ready', 'true');
+});

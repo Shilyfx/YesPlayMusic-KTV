@@ -35,6 +35,7 @@ import expressProxy from 'express-http-proxy';
 import Store from 'electron-store';
 import { createMpris, createDbus } from '@/electron/mpris';
 import { spawn } from 'child_process';
+const electronLog = require('electron-log');
 const clc = require('cli-color');
 const log = text => {
   console.log(`${clc.blueBright('[background.js]')} ${text}`);
@@ -95,6 +96,20 @@ class Background {
     });
     this.neteaseMusicAPI = null;
     this.expressApp = null;
+    this.desktopServerReady = null;
+    this.runtime = {
+      desktopServer: 'starting',
+      renderer: 'starting',
+      neteaseApi: 'starting',
+      stage: 'APP_START',
+      rendererReadyAt: null,
+    };
+    process.on('uncaughtException', error => {
+      electronLog.error('[uncaughtException]', error);
+    });
+    process.on('unhandledRejection', error => {
+      electronLog.error('[unhandledRejection]', error);
+    });
     this.karaokeServer = new KaraokeServer({
       // Remote is emitted beside the Electron main bundle.  `cwd` is mutable for
       // portable apps, whereas `__dirname` remains inside the packaged app.
@@ -112,10 +127,25 @@ class Background {
     if (!app.requestSingleInstanceLock()) return app.quit();
 
     // start netease music api
-    this.neteaseMusicAPI = startNeteaseMusicApi();
+    this.runtime.stage = 'NCM_API_STARTING';
+    this.neteaseMusicAPI = startNeteaseMusicApi()
+      .then(() => {
+        this.runtime.neteaseApi = 'ready';
+        this.runtime.stage = 'NCM_API_READY';
+        electronLog.info('[NCM_API_READY]');
+        return true;
+      })
+      .catch(error => {
+        this.runtime.neteaseApi = 'error';
+        this.runtime.stage = 'NCM_API_ERROR';
+        electronLog.error('[NCM_API_ERROR]', error);
+        // Keep a fulfilled readiness promise so renderer requests receive a
+        // deterministic 503 response instead of an unhandled rejection.
+        return null;
+      });
 
     // create Express app
-    this.createExpressApp();
+    this.desktopServerReady = this.createExpressApp();
 
     // Scheme must be registered before the app is ready
     protocol.registerSchemesAsPrivileged([
@@ -159,7 +189,16 @@ class Background {
   createExpressApp() {
     log('creating express app');
 
+    this.runtime.stage = 'DESKTOP_HTTP_STARTING';
     const expressApp = express();
+    expressApp.get('/__health', (_, res) => {
+      res.json({
+        desktopServer: this.runtime.desktopServer,
+        renderer: this.runtime.renderer,
+        neteaseApi: this.runtime.neteaseApi,
+        stage: this.runtime.stage,
+      });
+    });
     expressApp.use('/', express.static(__dirname + '/'));
     const apiProxy = expressProxy('http://127.0.0.1:10754');
     // The renderer is created before the bundled NetEase API has necessarily
@@ -167,7 +206,12 @@ class Background {
     // a closed port and returning an empty response to page components.
     expressApp.use('/api', async (req, res, next) => {
       try {
-        await this.neteaseMusicAPI;
+        const apiReady = await this.neteaseMusicAPI;
+        if (this.runtime.neteaseApi === 'error' || !apiReady) {
+          return res
+            .status(503)
+            .json({ code: 503, message: 'API_UNAVAILABLE' });
+        }
         return apiProxy(req, res, next);
       } catch (error) {
         console.error('[NetEase API] unavailable:', error);
@@ -175,6 +219,11 @@ class Background {
       }
     });
     expressApp.use('/player', (req, res) => {
+      if (!this.window || this.window.isDestroyed()) {
+        return res
+          .status(503)
+          .json({ code: 503, message: 'RENDERER_UNAVAILABLE' });
+      }
       this.window.webContents
         .executeJavaScript('window.yesplaymusic.player')
         .then(result => {
@@ -186,7 +235,22 @@ class Background {
           });
         });
     });
-    this.expressApp = expressApp.listen(27232, '127.0.0.1');
+    return new Promise((resolve, reject) => {
+      const server = expressApp.listen(27232, '127.0.0.1');
+      server.once('error', error => {
+        this.runtime.desktopServer = 'error';
+        this.runtime.stage = 'DESKTOP_HTTP_ERROR';
+        electronLog.error('[DESKTOP_HTTP_ERROR]', error);
+        reject(error);
+      });
+      server.once('listening', () => {
+        this.expressApp = server;
+        this.runtime.desktopServer = 'ready';
+        this.runtime.stage = 'DESKTOP_HTTP_READY';
+        electronLog.info('[DESKTOP_HTTP_READY] 127.0.0.1:27232');
+        resolve(server);
+      });
+    });
   }
 
   createWindow() {
@@ -277,8 +341,8 @@ class Background {
       createProtocol('app');
       this.window.loadURL(
         showLibraryDefault
-          ? 'http://localhost:27232/#/library'
-          : 'http://localhost:27232'
+          ? 'http://127.0.0.1:27232/#/library'
+          : 'http://127.0.0.1:27232'
       );
     }
   }
@@ -313,6 +377,23 @@ class Background {
   }
 
   handleWindowEvents() {
+    this.window.webContents.on('dom-ready', () => {
+      this.runtime.stage = 'DOM_READY';
+      electronLog.info('[DOM_READY]');
+    });
+    this.window.webContents.on('did-finish-load', () => {
+      this.runtime.stage = 'DID_FINISH_LOAD';
+      electronLog.info('[DID_FINISH_LOAD]');
+    });
+    this.window.webContents.on('did-fail-load', (_, code, description) => {
+      this.runtime.stage = 'DID_FAIL_LOAD';
+      electronLog.error('[DID_FAIL_LOAD]', code, description);
+    });
+    this.window.webContents.on('render-process-gone', (_, details) => {
+      this.runtime.renderer = 'error';
+      this.runtime.stage = 'RENDER_PROCESS_GONE';
+      electronLog.error('[RENDER_PROCESS_GONE]', details);
+    });
     this.window.once('ready-to-show', () => {
       log('window ready-to-show event');
       this.window.show();
@@ -397,7 +478,17 @@ class Background {
         this.initDevtools();
       }
 
-      // create window
+      // create window only after the localhost listener is ready
+      try {
+        await this.desktopServerReady;
+      } catch (error) {
+        dialog.showErrorBox(
+          'YesPlayMusic 启动失败',
+          `本地服务 127.0.0.1:27232 无法启动：${error.message}`
+        );
+        return;
+      }
+      this.runtime.stage = 'WINDOW_CREATE';
       this.createWindow();
       this.window.once('ready-to-show', () => {
         this.window.show();
@@ -419,7 +510,8 @@ class Background {
         this.window,
         this.store,
         this.trayEventEmitter,
-        this.karaokeServer
+        this.karaokeServer,
+        this.runtime
       );
 
       // set proxy
@@ -492,8 +584,10 @@ class Background {
     });
 
     app.on('quit', () => {
-      this.expressApp.close();
-      this.karaokeServer.stopRoom();
+      if (this.expressApp) this.expressApp.close();
+      this.karaokeServer.stopRoom().catch(error =>
+        electronLog.warn('[KTV_STOP_ON_QUIT]', error)
+      );
     });
 
     app.on('will-quit', () => {

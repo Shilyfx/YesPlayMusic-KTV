@@ -19,3 +19,13 @@ until Vuex hydration completes, preventing a white-screen failure. Code validati
 Action `34331990263` succeeded;
 the documentation checkpoint `a94865958103a8bb4d897df57f0390f23ba1d26b` is also
 green in Action `34258965888`.
+
+## Release stabilization review target
+
+Review `fix/ktv-release-stabilization` from
+`a4c5c9c0d84a2d331f005e1a9deee6b37986c6e2` after both stabilization workflows
+finish. Focus this round on deterministic API readiness/health, safe storage,
+removal of Vuex import cycles, lazy native dependency loading, route error
+contracts, and LAN QR/link/self-test behavior. Physical Windows/macOS, phone,
+TV and audio evidence is intentionally still a release gate and must not be
+inferred from local build success.

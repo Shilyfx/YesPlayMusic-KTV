@@ -9,6 +9,14 @@
 Future review diffs must use `UNIFIED_REPAIR_BASE_SHA...UNIFIED_REPAIR_SHA`; older
 Phase 3 lineages are historical evidence only and must not be force-rewritten.
 
+## Release stabilization lineage
+
+- `STABILIZATION_BASE_SHA`: `a4c5c9c0d84a2d331f005e1a9deee6b37986c6e2`
+- Branch: `fix/ktv-release-stabilization`
+- The stabilization branch is additive and does not reset or rewrite the
+  historical Phase 1–4 branches. Its final commit SHA is recorded here after
+  the local verification commit is created.
+
 ## Final repair code checkpoint
 
 - `PREVIOUS_REPAIR_CODE_SHA`: `9d0176acb9989465743778a88c7046efa0d1469b`

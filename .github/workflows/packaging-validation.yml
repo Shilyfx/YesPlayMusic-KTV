@@ -1,0 +1,45 @@
+name: KTV Packaging Validation
+
+on:
+  push:
+    branches: [fix/ktv-release-stabilization]
+  pull_request:
+    branches: [fix/ktv-release-stabilization]
+  workflow_dispatch:
+
+jobs:
+  package:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: windows-latest
+            command: electron:build-win
+            artifact: dist_electron/*.exe
+          - os: macos-latest
+            command: electron:build-mac
+            artifact: dist_electron/*.dmg
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 16
+          cache: yarn
+      - run: yarn install --frozen-lockfile
+      - name: Build packaged application
+        shell: bash
+        env:
+          NODE_OPTIONS: --openssl-legacy-provider
+        run: yarn ${{ matrix.command }}
+      - name: Verify packaged output exists
+        shell: bash
+        run: |
+          shopt -s nullglob
+          files=( ${{ matrix.artifact }} )
+          test "${#files[@]}" -gt 0
+      - name: Upload installer artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: yesplaymusic-ktv-${{ matrix.os }}
+          path: ${{ matrix.artifact }}
