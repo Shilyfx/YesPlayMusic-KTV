@@ -95,6 +95,8 @@ async function run() {
   });
   const roomUrl = new URL(room.url);
   assert.equal(roomUrl.hostname, '192.168.8.20');
+  const roomToken = roomUrl.hash.slice('#token='.length);
+  assert.match(roomToken, /^[A-Za-z0-9_-]{40,}$/);
 
   const health = await request(serverPort, '/health');
   assert.equal(health.status, 200);

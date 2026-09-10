@@ -4,7 +4,15 @@ import http from 'http';
 const CLIENT_TTL = 5 * 60 * 60 * 1000;
 const CACHE_TTL = 5 * 60 * 1000;
 
-const token = () => crypto.randomBytes(32).toString('base64url');
+// Keep client tokens compatible with the Node.js runtime bundled by Electron
+// 13, where Buffer.toString('base64url') is not available.
+const toBase64Url = value =>
+  value
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+const token = () => toBase64Url(crypto.randomBytes(32));
 const clientId = () => `guest-${crypto.randomBytes(6).toString('hex')}`;
 
 function json(response, status, body) {

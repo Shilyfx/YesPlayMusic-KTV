@@ -7,7 +7,16 @@ import QRCode from 'qrcode';
 
 const ROOM_PORT = 27233;
 const roomCode = () => crypto.randomBytes(3).toString('hex').toUpperCase();
-const roomToken = () => crypto.randomBytes(32).toString('base64url');
+// Electron 13 ships with a Node.js version that does not support the
+// `base64url` Buffer encoding. Keep the token URL-safe without relying on
+// that newer encoding name so QR generation also works in packaged builds.
+const toBase64Url = value =>
+  value
+    .toString('base64')
+    .replace(/\+/g, '-')
+    .replace(/\//g, '_')
+    .replace(/=+$/g, '');
+const roomToken = () => toBase64Url(crypto.randomBytes(32));
 
 function isPrivateIpv4(address) {
   return (

@@ -183,6 +183,7 @@ async function run() {
     token: new URL(room.url).hash.slice(7),
   });
   assert.equal(guestA.status, 200);
+  assert.match(guestA.body.clientToken, /^[A-Za-z0-9_-]{40,}$/);
   assert.notEqual(guestA.body.clientToken, guestB.body.clientToken);
   const results = await request(
     port,
