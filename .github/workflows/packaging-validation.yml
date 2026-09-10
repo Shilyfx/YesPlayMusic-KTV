@@ -13,14 +13,6 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          - os: windows-latest
-            name: windows
-            command: electron:build-win
-            artifact: dist_electron/*.exe
-          - os: macos-13
-            name: macos-x64
-            command: electron:build-mac-x64
-            artifact: dist_electron/*-x64.dmg
           - os: macos-14
             name: macos-arm64
             command: electron:build-mac-arm64
@@ -45,5 +37,5 @@ jobs:
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
-          name: yesplaymusic-ktv-${{ matrix.name }}
+          name: lumasing-macos-${{ matrix.name }}
           path: ${{ matrix.artifact }}
