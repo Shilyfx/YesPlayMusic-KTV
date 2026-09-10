@@ -91,6 +91,7 @@
       v-if="
         isSessionActive && (!lanRoom || showRoomCode) && !showLocalLibraryPanel
       "
+      ref="roomAccessPanel"
       class="room-access room-access-overlay glass-panel"
       :class="{ 'room-access-pending': !lanRoom }"
     >
@@ -167,6 +168,7 @@
 
     <section
       v-if="isElectron && showLocalLibraryPanel"
+      ref="localLibraryPanel"
       class="local-library local-library-overlay glass-panel"
     >
       <div class="local-library-heading">
@@ -757,6 +759,7 @@ export default {
       else this.startLyricClock();
     };
     document.addEventListener('visibilitychange', this.lyricVisibilityListener);
+    document.addEventListener('click', this.handleOverlayOutsideClick);
   },
   beforeDestroy() {
     window.clearInterval(this.clock);
@@ -789,6 +792,7 @@ export default {
       'visibilitychange',
       this.lyricVisibilityListener
     );
+    document.removeEventListener('click', this.handleOverlayOutsideClick);
   },
   methods: {
     async startDefaultSession() {
@@ -888,6 +892,8 @@ export default {
       }
       this.setLanSessionActive(false);
       this.karaokeManager.endSession();
+      this.showRoomCode = false;
+      this.showLocalLibraryPanel = false;
       this.$store.dispatch('showToast', '本机 KTV 已结束，临时队列已清空');
     },
     electronIpc() {
@@ -895,12 +901,29 @@ export default {
       return window.require('electron').ipcRenderer;
     },
     toggleRoomCode() {
-      this.showRoomCode = !this.showRoomCode;
-      if (this.showRoomCode) this.showLocalLibraryPanel = false;
+      const nextVisible = !this.showRoomCode;
+      this.showRoomCode = nextVisible;
+      // Both controls share one floating panel slot; opening one always
+      // closes the other, including when an async LAN status update is pending.
+      this.showLocalLibraryPanel = false;
     },
     toggleLocalLibrary() {
-      this.showLocalLibraryPanel = !this.showLocalLibraryPanel;
-      if (this.showLocalLibraryPanel) this.showRoomCode = false;
+      const nextVisible = !this.showLocalLibraryPanel;
+      this.showLocalLibraryPanel = nextVisible;
+      this.showRoomCode = false;
+      if (nextVisible) this.loadLocalLibrarySummary();
+    },
+    handleOverlayOutsideClick(event) {
+      if (!this.showRoomCode && !this.showLocalLibraryPanel) return;
+      const target = event.target;
+      const roomPanel = this.$refs.roomAccessPanel;
+      const localPanel = this.$refs.localLibraryPanel;
+      if (roomPanel?.contains(target) || localPanel?.contains(target)) return;
+      // The matching header toggle already handles its own close/open state.
+      // Ignore its bubbling document click so opening a panel is not undone.
+      if (target.closest?.('.header-actions .session-button')) return;
+      this.showRoomCode = false;
+      this.showLocalLibraryPanel = false;
     },
     async loadLanRoom() {
       const ipcRenderer = this.electronIpc();
@@ -908,7 +931,7 @@ export default {
       try {
         const result = await ipcRenderer.invoke('karaoke:lan:status');
         this.lanRoom = result.room;
-        this.showRoomCode = Boolean(result.room);
+        this.showRoomCode = Boolean(result.room) && !this.showLocalLibraryPanel;
         this.selectedLanAddress = result.room?.selectedAddress || '';
         this.lanCandidates = result.room?.candidates || [];
         if (!this.lanCandidates.length) await this.loadLanCandidates();
@@ -1424,8 +1447,8 @@ export default {
   box-sizing: border-box;
 }
 @media (min-width: 761px) {
-  .room-access-overlay,
-  .local-library-overlay {
+  .karaoke-desktop .room-access-overlay,
+  .karaoke-desktop .local-library-overlay {
     position: fixed;
     top: 92px;
     left: 50%;
@@ -1436,7 +1459,7 @@ export default {
     transform: translateX(-50%);
     box-shadow: 0 24px 60px rgba(24, 15, 65, 0.24);
   }
-  .local-library-overlay {
+  .karaoke-desktop .local-library-overlay {
     width: min(720px, calc(100% - 32px));
     padding: 12px;
   }
@@ -2312,9 +2335,22 @@ button:disabled {
     align-items: flex-start;
     width: min(520px, calc(100% - 24px));
   }
-  .local-library-overlay {
+  .karaoke-desktop .room-access-overlay,
+  .karaoke-desktop .local-library-overlay {
+    position: fixed;
+    top: 72px;
+    left: 50%;
+    z-index: 20;
     width: min(520px, calc(100% - 24px));
-    margin: 14px auto 0;
+    max-height: calc(100vh - 84px);
+    overflow: auto;
+    margin: 0;
+    transform: translateX(-50%);
+    box-shadow: 0 20px 48px rgba(24, 15, 65, 0.3);
+  }
+  .karaoke-desktop .local-library-overlay {
+    width: min(520px, calc(100% - 24px));
+    margin: 0;
     padding: 12px;
   }
   .room-qr-wrap {
