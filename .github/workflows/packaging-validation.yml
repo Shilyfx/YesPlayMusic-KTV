@@ -29,9 +29,12 @@ jobs:
         shell: bash
         run: |
           unm_version=$(node -p "require('./node_modules/@unblockneteasemusic/rust-napi/package.json').version")
+          esbuild_version=$(node -p "require('./node_modules/esbuild/package.json').version")
           yarn add --ignore-platform --ignore-optional --no-lockfile \
             "@unblockneteasemusic/rust-napi-darwin-arm64@${unm_version}" \
+            "@esbuild/darwin-arm64@${esbuild_version}" \
             dmg-license
+          node -e "require('@esbuild/darwin-arm64/package.json')"
       - name: Verify fresh anonymous-token initialization
         run: yarn test:anonymous-token
       - name: Build packaged application
