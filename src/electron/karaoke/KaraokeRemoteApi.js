@@ -370,7 +370,7 @@ export class KaraokeRemoteService {
       // removed queue entries are not songs that guests can meaningfully
       // replay from the "已播放" list.
       history: (snapshot.historyItems || [])
-        .filter(item => item?.status === 'played')
+        .filter(item => item && item.status === 'played')
         .slice(0, 50)
         .map(item => this.sanitizeItem(item)),
       client: {

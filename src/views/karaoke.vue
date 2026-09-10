@@ -243,13 +243,7 @@
               @input="setVolume($event.target.value)"
             />
           </label>
-          <button
-            type="button"
-            @pointerdown.stop.prevent="exitFullscreen"
-            @click.stop.prevent="exitFullscreen"
-          >
-            退出全屏
-          </button>
+          <button type="button" @click.stop="exitFullscreen">退出全屏</button>
         </div>
       </section>
 
