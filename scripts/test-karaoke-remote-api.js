@@ -230,6 +230,26 @@ async function run() {
       ];
     if (action === 'availability') return 'playable';
     if (action === 'preview') return 'https://example.com/preview.mp3';
+    if (action === 'localPlaylists')
+      return [
+        {
+          id: 'local-playlist-test',
+          name: '本地测试歌单',
+          trackCount: 1,
+          tracks: [
+            {
+              id: 'local-0123456789abcdef',
+              source: 'local',
+              localId: 'local-0123456789abcdef',
+              name: '本地测试歌曲',
+              ar: [{ name: '本地歌手' }],
+              al: { name: '本地专辑' },
+              dt: 0,
+              lyrics: [{ time: 0, content: '本地歌词' }],
+            },
+          ],
+        },
+      ];
     throw new Error('UNEXPECTED_CATALOG_ACTION');
   };
   const remoteDistPath = fs.mkdtempSync(
@@ -286,6 +306,24 @@ async function run() {
   assert.equal(preview.status, 200);
   assert.equal(preview.body.url, 'https://example.com/preview.mp3');
   assert.ok(bridgeCalls.includes('preview'));
+  const localPlaylists = await request(
+    port,
+    'GET',
+    '/ktv/api/local-playlists',
+    { token: guestA.body.clientToken }
+  );
+  assert.equal(localPlaylists.status, 200);
+  assert.equal(localPlaylists.body.playlists[0].tracks[0].source, 'local');
+  assert.equal(
+    localPlaylists.body.playlists[0].tracks[0].trackId,
+    'local-0123456789abcdef'
+  );
+  const localRequest = await request(port, 'POST', '/ktv/api/requests', {
+    token: guestB.body.clientToken,
+    body: { trackId: 'local-0123456789abcdef' },
+  });
+  assert.equal(localRequest.status, 201);
+  assert.equal(localRequest.body.item.source, 'local');
   const playlistResponse = await request(port, 'GET', '/ktv/api/playlists', {
     token: guestA.body.clientToken,
   });
@@ -396,7 +434,7 @@ async function run() {
     token: guestA.body.clientToken,
   });
   assert.equal(state.status, 200);
-  assert.equal(state.body.waiting.length, 2);
+  assert.equal(state.body.waiting.length, 3);
   assert.equal(JSON.stringify(state.body).includes('joinToken'), false);
   assert.equal(JSON.stringify(state.body).includes('clientToken'), false);
   const removed = await request(

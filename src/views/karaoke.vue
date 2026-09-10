@@ -150,6 +150,58 @@
       </div>
     </section>
 
+    <section v-if="isElectron" class="local-library glass-panel">
+      <div class="local-library-heading">
+        <div>
+          <p class="eyebrow">LOCAL LIBRARY</p>
+          <h2>本地歌单</h2>
+          <p class="local-library-note">
+            支持递归扫描音频目录；同名 .lrc 会自动作为同步歌词。
+          </p>
+        </div>
+        <div class="local-library-actions">
+          <button
+            type="button"
+            class="room-tool"
+            @click="chooseLocalDirectories"
+          >
+            选择音乐目录
+          </button>
+          <button
+            type="button"
+            class="room-tool"
+            :disabled="localLoading"
+            @click="loadLocalLibrary"
+          >
+            {{ localLoading ? '扫描中…' : '重新扫描' }}
+          </button>
+        </div>
+      </div>
+      <div v-if="localDirectories.length" class="local-directory-list">
+        <span
+          v-for="directory in localDirectories"
+          :key="directory"
+          class="local-directory"
+        >
+          {{ directory }}
+          <button
+            type="button"
+            aria-label="移除本地目录"
+            @click="removeLocalDirectory(directory)"
+            >×</button
+          >
+        </span>
+      </div>
+      <p v-if="localError" class="room-warning">{{ localError }}</p>
+      <p v-else class="local-library-status">
+        {{
+          localTrackCount
+            ? `已发现 ${localTrackCount} 首本地歌曲，可在手机点歌页的“本地歌单”中选择。`
+            : '尚未配置本地音乐目录。'
+        }}
+      </p>
+    </section>
+
     <div class="karaoke-layout" role="main">
       <aside class="track-identity glass-panel">
         <div class="cover-wrap">
@@ -450,6 +502,11 @@ export default {
       lyricControlsVisible: false,
       lyricControlsTimer: null,
       lastVolumeBeforeMute: 1,
+      localDirectories: [],
+      localPlaylists: [],
+      localTrackCount: 0,
+      localLoading: false,
+      localError: '',
     };
   },
   computed: {
@@ -607,6 +664,9 @@ export default {
     trackId() {
       this.loadLyrics();
     },
+    currentItem() {
+      this.loadLyrics();
+    },
     lyricFontSize(value) {
       this.lyricFontSizeDraft = String(value);
     },
@@ -622,6 +682,7 @@ export default {
     else this.themeMedia.addListener(this.syncSystemTheme);
     this.loadLyrics();
     this.loadLanRoom();
+    if (this.isElectron) this.loadLocalLibrary();
     this.lyricFontSizeDraft = String(this.lyricFontSize);
     this.lyricOffsetDraft = this.lyricOffset.toFixed(1);
     const ipcRenderer = this.electronIpc();
@@ -692,6 +753,13 @@ export default {
         this.lyrics = [];
         return;
       }
+      if (
+        this.currentItem?.source === 'local' &&
+        Array.isArray(this.currentItem.lyrics)
+      ) {
+        this.lyrics = this.currentItem.lyrics.filter(line => line.content);
+        return;
+      }
       getLyric(this.trackId)
         .then(data => {
           if (requestedTrackId !== this.trackId) return;
@@ -741,6 +809,39 @@ export default {
       } catch (error) {
         console.warn('[karaoke] LAN status unavailable', error);
       }
+    },
+    async loadLocalLibrary() {
+      const ipcRenderer = this.electronIpc();
+      if (!ipcRenderer) return;
+      this.localLoading = true;
+      this.localError = '';
+      try {
+        const result = await ipcRenderer.invoke('karaoke:local:scan');
+        this.localDirectories = result?.directories || [];
+        this.localPlaylists = result?.playlists || [];
+        this.localTrackCount = this.localPlaylists.reduce(
+          (count, playlist) => count + Number(playlist.trackCount || 0),
+          0
+        );
+      } catch (error) {
+        this.localError = error.message || '本地歌单扫描失败';
+      } finally {
+        this.localLoading = false;
+      }
+    },
+    async chooseLocalDirectories() {
+      const ipcRenderer = this.electronIpc();
+      if (!ipcRenderer) return;
+      const result = await ipcRenderer.invoke(
+        'karaoke:local:choose-directories'
+      );
+      if (result?.ok) await this.loadLocalLibrary();
+    },
+    async removeLocalDirectory(directory) {
+      const ipcRenderer = this.electronIpc();
+      if (!ipcRenderer) return;
+      await ipcRenderer.invoke('karaoke:local:remove-directory', directory);
+      await this.loadLocalLibrary();
     },
     async loadLanCandidates() {
       const ipcRenderer = this.electronIpc();
@@ -1192,6 +1293,69 @@ export default {
   margin: 14px auto 0;
   padding: 12px;
   box-sizing: border-box;
+}
+.local-library {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  gap: 12px;
+  width: min(1120px, calc(100% - 32px));
+  margin: 0 auto;
+  padding: 16px 20px;
+  box-sizing: border-box;
+}
+.local-library-heading {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+}
+.local-library h2 {
+  margin: 2px 0 0;
+  color: var(--ktv-text-primary);
+  font-size: 20px;
+}
+.local-library-note,
+.local-library-status {
+  margin: 4px 0 0;
+  color: var(--ktv-text-muted);
+  font-size: 12px;
+}
+.local-library-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.local-directory-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.local-directory {
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  gap: 6px;
+  padding: 6px 10px;
+  overflow: hidden;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 999px;
+  color: var(--ktv-text-secondary);
+  font-size: 12px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.local-directory button {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  background: transparent;
+  color: var(--ktv-text-muted);
+  font-size: 16px;
+  line-height: 1;
 }
 .room-access-pending .room-access-copy {
   grid-column: 1 / -1;

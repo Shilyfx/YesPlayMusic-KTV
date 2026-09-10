@@ -365,7 +365,7 @@ export default class {
       src: [source],
       html5: true,
       preload: true,
-      format: ['mp3', 'flac'],
+      format: ['mp3', 'flac', 'm4a', 'wav', 'ogg'],
       onend: () => {
         if (this._playbackOwner === 'karaoke') {
           this._setPlaying(false);
@@ -697,6 +697,10 @@ export default class {
   // OSDLyrics 会检测 Mpris 状态并寻找对应歌词文件，所以要在更新 Mpris 状态之前保证歌词下载完成
   async _updateMprisState(track, metadata) {
     if (!storeRef?.state?.settings?.enableOsdlyricsSupport) {
+      return ipcRenderer?.send('metadata', metadata);
+    }
+
+    if (track.source === 'local') {
       return ipcRenderer?.send('metadata', metadata);
     }
 
@@ -1040,6 +1044,63 @@ export default class {
       this._updateMediaSessionMetaData(track);
       this._playAudioSource(source, true);
       return { success: true };
+    } catch (error) {
+      if (generation === this._karaokePlaybackGeneration)
+        this._playbackOwner = null;
+      return { success: false, error };
+    } finally {
+      if (generation === this._karaokePlaybackGeneration)
+        this._karaokePlaybackPending = false;
+    }
+  }
+
+  async playKaraokeLocalTrack(item) {
+    const generation = (this._karaokePlaybackGeneration += 1);
+    this._playbackOwner = 'karaoke';
+    this._karaokePlaybackPending = true;
+    this._howler?.stop();
+    this._setPlaying(false);
+    try {
+      if (!ipcRenderer) return { success: false };
+      const resolved = await ipcRenderer.invoke(
+        'karaoke:local:resolve',
+        item.localId || item.trackId
+      );
+      if (
+        generation !== this._karaokePlaybackGeneration ||
+        !resolved?.ok ||
+        !resolved.audioPath
+      ) {
+        return {
+          success: false,
+          cancelled: generation !== this._karaokePlaybackGeneration,
+        };
+      }
+      const pathToFileURL = window.require('url').pathToFileURL;
+      const source = pathToFileURL(resolved.audioPath).href;
+      const track = {
+        id: item.trackId || item.localId,
+        name: item.trackName || resolved.name || '本地歌曲',
+        ar: (item.artists || resolved.artists || []).map(artist => ({
+          name: artist.name || artist,
+        })),
+        al: {
+          name: item.albumName || '',
+          picUrl: '',
+        },
+        dt: item.durationMs || 0,
+        source: 'local',
+      };
+      this._currentTrack = track;
+      this._updateMediaSessionMetaData(track);
+      this._playAudioSource(source, true);
+      return {
+        success: true,
+        lyrics:
+          Array.isArray(item.lyrics) && item.lyrics.length
+            ? item.lyrics
+            : resolved.lyrics || [],
+      };
     } catch (error) {
       if (generation === this._karaokePlaybackGeneration)
         this._playbackOwner = null;

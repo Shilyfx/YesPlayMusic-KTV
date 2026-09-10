@@ -124,7 +124,7 @@ export default class KaraokeManager {
     const sessionId = this.session.sessionId;
     const loadingItemId = item.queueItemId;
     this.transitionPromise = Promise.resolve(
-      this.playerAdapter.playTrack(item.trackId)
+      this.playerAdapter.playTrack(item)
     );
     try {
       const result = await this.transitionPromise;
@@ -136,6 +136,9 @@ export default class KaraokeManager {
       )
         return null;
       if (!result?.success) throw new Error('KTV track could not be played');
+      if (result.lyrics && this.queue.currentItem) {
+        this.queue.currentItem.lyrics = result.lyrics;
+      }
       this.queue.markCurrentPlaying();
       this.notify();
       return this.queue.currentItem;

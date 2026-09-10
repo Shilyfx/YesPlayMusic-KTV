@@ -98,7 +98,7 @@ function versionLabel(track) {
 }
 
 function sanitizeTrack(track) {
-  return {
+  const safe = {
     trackId: String(track.id),
     name: track.name || '未知歌曲',
     artists: (track.artists || track.ar || []).map(item => item.name),
@@ -112,6 +112,12 @@ function sanitizeTrack(track) {
     aliases: track.aliases || track.alia || [],
     versionLabel: versionLabel(track),
   };
+  if (track.source === 'local' || track.localId) {
+    safe.source = 'local';
+    safe.localId = String(track.localId || track.id);
+    safe.playability = 'playable';
+  }
+  return safe;
 }
 
 export class KaraokeCatalogService {
@@ -119,6 +125,7 @@ export class KaraokeCatalogService {
     this.upstream = upstream;
     this.hostCatalogBridge = hostCatalogBridge;
     this.trackCache = new Map();
+    this.localTrackCache = new Map();
     this.availabilityCache = new Map();
     this.recommendationPlaylistIds = new Set();
   }
@@ -166,7 +173,10 @@ export class KaraokeCatalogService {
   }
 
   async getTrack(trackId) {
-    const cached = this.trackCache.get(String(trackId));
+    const key = String(trackId);
+    const local = this.localTrackCache.get(key);
+    if (local) return local;
+    const cached = this.trackCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
     const data = this.hostCatalogBridge
       ? await this.hostCatalogBridge('trackDetail', {
@@ -187,6 +197,35 @@ export class KaraokeCatalogService {
     if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
     const playlists = await this.hostCatalogBridge('playlists');
     return Array.isArray(playlists) ? playlists : [];
+  }
+
+  async localPlaylists() {
+    if (!this.hostCatalogBridge) return [];
+    const source = await this.hostCatalogBridge('localPlaylists');
+    const playlists = Array.isArray(source) ? source : [];
+    this.localTrackCache.clear();
+    playlists.forEach(playlist => {
+      (playlist.tracks || []).forEach(track => {
+        const safe = sanitizeTrack(track);
+        this.localTrackCache.set(safe.trackId, {
+          ...safe,
+          lyrics: Array.isArray(track.lyrics) ? track.lyrics : [],
+        });
+        this.trackCache.set(safe.trackId, {
+          value: safe,
+          expiresAt: Date.now() + CACHE_TTL,
+        });
+      });
+    });
+    return playlists.map(playlist => ({
+      id: String(playlist.id),
+      name: playlist.name || '本地歌单',
+      source: 'local',
+      trackCount: Number(
+        playlist.trackCount || (playlist.tracks && playlist.tracks.length) || 0
+      ),
+      tracks: (playlist.tracks || []).map(sanitizeTrack),
+    }));
   }
 
   async recommendations() {
@@ -224,6 +263,13 @@ export class KaraokeCatalogService {
 
   async availability(trackId, { fresh = false } = {}) {
     const key = String(trackId);
+    if (key.startsWith('local-') && this.localTrackCache.has(key)) {
+      this.availabilityCache.set(key, {
+        value: 'playable',
+        expiresAt: Date.now() + CACHE_TTL,
+      });
+      return 'playable';
+    }
     const cached = this.availabilityCache.get(key);
     if (!fresh && cached && cached.expiresAt > Date.now()) return cached.value;
     try {
@@ -437,7 +483,7 @@ export class KaraokeRemoteService {
 
   sanitizeItem(item) {
     if (!item) return null;
-    return {
+    const safe = {
       queueItemId: item.queueItemId,
       trackId: String(item.trackId),
       name: item.trackName,
@@ -449,6 +495,11 @@ export class KaraokeRemoteService {
       priorityRequested: Boolean(item.priorityRequested),
       status: item.status,
     };
+    if (item.source === 'local' || String(item.trackId).startsWith('local-')) {
+      safe.source = 'local';
+      safe.localId = String(item.localId || item.trackId);
+    }
+    return safe;
   }
 
   async search(client, query) {
@@ -479,6 +530,14 @@ export class KaraokeRemoteService {
     if (!this.limiter.check('playlists:room', 24))
       throw new Error('RATE_LIMIT');
     return this.catalog.playlists();
+  }
+
+  async localPlaylists(client) {
+    if (!this.limiter.check(`localPlaylists:${client.clientId}`, 6))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('localPlaylists:room', 24))
+      throw new Error('RATE_LIMIT');
+    return this.catalog.localPlaylists();
   }
 
   async recommendations(client) {
@@ -579,6 +638,9 @@ export class KaraokeRemoteService {
         ar: track.artists.map(name => ({ name })),
         al: { name: track.album, picUrl: track.coverUrl },
         dt: track.duration,
+        source: track.source,
+        localId: track.localId,
+        lyrics: track.lyrics,
       },
       {
         id: client.clientId,
@@ -684,6 +746,14 @@ export class RemoteApiRouter {
         });
       }
       if (
+        url.pathname === '/ktv/api/local-playlists' &&
+        request.method === 'GET'
+      ) {
+        return json(response, 200, {
+          playlists: await this.service.localPlaylists(client),
+        });
+      }
+      if (
         url.pathname === '/ktv/api/recommendations' &&
         request.method === 'GET'
       ) {
@@ -730,7 +800,7 @@ export class RemoteApiRouter {
         });
       }
       const availability = url.pathname.match(
-        /^\/ktv\/api\/track\/(\d{1,20})\/availability$/
+        /^\/ktv\/api\/track\/((?:\d{1,20}|local-[a-f0-9]{16}))\/availability$/i
       );
       if (availability && request.method === 'GET') {
         return json(response, 200, {
@@ -749,7 +819,9 @@ export class RemoteApiRouter {
         if (!/^application\/json/.test(request.headers['content-type'] || ''))
           return error(response, 415, 'JSON_REQUIRED');
         const body = await readJson(request);
-        if (!/^\d{1,20}$/.test(String(body.trackId || '')))
+        if (
+          !/^(?:\d{1,20}|local-[a-f0-9]{16})$/i.test(String(body.trackId || ''))
+        )
           return error(response, 400, 'INVALID_TRACK');
         return json(response, 201, {
           item: await this.service.enqueue(

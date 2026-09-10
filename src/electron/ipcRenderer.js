@@ -178,7 +178,13 @@ async function hostCatalog(action, payload = {}, store = null) {
     const source = data?.data?.[0];
     if (!source?.url || !/^https?:\/\//i.test(source.url))
       throw new Error('TRACK_NOT_PLAYABLE');
-    return source.url;
+    return source.url.replace(/^http:/, 'https:');
+  }
+  if (action === 'localPlaylists') {
+    if (process.env.IS_ELECTRON !== true || !window.require) return [];
+    const localElectron = window.require('electron');
+    const result = await localElectron.ipcRenderer.invoke('karaoke:local:scan');
+    return result?.playlists || [];
   }
   throw new Error('KTV_NOT_ACTIVE');
 }

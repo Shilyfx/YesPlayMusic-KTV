@@ -3,7 +3,11 @@ export default class KaraokePlayerAdapter {
     this.player = player;
   }
 
-  playTrack(trackId) {
+  playTrack(track) {
+    if (track?.source === 'local' || track?.localId) {
+      return this.player.playKaraokeLocalTrack(track);
+    }
+    const trackId = track?.trackId || track;
     return this.player.playTrackByID(trackId, {
       fallback: 'none',
       owner: 'karaoke',

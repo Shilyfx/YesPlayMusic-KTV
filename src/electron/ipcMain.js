@@ -10,6 +10,7 @@ import {
   KaraokeRemoteService,
   RemoteApiRouter,
 } from './karaoke/KaraokeRemoteApi';
+import KaraokeLocalLibrary from './karaoke/KaraokeLocalLibrary';
 
 const clc = require('cli-color');
 const log = text => {
@@ -161,6 +162,10 @@ export function initIpcMain(
   // WIP: Do not enable logging as it has some issues in non-blocking I/O environment.
   // UNM.enableLogging(UNM.LoggingType.ConsoleEnv);
   const karaokeLanLifecycle = new KaraokeLanLifecycle(karaokeServer);
+  const karaokeLocalLibrary = new KaraokeLocalLibrary(
+    store.get('settings.localKaraokeDirectories', [])
+  );
+  karaokeServer.setLocalLibrary(karaokeLocalLibrary);
   ipcMain.on('renderer:ready', (_, payload = {}) => {
     if (!runtime) return;
     runtime.renderer = 'ready';
@@ -264,6 +269,46 @@ export function initIpcMain(
 
   ipcMain.handle('karaoke:lan:self-test', async (_, address) => {
     return karaokeServer.selfTestAddress(address);
+  });
+
+  ipcMain.handle('karaoke:local:directories', async () => ({
+    ok: true,
+    directories: karaokeLocalLibrary.listDirectories(),
+  }));
+
+  ipcMain.handle('karaoke:local:choose-directories', async () => {
+    const result = await dialog.showOpenDialog(win, {
+      title: '选择本地 KTV 音乐目录',
+      properties: ['openDirectory', 'multiSelections'],
+    });
+    if (result.canceled) {
+      return {
+        ok: false,
+        canceled: true,
+        directories: karaokeLocalLibrary.listDirectories(),
+      };
+    }
+    const directories = karaokeLocalLibrary.addDirectories(result.filePaths);
+    store.set('settings.localKaraokeDirectories', directories);
+    return { ok: true, directories };
+  });
+
+  ipcMain.handle('karaoke:local:remove-directory', async (_, directory) => {
+    const directories = karaokeLocalLibrary.removeDirectory(directory);
+    store.set('settings.localKaraokeDirectories', directories);
+    return { ok: true, directories };
+  });
+
+  ipcMain.handle('karaoke:local:scan', async () => ({
+    ok: true,
+    directories: karaokeLocalLibrary.listDirectories(),
+    playlists: await karaokeLocalLibrary.scan(),
+  }));
+
+  ipcMain.handle('karaoke:local:resolve', async (_, localId) => {
+    const resolved = await karaokeLocalLibrary.resolve(localId);
+    if (!resolved) return { ok: false, error: 'LOCAL_TRACK_NOT_FOUND' };
+    return { ok: true, ...resolved };
   });
 
   ipcMain.handle(

@@ -77,6 +77,7 @@ export class KaraokeServer {
       server.listen(port, host, callback),
     remoteApi = null,
     remoteService = null,
+    localLibrary = null,
   }) {
     this.remoteDistPath = remoteDistPath;
     this.port = port;
@@ -84,6 +85,7 @@ export class KaraokeServer {
     this.listen = listen;
     this.remoteApi = remoteApi;
     this.remoteService = remoteService;
+    this.localLibrary = localLibrary;
     this.server = null;
     this.room = null;
     this.state = 'idle';
@@ -94,6 +96,10 @@ export class KaraokeServer {
   setRemoteApi(remoteApi, remoteService) {
     this.remoteApi = remoteApi;
     this.remoteService = remoteService;
+  }
+
+  setLocalLibrary(localLibrary) {
+    this.localLibrary = localLibrary;
   }
 
   getLanAddressCandidates() {

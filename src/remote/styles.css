@@ -180,8 +180,29 @@ h2 {
 .notice[data-kind='success'] {
   color: #79e4b2;
 }
+@keyframes notice-success-fade {
+  0% {
+    opacity: 0;
+    transform: translateY(-5px);
+  }
+  12%,
+  72% {
+    opacity: 1;
+    transform: translateY(0);
+  }
+  100% {
+    opacity: 0;
+    transform: translateY(-3px);
+  }
+}
+.notice.notice-pop {
+  animation: notice-success-fade 3.2s ease both;
+}
 .preview-dock {
-  display: flex;
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: minmax(120px, 0.6fr) minmax(180px, 1fr) auto;
   gap: 14px;
   align-items: center;
   margin: 12px 0 0;
@@ -199,9 +220,8 @@ h2 {
   white-space: nowrap;
 }
 .preview-dock audio {
-  width: min(420px, 100%);
+  width: 100%;
   height: 34px;
-  flex: 1;
 }
 .now-playing {
   min-height: 170px;
@@ -578,6 +598,32 @@ h2 {
 .playlist-track-card {
   padding: 12px 14px;
 }
+.local-playlist-block {
+  display: grid;
+  gap: 10px;
+  margin-top: 20px;
+  padding-top: 18px;
+  border-top: 1px solid #ffffff1f;
+}
+.local-playlist-block h3 {
+  margin: 0 0 4px;
+  font-size: 18px;
+}
+.local-playlist-block > label {
+  display: grid;
+  gap: 6px;
+  color: #aeb4ca;
+  font-size: 12px;
+  font-weight: 700;
+}
+.local-playlist-block select {
+  min-height: 42px;
+  border: 1px solid #ffffff2e;
+  border-radius: 12px;
+  padding: 0 12px;
+  color: inherit;
+  background: #111731b8;
+}
 .availability.unknown {
   color: #d4c783;
 }
@@ -785,10 +831,11 @@ h2 {
     flex: 0 0 96px;
   }
   .preview-dock {
+    grid-template-columns: 1fr auto;
     align-items: stretch;
-    flex-direction: column;
   }
   .preview-dock audio {
+    grid-column: 1 / -1;
     width: 100%;
   }
   .result-card {
@@ -841,6 +888,11 @@ h2 {
   background: #ffffff;
   box-shadow: none;
 }
+:root[data-theme='light'] .local-playlist-block select {
+  border-color: #cbd1e3;
+  color: #17203b;
+  background: #ffffff;
+}
 :root[data-theme='light'] .result-card {
   border-color: #e0e4ef;
   box-shadow: 0 5px 14px #5e6a831f;
@@ -856,6 +908,11 @@ h2 {
     color: #17203b;
     background: #ffffff;
     box-shadow: none;
+  }
+  :root[data-theme='auto'] .local-playlist-block select {
+    border-color: #cbd1e3;
+    color: #17203b;
+    background: #ffffff;
   }
   :root[data-theme='auto'] .result-card {
     border-color: #e0e4ef;

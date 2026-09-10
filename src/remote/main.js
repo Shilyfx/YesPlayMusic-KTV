@@ -18,6 +18,9 @@ let selectedPlaylistId = '';
 let playlistTracks = [];
 let playlistQuery = '';
 let playlistTrackGeneration = 0;
+let localPlaylists = [];
+let selectedLocalPlaylistId = '';
+let localPlaylistTracks = [];
 let playedHistory = [];
 let recommendations = [];
 let selectedRecommendationId = '';
@@ -81,6 +84,10 @@ function setNotice(message = '', kind = '') {
   const notice = app.querySelector('[data-notice]');
   notice.textContent = message;
   notice.dataset.kind = kind;
+  notice.classList.remove('notice-pop');
+  if (kind === 'success') {
+    requestAnimationFrame(() => notice.classList.add('notice-pop'));
+  }
 }
 
 function formatDuration(milliseconds) {
@@ -131,7 +138,7 @@ function initializeModuleTabs() {
 function initializeShell() {
   const theme = localStorage.getItem('yesplaymusic-ktv-theme') || 'auto';
   document.documentElement.dataset.theme = theme;
-  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1 data-room-name>Shilyfx的KTV</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
+  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1 data-room-name>Shilyfx的KTV</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div><div class="local-playlist-block"><div class="section-heading"><div><p class="section-label">主机本地目录</p><h3>本地歌单</h3></div><button class="quiet" type="button" data-local-playlists-refresh>刷新本地歌单</button></div><label>选择本地歌单<select data-local-playlist><option value="">正在加载本地歌单…</option></select></label><div class="playlist-track-list" data-local-playlist-tracks><div class="hint">主机尚未配置本地音乐目录。</div></div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
   app
     .querySelector('[data-notice]')
     .insertAdjacentHTML(
@@ -182,6 +189,11 @@ function initializeShell() {
       renderPlaylistTracks();
     });
   app
+    .querySelector('[data-local-playlist]')
+    .addEventListener('change', event =>
+      selectLocalPlaylist(event.target.value)
+    );
+  app
     .querySelector('[data-artist-search]')
     .addEventListener('input', event =>
       scheduleArtistSearch(event.target.value)
@@ -200,6 +212,7 @@ function initializeShell() {
       selectRecommendation(button.dataset.recommendation);
     else if (button.dataset.artist) selectArtist(button.dataset.artist);
     else if (button.dataset.playlistsRefresh) loadPlaylists();
+    else if (button.dataset.localPlaylistsRefresh) loadLocalPlaylists();
     else if (button.dataset.recommendationsRefresh) loadRecommendations();
     else if (button.dataset.remove)
       mutate(`/requests/${button.dataset.remove}`, 'DELETE');
@@ -288,6 +301,7 @@ async function checkAvailability(trackId) {
   availabilityChecking.add(id);
   renderResults(searchResults);
   renderPlaylistTracks();
+  renderLocalPlaylistTracks();
   renderRecommendationTracks();
   renderArtistTracks();
   try {
@@ -300,6 +314,7 @@ async function checkAvailability(trackId) {
     availabilityChecking.delete(id);
     renderResults(searchResults);
     renderPlaylistTracks();
+    renderLocalPlaylistTracks();
     renderRecommendationTracks();
     renderArtistTracks();
   }
@@ -310,6 +325,7 @@ function findTrack(trackId) {
   return [
     ...searchResults,
     ...playlistTracks,
+    ...localPlaylistTracks,
     ...recommendationTracks,
     ...artistTracks,
     ...playedHistory,
@@ -343,6 +359,7 @@ async function previewTrack(trackId) {
     audio.pause();
     renderResults(searchResults);
     renderPlaylistTracks();
+    renderLocalPlaylistTracks();
     renderRecommendationTracks();
     renderArtistTracks();
     return;
@@ -377,6 +394,7 @@ async function previewTrack(trackId) {
     dock.hidden = true;
     renderResults(searchResults);
     renderPlaylistTracks();
+    renderLocalPlaylistTracks();
     renderRecommendationTracks();
     renderArtistTracks();
     setNotice(
@@ -415,6 +433,12 @@ function trackRequestMarkup(track, className = '') {
           checking ? '检测中…' : '检测可用'
         }</button>`
       : '';
+  const previewButton =
+    track.source === 'local'
+      ? ''
+      : `<button class="quiet preview-button" data-preview="${escape(
+          trackId
+        )}">${previewTrackId === trackId ? '暂停试听' : '试听'}</button>`;
   return `<article class="result-card ${className}"><div class="result-info"><strong>${escape(
     track.name
   )}</strong><p>${escape((track.artists || []).join(' / '))} · ${escape(
@@ -423,11 +447,9 @@ function trackRequestMarkup(track, className = '') {
     track.versionLabel ? `${escape(track.versionLabel)} · ` : ''
   }${formatDuration(
     track.duration
-  )} · <b class="availability ${availability}">${label}</b></small></div><div class="request-actions"><button class="quiet preview-button" data-preview="${escape(
+  )} · <b class="availability ${availability}">${label}</b></small></div><div class="request-actions">${previewButton}${checkButton}<button data-request="${escape(
     trackId
-  )}">${
-    previewTrackId === trackId ? '暂停试听' : '试听'
-  }</button>${checkButton}<button data-request="${escape(trackId)}" ${
+  )}" ${
     disabled ? 'disabled' : ''
   }>点歌</button><button class="priority-button" data-priority="${escape(
     trackId
@@ -664,6 +686,76 @@ function renderPlaylistTracks({ loading = false } = {}) {
     .join('');
 }
 
+function renderLocalPlaylistPicker() {
+  const select = app.querySelector('[data-local-playlist]');
+  if (!select) return;
+  select.innerHTML = localPlaylists.length
+    ? localPlaylists
+        .map(
+          playlist =>
+            `<option value="${escape(playlist.id)}">${escape(
+              playlist.name
+            )} · ${
+              playlist.trackCount || playlist.tracks?.length || 0
+            } 首</option>`
+        )
+        .join('')
+    : '<option value="">主机尚未配置本地音乐目录</option>';
+  select.value = selectedLocalPlaylistId;
+  select.disabled = !localPlaylists.length;
+}
+
+function renderLocalPlaylistTracks() {
+  const container = app.querySelector('[data-local-playlist-tracks]');
+  if (!container) return;
+  if (!selectedLocalPlaylistId) {
+    container.innerHTML = '<div class="hint">主机尚未配置本地音乐目录。</div>';
+    return;
+  }
+  if (!localPlaylistTracks.length) {
+    container.innerHTML = '<div class="hint">这个本地歌单暂无歌曲。</div>';
+    return;
+  }
+  container.innerHTML = localPlaylistTracks
+    .map(track => trackRequestMarkup(track, 'local-track-card'))
+    .join('');
+}
+
+function selectLocalPlaylist(playlistId) {
+  selectedLocalPlaylistId = playlistId;
+  const playlist = localPlaylists.find(
+    item => String(item.id) === String(playlistId)
+  );
+  localPlaylistTracks = playlist?.tracks || [];
+  renderLocalPlaylistPicker();
+  renderLocalPlaylistTracks();
+}
+
+async function loadLocalPlaylists() {
+  const button = app.querySelector('[data-local-playlists-refresh]');
+  if (button) button.disabled = true;
+  try {
+    const response = await api('/local-playlists');
+    localPlaylists = response.playlists || [];
+    const hasSelected = localPlaylists.some(
+      playlist => String(playlist.id) === String(selectedLocalPlaylistId)
+    );
+    selectedLocalPlaylistId = hasSelected
+      ? selectedLocalPlaylistId
+      : localPlaylists[0]?.id || '';
+    renderLocalPlaylistPicker();
+    selectLocalPlaylist(selectedLocalPlaylistId);
+  } catch (_) {
+    localPlaylists = [];
+    selectedLocalPlaylistId = '';
+    localPlaylistTracks = [];
+    renderLocalPlaylistPicker();
+    renderLocalPlaylistTracks();
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
 async function selectRecommendation(playlistId) {
   selectedRecommendationId = playlistId;
   recommendationTracks = [];
@@ -869,12 +961,14 @@ function scheduleSearch(query) {
 
 async function requestSong(trackId, priority) {
   try {
+    const track = findTrack(trackId);
     await api('/requests', {
       method: 'POST',
       body: JSON.stringify({ trackId, priority }),
     });
+    const name = track?.name || '歌曲';
     setNotice(
-      priority ? '已优先加入等待队列。' : '已加入等待队列。',
+      priority ? `${name}点歌成功，已优先加入等待队列` : `${name}点歌成功`,
       'success'
     );
     await refresh();
@@ -950,6 +1044,7 @@ async function bootstrap() {
     await Promise.all([
       loadRecommendations(),
       loadPlaylists(),
+      loadLocalPlaylists(),
       loadFeaturedArtists(),
     ]);
   } catch (_) {

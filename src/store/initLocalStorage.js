@@ -19,6 +19,7 @@ let localStorage = {
     lyricOffsetSeconds: 0,
     karaokeLyricEffect: 'gradient',
     karaokeTheme: 'auto',
+    localKaraokeDirectories: [],
     outputDevice: 'default',
     showPlaylistsByAppleMusic: true,
     enableUnblockNeteaseMusic: true,

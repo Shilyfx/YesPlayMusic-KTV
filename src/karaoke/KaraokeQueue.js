@@ -4,7 +4,7 @@ let queueSequence = 0;
 
 function toQueueItem(track, requester) {
   queueSequence += 1;
-  return {
+  const item = {
     queueItemId: `ktv-item-${Date.now()}-${queueSequence}`,
     trackId: track.id,
     trackName: track.name || '未知歌曲',
@@ -19,6 +19,12 @@ function toQueueItem(track, requester) {
     requestedAt: new Date().toISOString(),
     status: KARAOKE_ITEM_STATUS.QUEUED,
   };
+  if (track.source === 'local' || track.localId) {
+    item.source = 'local';
+    item.localId = String(track.localId || track.id);
+    item.lyrics = Array.isArray(track.lyrics) ? track.lyrics : [];
+  }
+  return item;
 }
 
 export default class KaraokeQueue {
