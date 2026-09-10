@@ -55,7 +55,9 @@ module.exports = {
       template: 'public/remote.html',
       filename: 'remote/index.html',
       title: 'YesPlayMusic KTV Room',
-      chunks: ['chunk-vendors', 'chunk-common', 'remote'],
+      // Remote is a standalone fetch/DOM client. Do not load the desktop
+      // vendor chunk (Vuex, player UI, and Electron renderer dependencies).
+      chunks: ['remote'],
     },
   },
   chainWebpack(config) {

@@ -5,6 +5,17 @@ function isolateRemoteAssets(distPath) {
   const remotePath = path.join(distPath, 'remote');
   const indexPath = path.join(remotePath, 'index.html');
   let html = fs.readFileSync(indexPath, 'utf8');
+  // The Vue CLI entrypoint still emits shared desktop chunks as preload
+  // hints even though the Remote page only executes its own entry. Remove
+  // those hints before collecting assets so the LAN client stays standalone.
+  html = html.replace(
+    /<link[^>]+(?:href|src)="(?:app:\/\/\.|)?\/(?:js|css)\/(?:chunk-vendors|chunk-common)[^"]+"[^>]*>\s*/g,
+    ''
+  );
+  html = html.replace(
+    /<script[^>]+src="(?:app:\/\/\.|)?\/(?:js|css)\/(?:chunk-vendors|chunk-common)[^"]+"[^>]*><\/script>\s*/g,
+    ''
+  );
   const assets = [];
   html.replace(
     /(?:app:\/\/\.|)\/(js|css)\/([^"']+)/g,
