@@ -39,6 +39,15 @@
           @click="showRoomCode = !showRoomCode"
           >{{ showRoomCode ? '收起二维码' : '显示二维码' }}</button
         >
+        <button
+          v-if="isElectron"
+          type="button"
+          class="session-button"
+          :aria-expanded="showLocalLibraryPanel"
+          @click="showLocalLibraryPanel = !showLocalLibraryPanel"
+        >
+          {{ showLocalLibraryPanel ? '收起本地歌单' : '本地歌单' }}
+        </button>
         <button type="button" class="session-button" @click="toggleSession">
           {{ isSessionActive ? '结束 KTV' : '开始本机 KTV' }}
         </button>
@@ -150,7 +159,10 @@
       </div>
     </section>
 
-    <section v-if="isElectron" class="local-library glass-panel">
+    <section
+      v-if="isElectron && showLocalLibraryPanel"
+      class="local-library glass-panel"
+    >
       <div class="local-library-heading">
         <div>
           <p class="eyebrow">LOCAL LIBRARY</p>
@@ -303,7 +315,7 @@
         <div class="panel-title">
           <div>
             <p class="eyebrow">本机待唱</p>
-            <h2>真实临时队列</h2>
+            <h2>等待队列</h2>
           </div>
           <span class="queue-count">{{ waitingItems.length }} 首待唱</span>
         </div>
@@ -502,6 +514,7 @@ export default {
       lyricControlsVisible: false,
       lyricControlsTimer: null,
       lastVolumeBeforeMute: 1,
+      showLocalLibraryPanel: false,
       localDirectories: [],
       localPlaylists: [],
       localTrackCount: 0,
@@ -1080,8 +1093,11 @@ export default {
     },
     enqueueCurrentTrack() {
       const item = this.karaokeManager.enqueueTrack(this.track);
-      if (item)
+      if (item) {
+        if (!this.karaokeManager.queue.currentItem)
+          this.karaokeManager.startQueue();
         this.$store.dispatch('showToast', `已加入 KTV 待唱：${item.trackName}`);
+      }
     },
     removeQueueItem(queueItemId) {
       this.karaokeManager.removeQueueItem(queueItemId);
@@ -1217,6 +1233,10 @@ export default {
   display: flex;
   align-items: center;
   gap: 10px;
+}
+.header-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 .room-label strong,
 .room-label small {

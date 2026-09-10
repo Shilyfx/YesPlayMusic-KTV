@@ -1077,7 +1077,8 @@ export default class {
         };
       }
       const pathToFileURL = window.require('url').pathToFileURL;
-      const source = pathToFileURL(resolved.audioPath).href;
+      const source =
+        resolved.audioUrl || pathToFileURL(resolved.audioPath).href;
       const track = {
         id: item.trackId || item.localId,
         name: item.trackName || resolved.name || '本地歌曲',

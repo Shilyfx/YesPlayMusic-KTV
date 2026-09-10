@@ -308,7 +308,11 @@ export function initIpcMain(
   ipcMain.handle('karaoke:local:resolve', async (_, localId) => {
     const resolved = await karaokeLocalLibrary.resolve(localId);
     if (!resolved) return { ok: false, error: 'LOCAL_TRACK_NOT_FOUND' };
-    return { ok: true, ...resolved };
+    return {
+      ok: true,
+      ...resolved,
+      audioUrl: karaokeServer.getLocalAudioUrl(localId),
+    };
   });
 
   ipcMain.handle(

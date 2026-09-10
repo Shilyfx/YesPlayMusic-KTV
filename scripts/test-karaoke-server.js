@@ -98,6 +98,31 @@ async function run() {
   assert.equal(roomUrl.hostname, '192.168.8.20');
   const roomToken = roomUrl.hash.slice('#token='.length);
   assert.match(roomToken, /^[A-Za-z0-9_-]{40,}$/);
+  const localAudioPath = path.join(remoteDistPath, 'local-test.mp3');
+  fs.writeFileSync(localAudioPath, 'local-audio');
+  server.setLocalLibrary({
+    resolve: async localId =>
+      localId === 'local-0123456789abcdef'
+        ? { audioPath: localAudioPath }
+        : null,
+  });
+  const localAudio = await request(
+    serverPort,
+    `/ktv/local/audio/local-0123456789abcdef?token=${encodeURIComponent(
+      roomToken
+    )}`
+  );
+  assert.equal(localAudio.status, 200);
+  assert.equal(localAudio.body, 'local-audio');
+  assert.equal(
+    (
+      await request(
+        serverPort,
+        '/ktv/local/audio/local-0123456789abcdef?token=invalid'
+      )
+    ).status,
+    404
+  );
 
   const health = await request(serverPort, '/health');
   assert.equal(health.status, 200);

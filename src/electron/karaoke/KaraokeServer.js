@@ -3,6 +3,7 @@ import http from 'http';
 import os from 'os';
 import path from 'path';
 import { promises as fs } from 'fs';
+import { createReadStream } from 'fs';
 import QRCode from 'qrcode';
 
 const ROOM_PORT = 27233;
@@ -65,6 +66,11 @@ function contentType(filePath) {
   if (filePath.endsWith('.css')) return 'text/css; charset=utf-8';
   if (filePath.endsWith('.svg')) return 'image/svg+xml';
   if (filePath.endsWith('.png')) return 'image/png';
+  if (filePath.endsWith('.mp3')) return 'audio/mpeg';
+  if (filePath.endsWith('.flac')) return 'audio/flac';
+  if (filePath.endsWith('.m4a')) return 'audio/mp4';
+  if (filePath.endsWith('.wav')) return 'audio/wav';
+  if (filePath.endsWith('.ogg')) return 'audio/ogg';
   return 'text/html; charset=utf-8';
 }
 
@@ -104,6 +110,13 @@ export class KaraokeServer {
 
   getLanAddressCandidates() {
     return getLanAddressCandidates(this.networkInterfaces());
+  }
+
+  getLocalAudioUrl(localId) {
+    if (!this.room || !this.localLibrary) return null;
+    const encodedId = encodeURIComponent(String(localId));
+    const token = encodeURIComponent(this.room.token);
+    return `http://127.0.0.1:${this.port}/ktv/local/audio/${encodedId}?token=${token}`;
   }
 
   async startRoom({ lanAddress, sessionId, roomName } = {}) {
@@ -274,6 +287,21 @@ export class KaraokeServer {
       return this.sendJson(response, { active: Boolean(this.room) });
     }
 
+    const localAudio = requestUrl.pathname.match(
+      /^\/ktv\/local\/audio\/(local-[a-f0-9]{16})$/i
+    );
+    if (localAudio) {
+      if (
+        !this.room ||
+        requestUrl.searchParams.get('token') !== this.room.token ||
+        !this.localLibrary
+      )
+        return this.notFound(response);
+      const resolved = await this.localLibrary.resolve(localAudio[1]);
+      if (!resolved) return this.notFound(response);
+      return this.sendLocalAudio(resolved.audioPath, request, response);
+    }
+
     const roomPath = `/room/${this.room && this.room.code}`;
     if (
       !this.room ||
@@ -290,6 +318,45 @@ export class KaraokeServer {
 
   async sendRemoteAsset(relativePath, response) {
     return this.sendStaticAsset(this.remoteDistPath, relativePath, response);
+  }
+
+  async sendLocalAudio(filePath, request, response) {
+    try {
+      const stat = await fs.stat(filePath);
+      const total = stat.size;
+      const range = request.headers.range;
+      let start = 0;
+      let end = total - 1;
+      let status = 200;
+      if (range) {
+        const match = range.match(/bytes=(\d*)-(\d*)/);
+        if (match) {
+          if (match[1]) start = Number(match[1]);
+          if (match[2]) end = Number(match[2]);
+          if (!match[1] && match[2])
+            start = Math.max(0, total - Number(match[2]));
+          end = Math.min(end, total - 1);
+          if (start <= end && start < total) status = 206;
+        }
+      }
+      if (status === 200) {
+        start = 0;
+        end = total - 1;
+      }
+      const headers = {
+        ...this.securityHeaders(contentType(filePath)),
+        'Accept-Ranges': 'bytes',
+        'Content-Length': end - start + 1,
+      };
+      if (status === 206)
+        headers['Content-Range'] = `bytes ${start}-${end}/${total}`;
+      response.writeHead(status, headers);
+      createReadStream(filePath, { start, end })
+        .on('error', () => response.destroy())
+        .pipe(response);
+    } catch (_) {
+      this.notFound(response);
+    }
   }
 
   resolveStaticPath(rootPath, relativePath) {
@@ -336,7 +403,7 @@ export class KaraokeServer {
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
       'Content-Security-Policy':
-        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: http: https:; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; media-src 'self' http: https: blob: data:; img-src 'self' data: http: https:; base-uri 'none'; frame-ancestors 'none'",
     };
   }
 }

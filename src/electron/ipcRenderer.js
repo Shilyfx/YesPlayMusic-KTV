@@ -218,6 +218,12 @@ export function ipcRenderer(vueInstance) {
             command.payload.track,
             command.payload.requester
           );
+          if (
+            result &&
+            !manager.queue.currentItem &&
+            !manager.transitionPromise
+          )
+            manager.startQueue();
           break;
         case 'remove':
           assertExpectedKaraokeSession(manager, command.payload.expected);

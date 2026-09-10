@@ -148,6 +148,13 @@ export default class KaraokeManager {
       return null;
     } finally {
       this.transitionPromise = null;
+      if (
+        this.isSessionActive &&
+        !this.queue.currentItem &&
+        this.queue.waitingItems.length
+      ) {
+        this.startQueue();
+      }
     }
   }
 
@@ -181,6 +188,7 @@ export default class KaraokeManager {
     this.queue.archiveCurrent(KARAOKE_ITEM_STATUS.FAILED);
     this.playerAdapter.stop();
     this.notify();
+    if (this.queue.waitingItems.length) this.startQueue();
   }
 
   replay() {
