@@ -1,5 +1,5 @@
 import clc from 'cli-color';
-import { ensureAnonymousToken } from '@/utils/checkAuthToken';
+const { ensureAnonymousToken } = require('@/utils/checkAuthToken');
 
 export async function startNeteaseMusicApi() {
   // Let user know that the service is starting

@@ -16,6 +16,7 @@
     "electron:build-win": "vue-cli-service electron:build -p never -w --legacy",
     "electron:build-linux": "vue-cli-service electron:build -p never -l --legacy",
     "test:electron-bundle": "node scripts/test-electron-bundle.js",
+    "test:anonymous-token": "node scripts/test-anonymous-token.js",
     "electron:serve": "vue-cli-service electron:serve",
     "electron:buildicon": "electron-icon-builder --input=./build/icons/icon.png --output=build --flatten",
     "electron:publish": "vue-cli-service electron:build -mwl -p always",

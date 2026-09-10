@@ -25,17 +25,85 @@ jobs:
           node-version: 16
           cache: yarn
       - run: yarn install --frozen-lockfile
+      - name: Install macOS ARM64 native dependencies
+        shell: bash
+        run: |
+          unm_version=$(node -p "require('./node_modules/@unblockneteasemusic/rust-napi/package.json').version")
+          yarn add --ignore-platform --ignore-optional --no-lockfile \
+            "@unblockneteasemusic/rust-napi-darwin-arm64@${unm_version}" \
+            dmg-license
+      - name: Verify fresh anonymous-token initialization
+        run: yarn test:anonymous-token
       - name: Build packaged application
         shell: bash
         run: yarn ${{ matrix.command }}
-      - name: Verify packaged output exists
+      - name: Verify ARM64 application cold start
         shell: bash
         run: |
+          set -euo pipefail
+          app_path=$(find dist_electron -type d -name 'LumaSing.app' -print -quit)
+          test -n "$app_path"
+          executable="$app_path/Contents/MacOS/LumaSing"
+          test -x "$executable"
+          test -f "$app_path/Contents/Info.plist"
+          plutil -lint "$app_path/Contents/Info.plist"
+          archs=$(lipo -archs "$executable")
+          [[ " $archs " == *" arm64 "* ]]
+
+          token_path=$(node -p "require('path').join(require('os').tmpdir(), 'anonymous_token')")
+          rm -f "$token_path"
+          "$executable" >"$RUNNER_TEMP/lumasing-smoke.log" 2>&1 &
+          app_pid=$!
+          cleanup() {
+            kill "$app_pid" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+
+          ready=false
+          for _ in {1..40}; do
+            if curl -fsS http://127.0.0.1:27232/__health >"$RUNNER_TEMP/lumasing-health.json"; then
+              ready=true
+              break
+            fi
+            if ! kill -0 "$app_pid" 2>/dev/null; then
+              cat "$RUNNER_TEMP/lumasing-smoke.log"
+              exit 1
+            fi
+            sleep 1
+          done
+          if [[ "$ready" != true ]]; then
+            cat "$RUNNER_TEMP/lumasing-smoke.log"
+            exit 1
+          fi
+          node -e "const h=require(process.env.RUNNER_TEMP + '/lumasing-health.json'); if(h.desktopServer!=='ready'||h.renderer!=='ready'||h.neteaseApi!=='ready') { console.error(h); process.exit(1) }"
+          test -f "$token_path"
+      - name: Verify DMG integrity and mounted architecture
+        shell: bash
+        run: |
+          set -euo pipefail
           shopt -s nullglob
           files=( ${{ matrix.artifact }} )
-          test "${#files[@]}" -gt 0
+          test "${#files[@]}" -eq 1
+          dmg_path="${files[0]}"
+          hdiutil verify "$dmg_path"
+
+          mount_path=$(mktemp -d)
+          cleanup() {
+            hdiutil detach "$mount_path" -quiet 2>/dev/null || true
+            rmdir "$mount_path" 2>/dev/null || true
+          }
+          trap cleanup EXIT
+          hdiutil attach "$dmg_path" -nobrowse -readonly -acceptlicense -mountpoint "$mount_path"
+          mounted_app=$(find "$mount_path" -maxdepth 1 -type d -name 'LumaSing.app' -print -quit)
+          test -n "$mounted_app"
+          mounted_archs=$(lipo -archs "$mounted_app/Contents/MacOS/LumaSing")
+          [[ " $mounted_archs " == *" arm64 "* ]]
+          shasum -a 256 "$dmg_path" >dist_electron/LumaSing-mac-arm64.sha256
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4
         with:
           name: lumasing-macos-${{ matrix.name }}
-          path: ${{ matrix.artifact }}
+          path: |
+            ${{ matrix.artifact }}
+            dist_electron/LumaSing-mac-arm64.sha256
+          if-no-files-found: error
