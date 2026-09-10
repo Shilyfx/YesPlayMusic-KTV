@@ -1416,6 +1416,10 @@ function showEnded() {
 }
 
 async function bootstrap() {
+  // Render the shell before exchanging the join token. A transient LAN/API
+  // failure must not leave the remote page as an empty gradient background;
+  // the user should still see the room controls and a useful status notice.
+  initializeShell();
   try {
     client = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
     if (!client?.clientToken) {
@@ -1430,10 +1434,17 @@ async function bootstrap() {
       sessionStorage.setItem(storageKey, JSON.stringify(client));
       history.replaceState({}, '', window.location.pathname);
     }
-    initializeShell();
     await requestRefresh();
-  } catch (_) {
-    showEnded();
+  } catch (error) {
+    if (
+      error?.code === 'INVALID_CLIENT_TOKEN' ||
+      error?.code === 'ROOM_ENDED'
+    ) {
+      showEnded();
+      return;
+    }
+    setNotice('连接 KTV 服务失败，请刷新页面或重新扫描二维码。', 'error');
+    scheduleRefresh(retryDelay);
   }
 }
 

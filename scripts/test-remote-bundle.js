@@ -19,4 +19,16 @@ assets.forEach(([, directory, asset]) => {
   );
 });
 
+const remoteScripts = assets
+  .filter(([, directory]) => directory === 'js')
+  .map(([, directory, asset]) =>
+    fs.readFileSync(path.join(remoteRoot, directory, asset), 'utf8')
+  )
+  .join('\n');
+assert.doesNotMatch(
+  remoteScripts,
+  /chunk-vendors/,
+  'Remote entry must not wait for a desktop-only vendor chunk'
+);
+
 console.log(`Remote bundle asset tests passed (${assets.length} assets)`);

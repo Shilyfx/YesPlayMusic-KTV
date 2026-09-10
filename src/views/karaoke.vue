@@ -36,7 +36,7 @@
           type="button"
           class="session-button"
           :aria-expanded="showRoomCode"
-          @click="showRoomCode = !showRoomCode"
+          @click="toggleRoomCode"
           >{{ showRoomCode ? '收起二维码' : '显示二维码' }}</button
         >
         <button
@@ -44,7 +44,7 @@
           type="button"
           class="session-button"
           :aria-expanded="showLocalLibraryPanel"
-          @click="showLocalLibraryPanel = !showLocalLibraryPanel"
+          @click="toggleLocalLibrary"
         >
           {{ showLocalLibraryPanel ? '收起本地歌单' : '本地歌单' }}
         </button>
@@ -88,7 +88,9 @@
     </header>
 
     <section
-      v-if="isSessionActive && (!lanRoom || showRoomCode)"
+      v-if="
+        isSessionActive && (!lanRoom || showRoomCode) && !showLocalLibraryPanel
+      "
       class="room-access room-access-overlay glass-panel"
       :class="{ 'room-access-pending': !lanRoom }"
     >
@@ -286,9 +288,9 @@
           }}</span>
           <span>{{ lyricOffsetLabel }} · {{ lyricFontSize }}px</span>
         </div>
-        <div class="fullscreen-actions">
+        <div v-if="!isLyricFullscreen" class="fullscreen-actions">
           <button type="button" @click="enterKtvFullscreen">全屏 KTV</button>
-          <button type="button" @click="enterLyricFullscreen">只看歌词</button>
+          <button type="button" @click="enterLyricFullscreen">歌词全屏</button>
         </div>
         <div
           v-if="isLyricFullscreen"
@@ -892,6 +894,14 @@ export default {
       if (!process.env.IS_ELECTRON || !window.require) return null;
       return window.require('electron').ipcRenderer;
     },
+    toggleRoomCode() {
+      this.showRoomCode = !this.showRoomCode;
+      if (this.showRoomCode) this.showLocalLibraryPanel = false;
+    },
+    toggleLocalLibrary() {
+      this.showLocalLibraryPanel = !this.showLocalLibraryPanel;
+      if (this.showLocalLibraryPanel) this.showRoomCode = false;
+    },
     async loadLanRoom() {
       const ipcRenderer = this.electronIpc();
       if (!ipcRenderer) return;
@@ -987,6 +997,7 @@ export default {
           this.lanCandidates = result.room.candidates || this.lanCandidates;
           this.selectedLanAddress = result.room.selectedAddress;
           this.showRoomCode = true;
+          this.showLocalLibraryPanel = false;
           this.selfTestLan();
         } else {
           this.$store.dispatch(
@@ -1424,6 +1435,10 @@ export default {
     margin: 0;
     transform: translateX(-50%);
     box-shadow: 0 24px 60px rgba(24, 15, 65, 0.24);
+  }
+  .local-library-overlay {
+    width: min(720px, calc(100% - 32px));
+    padding: 12px;
   }
 }
 .local-library {
@@ -2296,6 +2311,11 @@ button:disabled {
     grid-template-columns: 1fr;
     align-items: flex-start;
     width: min(520px, calc(100% - 24px));
+  }
+  .local-library-overlay {
+    width: min(520px, calc(100% - 24px));
+    margin: 14px auto 0;
+    padding: 12px;
   }
   .room-qr-wrap {
     width: min(240px, 100%);

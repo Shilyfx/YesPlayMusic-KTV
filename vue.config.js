@@ -91,6 +91,14 @@ module.exports = {
       .options({ target: 'es2015', format: 'cjs' })
       .end();
 
+    // The LAN client is served from a standalone /room/... path. Keep its
+    // dependency graph inside the remote entry instead of leaving a
+    // chunk-vendors preload that the embedded server does not serve.
+    // Desktop pages retain Vue CLI's normal vendor splitting.
+    config.optimization.splitChunks({
+      chunks: chunk => chunk.name !== 'remote',
+    });
+
     // LimitChunkCountPlugin 可以通过合并块来对块进行后期处理。用以解决 chunk 包太多的问题
     config.plugin('chunkPlugin').use(webpack.optimize.LimitChunkCountPlugin, [
       {
