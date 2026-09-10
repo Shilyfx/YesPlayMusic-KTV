@@ -32,10 +32,10 @@ jobs:
           yarn add --ignore-platform --ignore-optional --no-lockfile \
             "@unblockneteasemusic/rust-napi-darwin-arm64@${unm_version}" \
             dmg-license
-          esbuild_version=$(node -p "require('./node_modules/esbuild/package.json').version")
+          esbuild_version=$(node -p "const path=require('path'); const base=path.dirname(require.resolve('esbuild-loader/package.json')); require(require.resolve('esbuild/package.json',{paths:[base]})).version")
           yarn add --ignore-platform --ignore-optional --no-lockfile \
             "@esbuild/darwin-arm64@${esbuild_version}"
-          node -e "const host=require('esbuild/package.json').version; const binary=require('@esbuild/darwin-arm64/package.json').version; if(host!==binary) throw new Error('esbuild version mismatch: '+host+' vs '+binary); require('esbuild').transformSync('const ready = true')"
+          node -e "const path=require('path'); const base=path.dirname(require.resolve('esbuild-loader/package.json')); const esbuild=require(require.resolve('esbuild',{paths:[base]})); const host=require(require.resolve('esbuild/package.json',{paths:[base]})).version; const binary=require('@esbuild/darwin-arm64/package.json').version; if(host!==binary) throw new Error('esbuild-loader binary mismatch: '+host+' vs '+binary); esbuild.transformSync('const ready = true')"
       - name: Verify fresh anonymous-token initialization
         run: yarn test:anonymous-token
       - name: Build packaged application
