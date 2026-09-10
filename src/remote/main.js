@@ -211,6 +211,15 @@ function initializeShell() {
     if (localLabel) localView.append(localLabel);
     if (localTracks) localView.append(localTracks);
     localBlock.replaceWith(localView);
+
+    const playlistContent = document.createElement('div');
+    playlistContent.className = 'playlist-content';
+    playlistContent.dataset.playlistContent = '';
+    const firstView = playlistPicker || playlistTracks || localView;
+    firstView?.before(playlistContent);
+    if (playlistPicker) playlistContent.append(playlistPicker);
+    if (playlistTracks) playlistContent.append(playlistTracks);
+    playlistContent.append(localView);
   }
   const recommendationArea = app.querySelector('.recommendation-area');
   const chartActions = recommendationArea?.querySelector('.chart-actions');
@@ -832,6 +841,7 @@ function renderResults(results, { searching = false } = {}) {
 function renderPlaylistSource() {
   const isLocal = playlistSource === 'local';
   const playlistArea = app.querySelector('.playlist-area');
+  const playlistContent = app.querySelector('[data-playlist-content]');
   const label = app.querySelector('[data-playlist-label]');
   const title = app.querySelector('[data-playlist-title]');
   const refresh = app.querySelector('[data-playlists-refresh]');
@@ -840,6 +850,8 @@ function renderPlaylistSource() {
   if (title) title.textContent = isLocal ? '本地歌单' : '从歌单点歌';
   if (refresh) refresh.textContent = isLocal ? '刷新本地歌单' : '刷新歌单';
   if (toggle) toggle.textContent = isLocal ? '用户歌单' : '本地歌单';
+  if (playlistContent)
+    playlistContent.dataset.view = isLocal ? 'local' : 'user';
   if (playlistArea) playlistArea.dataset.source = isLocal ? 'local' : 'user';
   app.querySelectorAll('[data-user-playlist-panel]').forEach(panel => {
     panel.hidden = isLocal;
