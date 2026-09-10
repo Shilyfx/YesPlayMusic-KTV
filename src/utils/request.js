@@ -28,7 +28,7 @@ service.interceptors.request.use(function (config) {
     if (
       baseURL[0] !== '/' &&
       !process.env.IS_ELECTRON &&
-      getCookie('MUSIC_U') !== null
+      getCookie('MUSIC_U')
     ) {
       config.params.cookie = `MUSIC_U=${getCookie('MUSIC_U')};`;
     }
