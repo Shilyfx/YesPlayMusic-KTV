@@ -166,6 +166,22 @@ export class KaraokeCatalogService {
     return track;
   }
 
+  async playlists() {
+    if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    const playlists = await this.hostCatalogBridge('playlists');
+    return Array.isArray(playlists) ? playlists : [];
+  }
+
+  async playlistTracks(playlistId) {
+    if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    const source = await this.hostCatalogBridge('playlistTracks', {
+      playlistId: String(playlistId),
+    });
+    return Array.isArray(source)
+      ? source.map(track => (track.trackId ? track : sanitizeTrack(track)))
+      : [];
+  }
+
   async availability(trackId, { fresh = false } = {}) {
     const key = String(trackId);
     const cached = this.availabilityCache.get(key);
@@ -396,6 +412,39 @@ export class KaraokeRemoteService {
     return results;
   }
 
+  async playlists(client) {
+    if (!this.limiter.check(`playlists:${client.clientId}`, 6))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('playlists:room', 24))
+      throw new Error('RATE_LIMIT');
+    return this.catalog.playlists();
+  }
+
+  async playlistTracks(client, playlistId) {
+    if (!this.limiter.check(`playlistTracks:${client.clientId}`, 12))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('playlistTracks:room', 80))
+      throw new Error('RATE_LIMIT');
+    if (!/^\d{1,20}$/.test(String(playlistId)))
+      throw new Error('PLAYLIST_NOT_FOUND');
+    const tracks = await this.catalog.playlistTracks(playlistId);
+    const results = new Array(tracks.length);
+    let nextIndex = 0;
+    await Promise.all(
+      Array.from({ length: Math.min(4, tracks.length) }, async () => {
+        while (nextIndex < tracks.length) {
+          const index = nextIndex++;
+          const track = tracks[index];
+          results[index] = {
+            ...track,
+            playability: await this.catalog.availability(track.trackId),
+          };
+        }
+      })
+    );
+    return results;
+  }
+
   async availability(client, trackId) {
     if (!this.limiter.check(`search:${client.clientId}`, 10))
       throw new Error('RATE_LIMIT');
@@ -526,6 +575,19 @@ export class RemoteApiRouter {
           results: await this.service.search(client, query),
         });
       }
+      if (url.pathname === '/ktv/api/playlists' && request.method === 'GET') {
+        return json(response, 200, {
+          playlists: await this.service.playlists(client),
+        });
+      }
+      const playlistTracks = url.pathname.match(
+        /^\/ktv\/api\/playlists\/(\d{1,20})\/tracks$/
+      );
+      if (playlistTracks && request.method === 'GET') {
+        return json(response, 200, {
+          tracks: await this.service.playlistTracks(client, playlistTracks[1]),
+        });
+      }
       const availability = url.pathname.match(
         /^\/ktv\/api\/track\/(\d{1,20})\/availability$/
       );
@@ -580,6 +642,8 @@ export class RemoteApiRouter {
         TRACK_NOT_PLAYABLE: [409, 'TRACK_NOT_PLAYABLE'],
         TRACK_NOT_FOUND: [404, 'TRACK_NOT_FOUND'],
         KTV_NOT_ACTIVE: [409, 'KTV_NOT_ACTIVE'],
+        HOST_NOT_LOGGED_IN: [409, 'HOST_NOT_LOGGED_IN'],
+        PLAYLIST_NOT_FOUND: [404, 'PLAYLIST_NOT_FOUND'],
         WAITING_ITEM_NOT_FOUND: [404, 'WAITING_ITEM_NOT_FOUND'],
         BODY_TOO_LARGE: [413, 'BODY_TOO_LARGE'],
         INVALID_JSON: [400, 'INVALID_JSON'],

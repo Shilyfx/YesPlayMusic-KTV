@@ -145,6 +145,25 @@ async function run() {
         al: { name: '专辑' },
         dt: 180000,
       };
+    if (action === 'playlists')
+      return [
+        {
+          id: 9001,
+          name: '我的 KTV 歌单',
+          trackCount: 2,
+          coverImgUrl: 'https://example.com/cover.jpg',
+        },
+      ];
+    if (action === 'playlistTracks')
+      return [
+        {
+          id: 101,
+          name: '测试歌 Live',
+          ar: [{ name: '歌手' }],
+          al: { name: '专辑' },
+          dt: 180000,
+        },
+      ];
     if (action === 'availability') return 'playable';
     throw new Error('UNEXPECTED_CATALOG_ACTION');
   };
@@ -196,6 +215,22 @@ async function run() {
   assert.equal(results.body.results[0].playability, 'playable');
   assert.ok(bridgeCalls.includes('search'));
   assert.ok(bridgeCalls.includes('availability'));
+  const playlistResponse = await request(port, 'GET', '/ktv/api/playlists', {
+    token: guestA.body.clientToken,
+  });
+  assert.equal(playlistResponse.status, 200);
+  assert.equal(playlistResponse.body.playlists[0].id, '9001');
+  const playlistTracks = await request(
+    port,
+    'GET',
+    '/ktv/api/playlists/9001/tracks',
+    { token: guestA.body.clientToken }
+  );
+  assert.equal(playlistTracks.status, 200);
+  assert.equal(playlistTracks.body.tracks[0].trackId, '101');
+  assert.equal(playlistTracks.body.tracks[0].playability, 'playable');
+  assert.ok(bridgeCalls.includes('playlists'));
+  assert.ok(bridgeCalls.includes('playlistTracks'));
   service.sessions.clients.clear();
   for (let index = 0; index < 32; index += 1) {
     service.sessions.clients.set(`expired-${index}`, {

@@ -222,7 +222,11 @@
             {{ player.playing ? '暂停' : '播放' }}
           </button>
           <button type="button" @click="nextTrack">切歌</button>
-          <button type="button" @click.stop.prevent="exitFullscreen">
+          <button
+            type="button"
+            @pointerdown.stop.prevent="exitFullscreen"
+            @click.stop.prevent="exitFullscreen"
+          >
             退出全屏
           </button>
         </div>
@@ -418,6 +422,7 @@ export default {
       windowStateListener: null,
       isKtvFullscreen: false,
       isLyricFullscreen: false,
+      isExitingFullscreen: false,
       lyricControlsVisible: false,
       lyricControlsTimer: null,
     };
@@ -864,17 +869,41 @@ export default {
       }, 4000);
     },
     async exitFullscreen() {
-      const exit =
-        document.exitFullscreen ||
-        document.webkitExitFullscreen ||
-        document.mozCancelFullScreen ||
-        document.msExitFullscreen;
+      if (this.isExitingFullscreen) return;
+      this.isExitingFullscreen = true;
+      const exits = [
+        document.exitFullscreen,
+        document.webkitExitFullscreen,
+        document.mozCancelFullScreen,
+        document.msExitFullscreen,
+      ].filter((method, index, methods) =>
+        typeof method === 'function' ? methods.indexOf(method) === index : false
+      );
       try {
-        if (exit) await exit.call(document);
+        for (const exit of exits) {
+          try {
+            const result = exit.call(document);
+            if (result && typeof result.then === 'function') await result;
+            if (!this.getFullscreenElement()) break;
+          } catch (error) {
+            console.warn('[karaoke] fullscreen exit method failed', error);
+          }
+        }
+        if (this.getFullscreenElement()) {
+          const ipcRenderer = this.electronIpc();
+          if (ipcRenderer?.invoke) {
+            try {
+              await ipcRenderer.invoke('window:exit-fullscreen');
+            } catch (error) {
+              console.warn('[karaoke] native fullscreen exit failed', error);
+            }
+          }
+        }
       } catch (error) {
         console.warn('[karaoke] fullscreen exit failed', error);
       } finally {
         this.handleFullscreenChange();
+        this.isExitingFullscreen = false;
       }
     },
     commitFontSizeDraft() {
@@ -1361,11 +1390,11 @@ button:disabled {
 @keyframes ktv-active-lyric {
   0%,
   100% {
-    text-shadow: 0 0 24px rgba(162, 146, 255, 0.22);
+    filter: drop-shadow(0 10px 24px rgba(81, 58, 180, 0.2));
     transform: translateY(0);
   }
   50% {
-    text-shadow: 0 0 40px rgba(171, 156, 255, 0.46);
+    filter: drop-shadow(0 14px 36px rgba(171, 156, 255, 0.42));
     transform: translateY(-2px);
   }
 }
@@ -1382,12 +1411,14 @@ button:disabled {
 }
 .stage-lines p {
   overflow-wrap: anywhere;
+  text-rendering: optimizeLegibility;
 }
 .before-line,
 .after-line {
   color: var(--ktv-text-muted);
   font-size: clamp(12px, calc(var(--ktv-active-lyric-size) * 0.58), 38px);
   font-weight: 600;
+  letter-spacing: 0.015em;
   transition: color 220ms ease, opacity 220ms ease, transform 220ms ease;
 }
 .after-second-line {
@@ -1395,23 +1426,37 @@ button:disabled {
   color: var(--ktv-text-muted);
   font-size: clamp(10px, calc(var(--ktv-active-lyric-size) * 0.42), 28px);
   font-weight: 500;
+  letter-spacing: 0.04em;
   opacity: 0.58;
   transition: color 220ms ease, opacity 220ms ease, transform 220ms ease;
 }
 .active-line {
   margin: 22px 0;
-  color: var(--ktv-text-primary);
+  background: linear-gradient(
+    105deg,
+    var(--ktv-accent-strong) 0%,
+    var(--ktv-text-primary) 42%,
+    var(--ktv-accent) 72%,
+    #d86aaf 100%
+  );
+  background-clip: text;
   font-size: var(--ktv-active-lyric-size);
   font-weight: 800;
+  letter-spacing: -0.025em;
   line-height: 1.18;
-  text-shadow: 0 0 28px rgba(162, 146, 255, 0.28);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+  -webkit-text-stroke: 0.35px rgba(255, 255, 255, 0.14);
+  filter: drop-shadow(0 10px 24px rgba(81, 58, 180, 0.2));
   animation: ktv-active-lyric 3.6s ease-in-out infinite;
 }
 .stage[data-lyric-state='before-first'] .active-line,
 .stage[data-lyric-state='waiting'] .active-line,
 .stage[data-lyric-state='after-final'] .active-line {
   color: var(--ktv-text-secondary);
-  text-shadow: none;
+  background: none;
+  filter: none;
+  -webkit-text-fill-color: currentColor;
   animation: none;
 }
 .translation {
@@ -1451,7 +1496,15 @@ button:disabled {
   padding: 24px;
   background: var(--ktv-bg-base);
 }
-.stage:fullscreen {
+.karaoke-desktop:-webkit-full-screen {
+  overflow: auto;
+  padding: 24px;
+  background: var(--ktv-bg-base);
+}
+.stage:fullscreen,
+.stage:-webkit-full-screen,
+.stage:-moz-full-screen,
+.stage:-ms-fullscreen {
   display: grid;
   place-content: center;
   min-width: 100vw;
@@ -1460,15 +1513,39 @@ button:disabled {
   background: var(--ktv-bg-base);
 }
 .stage:fullscreen .fullscreen-actions,
+.stage:-webkit-full-screen .fullscreen-actions,
+.stage:-moz-full-screen .fullscreen-actions,
+.stage:-ms-fullscreen .fullscreen-actions,
 .stage:fullscreen .stage-kicker,
+.stage:-webkit-full-screen .stage-kicker,
+.stage:-moz-full-screen .stage-kicker,
+.stage:-ms-fullscreen .stage-kicker,
 .stage:fullscreen .stage-footer {
+  display: none;
+}
+.stage:-webkit-full-screen .stage-footer,
+.stage:-moz-full-screen .stage-footer,
+.stage:-ms-fullscreen .stage-footer {
   display: none;
 }
 .stage:fullscreen .active-line {
   font-size: clamp(48px, calc(var(--ktv-active-lyric-size) + 3vw), 132px);
 }
+.stage:-webkit-full-screen .active-line,
+.stage:-moz-full-screen .active-line,
+.stage:-ms-fullscreen .active-line {
+  font-size: clamp(48px, calc(var(--ktv-active-lyric-size) + 3vw), 132px);
+}
 .stage:fullscreen .before-line,
 .stage:fullscreen .after-line {
+  font-size: clamp(20px, calc(var(--ktv-active-lyric-size) * 0.52 + 1vw), 58px);
+}
+.stage:-webkit-full-screen .before-line,
+.stage:-webkit-full-screen .after-line,
+.stage:-moz-full-screen .before-line,
+.stage:-moz-full-screen .after-line,
+.stage:-ms-fullscreen .before-line,
+.stage:-ms-fullscreen .after-line {
   font-size: clamp(20px, calc(var(--ktv-active-lyric-size) * 0.52 + 1vw), 58px);
 }
 .stage:fullscreen .after-second-line {
@@ -1479,7 +1556,26 @@ button:disabled {
   );
   opacity: 0.5;
 }
+.stage:-webkit-full-screen .after-second-line,
+.stage:-moz-full-screen .after-second-line,
+.stage:-ms-fullscreen .after-second-line {
+  font-size: clamp(
+    16px,
+    calc(var(--ktv-active-lyric-size) * 0.38 + 0.6vw),
+    42px
+  );
+  opacity: 0.5;
+}
 .stage:fullscreen .translation {
+  font-size: clamp(
+    14px,
+    calc(var(--ktv-active-lyric-size) * 0.34 + 0.5vw),
+    34px
+  );
+}
+.stage:-webkit-full-screen .translation,
+.stage:-moz-full-screen .translation,
+.stage:-ms-fullscreen .translation {
   font-size: clamp(
     14px,
     calc(var(--ktv-active-lyric-size) * 0.34 + 0.5vw),

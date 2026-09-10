@@ -13,6 +13,11 @@ let retryDelay = 2000;
 let searchQuery = '';
 let searchResults = [];
 let searchGeneration = 0;
+let playlists = [];
+let selectedPlaylistId = '';
+let playlistTracks = [];
+let playlistQuery = '';
+let playlistTrackGeneration = 0;
 
 function escape(value = '') {
   return String(value).replace(
@@ -81,7 +86,7 @@ function initializeShell() {
   document.documentElement.dataset.theme = theme;
   app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1>房间 ${escape(
     roomCode || '—'
-  )}</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
+  )}</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
   app.querySelector('[data-theme]').value = theme;
   app.querySelector('[data-theme]').addEventListener('change', event => {
     localStorage.setItem('yesplaymusic-ktv-theme', event.target.value);
@@ -90,12 +95,22 @@ function initializeShell() {
   app
     .querySelector('[data-search]')
     .addEventListener('input', event => scheduleSearch(event.target.value));
+  app
+    .querySelector('[data-playlist]')
+    .addEventListener('change', event => selectPlaylist(event.target.value));
+  app
+    .querySelector('[data-playlist-search]')
+    .addEventListener('input', event => {
+      playlistQuery = event.target.value;
+      renderPlaylistTracks();
+    });
   app.addEventListener('click', event => {
     const button = event.target.closest('button');
     if (!button) return;
     if (button.dataset.request) requestSong(button.dataset.request, false);
     else if (button.dataset.priority)
       requestSong(button.dataset.priority, true);
+    else if (button.dataset.playlistsRefresh) loadPlaylists();
     else if (button.dataset.remove)
       mutate(`/requests/${button.dataset.remove}`, 'DELETE');
     else if (button.dataset.front)
@@ -174,6 +189,138 @@ function renderResults(results, { searching = false } = {}) {
         }>优先点歌</button></div></article>`
     )
     .join('');
+}
+
+function renderPlaylistPicker() {
+  const select = app.querySelector('[data-playlist]');
+  if (!select) return;
+  select.innerHTML = playlists.length
+    ? playlists
+        .map(
+          playlist =>
+            `<option value="${escape(playlist.id)}">${escape(
+              playlist.name
+            )} · ${playlist.trackCount} 首</option>`
+        )
+        .join('')
+    : '<option value="">暂无可用歌单</option>';
+  select.value = selectedPlaylistId;
+  select.disabled = !playlists.length;
+}
+
+function renderPlaylistTracks({ loading = false } = {}) {
+  const container = app.querySelector('[data-playlist-tracks]');
+  if (!container) return;
+  if (loading) {
+    container.innerHTML = '<div class="hint">正在加载歌单歌曲…</div>';
+    return;
+  }
+  const cleanQuery = playlistQuery.trim().toLowerCase();
+  const visibleTracks = cleanQuery
+    ? playlistTracks.filter(track =>
+        `${track.name} ${(track.artists || []).join(' ')} ${track.album || ''}`
+          .toLowerCase()
+          .includes(cleanQuery)
+      )
+    : playlistTracks;
+  if (!visibleTracks.length) {
+    container.innerHTML = playlistTracks.length
+      ? '<div class="hint">这个歌单里没有匹配的歌曲。</div>'
+      : '<div class="hint">当前歌单暂无可展示歌曲。</div>';
+    return;
+  }
+  container.innerHTML = visibleTracks
+    .map(
+      track =>
+        `<article class="result-card playlist-track-card"><div class="result-info"><strong>${escape(
+          track.name
+        )}</strong><p>${escape((track.artists || []).join(' / '))} · ${escape(
+          track.album || '未知专辑'
+        )}</p><small>${formatDuration(
+          track.duration
+        )} · <b class="availability ${track.playability || 'unknown'}">${
+          track.playability === 'playable'
+            ? '可播放'
+            : track.playability === 'trial-only'
+            ? '仅试听'
+            : track.playability === 'unavailable'
+            ? '不可播放'
+            : '点歌时检测'
+        }</b></small></div><div class="request-actions"><button data-request="${escape(
+          track.trackId
+        )}" ${
+          track.playability && track.playability !== 'playable'
+            ? 'disabled'
+            : ''
+        }>点歌</button><button class="priority-button" data-priority="${escape(
+          track.trackId
+        )}" ${
+          track.playability && track.playability !== 'playable'
+            ? 'disabled'
+            : ''
+        }>优先点歌</button></div></article>`
+    )
+    .join('');
+}
+
+async function selectPlaylist(playlistId) {
+  selectedPlaylistId = playlistId;
+  playlistTracks = [];
+  renderPlaylistPicker();
+  renderPlaylistTracks({ loading: Boolean(playlistId) });
+  if (!playlistId) return;
+  const generation = ++playlistTrackGeneration;
+  try {
+    const response = await api(
+      `/playlists/${encodeURIComponent(playlistId)}/tracks`
+    );
+    if (generation !== playlistTrackGeneration) return;
+    playlistTracks = response.tracks || [];
+    renderPlaylistTracks();
+  } catch (error) {
+    if (generation !== playlistTrackGeneration) return;
+    renderPlaylistTracks();
+    setNotice(
+      error.code === 'HOST_NOT_LOGGED_IN'
+        ? '主机尚未登录网易云账号，暂时无法读取歌单。'
+        : '歌单歌曲暂时无法加载，请稍后重试。',
+      'error'
+    );
+  }
+}
+
+async function loadPlaylists() {
+  const button = app.querySelector('[data-playlists-refresh]');
+  if (button) button.disabled = true;
+  try {
+    const response = await api('/playlists');
+    playlists = response.playlists || [];
+    const hasSelected = playlists.some(
+      playlist => playlist.id === selectedPlaylistId
+    );
+    selectedPlaylistId = hasSelected
+      ? selectedPlaylistId
+      : playlists[0]?.id || '';
+    renderPlaylistPicker();
+    if (selectedPlaylistId) await selectPlaylist(selectedPlaylistId);
+    else {
+      renderPlaylistTracks();
+      setNotice('主机尚未登录网易云账号，暂时无法读取歌单。', 'error');
+    }
+  } catch (error) {
+    playlists = [];
+    selectedPlaylistId = '';
+    renderPlaylistPicker();
+    renderPlaylistTracks();
+    setNotice(
+      error.code === 'HOST_NOT_LOGGED_IN'
+        ? '请先在 KTV 主机登录网易云账号，再从歌单点歌。'
+        : '歌单暂时无法加载，请点击“刷新歌单”重试。',
+      'error'
+    );
+  } finally {
+    if (button) button.disabled = false;
+  }
 }
 
 function scheduleSearch(query) {
@@ -279,6 +426,7 @@ async function bootstrap() {
     }
     initializeShell();
     await refresh();
+    await loadPlaylists();
   } catch (_) {
     showEnded();
   }

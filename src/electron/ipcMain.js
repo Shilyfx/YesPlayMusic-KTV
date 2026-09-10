@@ -176,6 +176,10 @@ export function initIpcMain(
   ipcMain.handle('window:state', async () => ({
     maximized: Boolean(win && win.isMaximized()),
   }));
+  ipcMain.handle('window:exit-fullscreen', async () => {
+    if (win && win.isFullScreen()) win.setFullScreen(false);
+    return { ok: true };
+  });
   let remoteCommandSequence = 0;
   const pendingRemoteCommands = new Map();
   const remoteCommand = (action, payload = {}) =>
