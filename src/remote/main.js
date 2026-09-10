@@ -26,6 +26,12 @@ let recommendations = [];
 let selectedRecommendationId = '';
 let recommendationTracks = [];
 let recommendationTrackGeneration = 0;
+let toplists = [];
+let selectedToplistId = '';
+let toplistTracks = [];
+let toplistTrackGeneration = 0;
+let toplistsLoaded = false;
+let chartMode = 'recommendations';
 let artistSearchTimer;
 let artistSearchAbort;
 let artistSearchGeneration = 0;
@@ -162,7 +168,7 @@ function initializeShell() {
     .querySelector('.history-area')
     .insertAdjacentHTML(
       'afterend',
-      '<section class="recommendation-area glass"><div class="section-heading"><div><p class="section-label">YESPLAYMUSIC 推荐</p><h2>为你推荐</h2></div><button class="quiet recommendation-refresh" type="button" data-recommendations-refresh>换一批</button></div><div class="recommendation-list" data-recommendations><div class="hint">正在加载推荐歌单…</div></div><div class="recommendation-track-list" data-recommendation-tracks><div class="hint">选择一个歌单查看歌曲。</div></div></section><section class="artist-area glass"><div class="section-heading"><div><p class="section-label">按歌手点歌</p><h2>找歌手</h2></div><span class="section-helper">选择一位歌手后，可继续添加其他歌手</span></div><div class="featured-artist-list" data-featured-artists><div class="hint">正在加载常用歌手…</div></div><label class="artist-search-box"><span>⌕</span><input data-artist-search maxlength="60" autocomplete="off" placeholder="搜索更多歌手，例如：周杰伦" /></label><div class="artist-picker" data-artists><div class="hint">输入歌手名开始查找。</div></div><div class="selected-artists" data-selected-artists></div><div class="artist-track-list" data-artist-tracks><div class="hint">选择歌手后显示热门歌曲。</div></div></section>'
+      '<section class="recommendation-area glass"><div class="section-heading"><div><p class="section-label">YESPLAYMUSIC 推荐</p><h2 data-chart-title>为你推荐</h2></div><div class="chart-actions"><button class="quiet recommendation-refresh" type="button" data-recommendations-refresh>换一批</button><button class="quiet chart-toggle" type="button" data-chart-toggle>排行榜</button></div></div><div class="recommendation-list" data-recommendations><div class="hint">正在加载推荐歌单…</div></div><div class="recommendation-track-list" data-recommendation-tracks><div class="hint">选择一个歌单查看歌曲。</div></div></section><section class="artist-area glass"><div class="section-heading"><div><p class="section-label">按歌手点歌</p><h2>找歌手</h2></div><span class="section-helper">选择一位歌手后，可继续添加其他歌手</span></div><div class="featured-artist-list" data-featured-artists><div class="hint">正在加载常用歌手…</div></div><label class="artist-search-box"><span>⌕</span><input data-artist-search maxlength="60" autocomplete="off" placeholder="搜索更多歌手，例如：周杰伦" /></label><div class="artist-picker" data-artists></div><div class="selected-artists" data-selected-artists></div><div class="artist-track-list" data-artist-tracks><div class="hint">选择歌手后显示热门歌曲。</div></div></section>'
     );
   const moduleMap = [
     ['.search-area', 'search'],
@@ -225,9 +231,12 @@ function initializeShell() {
     else if (button.dataset.recommendation)
       selectRecommendation(button.dataset.recommendation);
     else if (button.dataset.artist) selectArtist(button.dataset.artist);
-    else if (button.dataset.playlistsRefresh) loadPlaylists();
-    else if (button.dataset.localPlaylistsRefresh) loadLocalPlaylists();
-    else if (button.dataset.recommendationsRefresh) loadRecommendations();
+    else if (button.hasAttribute('data-playlists-refresh')) loadPlaylists();
+    else if (button.hasAttribute('data-local-playlists-refresh'))
+      loadLocalPlaylists();
+    else if (button.hasAttribute('data-recommendations-refresh'))
+      refreshCharts();
+    else if (button.hasAttribute('data-chart-toggle')) toggleChartMode();
     else if (button.dataset.remove)
       mutate(`/requests/${button.dataset.remove}`, 'DELETE');
     else if (button.dataset.front)
@@ -243,9 +252,14 @@ function renderNowPlaying() {
     roomTitle.textContent = state?.room?.name || 'Shilyfx的KTV';
   }
   const target = app.querySelector('[data-now-playing]');
+  const coverMarkup = current?.coverUrl
+    ? `<img class="record cover-art" src="${escape(
+        current.coverUrl
+      )}" alt="" />`
+    : '<div class="record">♫</div>';
   target.innerHTML = `<p class="section-label">正在演唱</p>${
     current
-      ? `<div class="now-playing-row"><div class="track-title"><div class="record">♫</div><div><h2>${escape(
+      ? `<div class="now-playing-row"><div class="track-title">${coverMarkup}<div><h2>${escape(
           current.name
         )}</h2><p>${escape(
           (current.artists || []).join(' / ')
@@ -306,6 +320,7 @@ function findTrack(trackId) {
     ...playlistTracks,
     ...localPlaylistTracks,
     ...recommendationTracks,
+    ...toplistTracks,
     ...artistTracks,
     ...playedHistory,
   ].find(track => String(track.trackId) === id);
@@ -494,18 +509,48 @@ function mergeArtistTracks(remoteTracks, artistId) {
   });
 }
 
+function renderChartHeader() {
+  const title = app.querySelector('[data-chart-title]');
+  const refresh = app.querySelector('[data-recommendations-refresh]');
+  const toggle = app.querySelector('[data-chart-toggle]');
+  const isToplist = chartMode === 'toplists';
+  if (title) title.textContent = isToplist ? '排行榜' : '为你推荐';
+  if (refresh) refresh.textContent = isToplist ? '刷新榜单' : '换一批';
+  if (toggle) toggle.textContent = isToplist ? '推荐' : '排行榜';
+}
+
+function activeChartItems() {
+  return chartMode === 'toplists' ? toplists : recommendations;
+}
+
+function activeChartSelectedId() {
+  return chartMode === 'toplists'
+    ? selectedToplistId
+    : selectedRecommendationId;
+}
+
+function activeChartTracks() {
+  return chartMode === 'toplists' ? toplistTracks : recommendationTracks;
+}
+
 function renderRecommendations() {
   const container = app.querySelector('[data-recommendations]');
   if (!container) return;
-  if (!recommendations.length) {
-    container.innerHTML = '<div class="hint">暂时没有可展示的推荐歌单。</div>';
+  renderChartHeader();
+  const items = activeChartItems();
+  const selectedId = activeChartSelectedId();
+  if (!items.length) {
+    container.innerHTML =
+      chartMode === 'toplists'
+        ? '<div class="hint">暂时没有可展示的排行榜。</div>'
+        : '<div class="hint">暂时没有可展示的推荐歌单。</div>';
     return;
   }
-  container.innerHTML = recommendations
+  container.innerHTML = items
     .map(
       playlist =>
         `<article class="recommendation-card ${
-          playlist.id === selectedRecommendationId ? 'selected' : ''
+          String(playlist.id) === String(selectedId) ? 'selected' : ''
         }"><button type="button" data-recommendation="${escape(playlist.id)}">${
           playlist.coverUrl
             ? `<img src="${escape(playlist.coverUrl)}" alt="" loading="lazy" />`
@@ -522,20 +567,28 @@ function renderRecommendations() {
 function renderRecommendationTracks({ loading = false } = {}) {
   const container = app.querySelector('[data-recommendation-tracks]');
   if (!container) return;
+  const isToplist = chartMode === 'toplists';
+  const selectedId = activeChartSelectedId();
+  const tracks = activeChartTracks();
   if (loading) {
-    container.innerHTML = '<div class="hint">正在加载推荐歌单歌曲…</div>';
+    container.innerHTML = `<div class="hint">正在加载${
+      isToplist ? '排行榜' : '推荐歌单'
+    }歌曲…</div>`;
     return;
   }
-  if (!selectedRecommendationId) {
-    container.innerHTML = '<div class="hint">选择一个歌单查看歌曲。</div>';
+  if (!selectedId) {
+    container.innerHTML = `<div class="hint">选择一个${
+      isToplist ? '排行榜' : '歌单'
+    }查看歌曲。</div>`;
     return;
   }
-  if (!recommendationTracks.length) {
-    container.innerHTML =
-      '<div class="hint">这个推荐歌单暂无可展示歌曲。</div>';
+  if (!tracks.length) {
+    container.innerHTML = `<div class="hint">这个${
+      isToplist ? '排行榜' : '推荐歌单'
+    }暂无可展示歌曲。</div>`;
     return;
   }
-  container.innerHTML = recommendationTracks
+  container.innerHTML = tracks
     .slice(0, 30)
     .map(track => trackRequestMarkup(track, 'recommendation-track-card'))
     .join('');
@@ -546,7 +599,7 @@ function renderArtists() {
   if (!container) return;
   renderSelectedArtists();
   if (!artistQuery.trim()) {
-    container.innerHTML = '<div class="hint">输入歌手名开始查找。</div>';
+    container.innerHTML = '';
     return;
   }
   if (!artists.length) {
@@ -799,6 +852,7 @@ async function loadLocalPlaylists() {
 }
 
 async function selectRecommendation(playlistId) {
+  if (chartMode === 'toplists') return selectToplist(playlistId);
   selectedRecommendationId = playlistId;
   recommendationTracks = [];
   renderRecommendations();
@@ -809,13 +863,44 @@ async function selectRecommendation(playlistId) {
     const response = await api(
       `/recommendations/${encodeURIComponent(playlistId)}/tracks`
     );
-    if (generation !== recommendationTrackGeneration) return;
+    if (
+      generation !== recommendationTrackGeneration ||
+      chartMode !== 'recommendations'
+    )
+      return;
     recommendationTracks = response.tracks || [];
     renderRecommendationTracks();
   } catch (_) {
-    if (generation !== recommendationTrackGeneration) return;
+    if (
+      generation !== recommendationTrackGeneration ||
+      chartMode !== 'recommendations'
+    )
+      return;
     renderRecommendationTracks();
     setNotice('推荐歌单歌曲暂时无法加载，请稍后重试。', 'error');
+  }
+}
+
+async function selectToplist(playlistId) {
+  selectedToplistId = playlistId;
+  toplistTracks = [];
+  renderRecommendations();
+  renderRecommendationTracks({ loading: Boolean(playlistId) });
+  if (!playlistId) return;
+  const generation = ++toplistTrackGeneration;
+  try {
+    const response = await api(
+      `/toplists/${encodeURIComponent(playlistId)}/tracks`
+    );
+    if (generation !== toplistTrackGeneration || chartMode !== 'toplists')
+      return;
+    toplistTracks = response.tracks || [];
+    renderRecommendationTracks();
+  } catch (_) {
+    if (generation !== toplistTrackGeneration || chartMode !== 'toplists')
+      return;
+    renderRecommendationTracks();
+    setNotice('排行榜歌曲暂时无法加载，请稍后重试。', 'error');
   }
 }
 
@@ -844,6 +929,52 @@ async function loadRecommendations() {
   } finally {
     if (button) button.disabled = false;
   }
+}
+
+async function loadToplists() {
+  const button = app.querySelector('[data-recommendations-refresh]');
+  if (button) button.disabled = true;
+  try {
+    const response = await api('/toplists');
+    toplists = response.playlists || [];
+    toplistsLoaded = true;
+    const hasSelected = toplists.some(
+      playlist => String(playlist.id) === String(selectedToplistId)
+    );
+    selectedToplistId = hasSelected ? selectedToplistId : toplists[0]?.id || '';
+    renderRecommendations();
+    if (selectedToplistId) await selectToplist(selectedToplistId);
+    else renderRecommendationTracks();
+  } catch (_) {
+    toplists = [];
+    toplistsLoaded = true;
+    selectedToplistId = '';
+    renderRecommendations();
+    renderRecommendationTracks();
+    setNotice('排行榜暂时无法加载，请稍后重试。', 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function refreshCharts() {
+  return chartMode === 'toplists' ? loadToplists() : loadRecommendations();
+}
+
+async function toggleChartMode() {
+  recommendationTrackGeneration += 1;
+  toplistTrackGeneration += 1;
+  chartMode = chartMode === 'toplists' ? 'recommendations' : 'toplists';
+  renderRecommendations();
+  renderRecommendationTracks({ loading: true });
+  if (chartMode === 'toplists') {
+    if (!toplistsLoaded) return loadToplists();
+    if (selectedToplistId) return selectToplist(selectedToplistId);
+    return renderRecommendationTracks();
+  }
+  if (selectedRecommendationId)
+    return selectRecommendation(selectedRecommendationId);
+  return renderRecommendationTracks();
 }
 
 function scheduleArtistSearch(query) {

@@ -213,6 +213,25 @@ async function run() {
           dt: 180000,
         },
       ];
+    if (action === 'toplists')
+      return [
+        {
+          id: '9003',
+          name: '飙升榜',
+          trackCount: 1,
+          coverImgUrl: 'https://example.com/chart.jpg',
+        },
+      ];
+    if (action === 'toplistTracks')
+      return [
+        {
+          id: 101,
+          name: '测试歌 Live',
+          ar: [{ name: '歌手' }],
+          al: { name: '专辑' },
+          dt: 180000,
+        },
+      ];
     if (action === 'artistSearch')
       return [
         {
@@ -366,6 +385,20 @@ async function run() {
   assert.equal(recommendationTracks.status, 200);
   assert.equal(recommendationTracks.body.tracks[0].trackId, '101');
   assert.equal(recommendationTracks.body.tracks[0].playability, 'playable');
+  const toplists = await request(port, 'GET', '/ktv/api/toplists', {
+    token: guestA.body.clientToken,
+  });
+  assert.equal(toplists.status, 200);
+  assert.equal(toplists.body.playlists[0].id, '9003');
+  const toplistTracks = await request(
+    port,
+    'GET',
+    '/ktv/api/toplists/9003/tracks',
+    { token: guestA.body.clientToken }
+  );
+  assert.equal(toplistTracks.status, 200);
+  assert.equal(toplistTracks.body.tracks[0].trackId, '101');
+  assert.equal(toplistTracks.body.tracks[0].playability, 'playable');
   const artistSearch = await request(
     port,
     'GET',
@@ -385,6 +418,8 @@ async function run() {
   assert.equal(artistTracks.body.tracks[0].playability, 'playable');
   assert.ok(bridgeCalls.includes('recommendations'));
   assert.ok(bridgeCalls.includes('recommendationTracks'));
+  assert.ok(bridgeCalls.includes('toplists'));
+  assert.ok(bridgeCalls.includes('toplistTracks'));
   assert.ok(bridgeCalls.includes('artistSearch'));
   assert.ok(bridgeCalls.includes('artistTracks'));
   const stateResponse = await request(port, 'GET', '/ktv/api/state', {

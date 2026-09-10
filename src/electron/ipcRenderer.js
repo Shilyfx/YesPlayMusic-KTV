@@ -1,6 +1,6 @@
 import { search } from '@/api/others';
 import { getMP3, getTrackDetail } from '@/api/track';
-import { getPlaylistDetail, recommendPlaylist } from '@/api/playlist';
+import { getPlaylistDetail, recommendPlaylist, toplists } from '@/api/playlist';
 import { getRecommendPlayList } from '@/utils/playList';
 import { getArtist } from '@/api/artist';
 import { userPlaylist } from '@/api/user';
@@ -89,6 +89,34 @@ async function hostCatalog(action, payload = {}, store = null) {
     return (playlists || []).slice(0, 10).map(safePlaylist);
   }
   if (action === 'recommendationTracks') {
+    const playlistId = String(payload.playlistId || '');
+    if (!/^\d{1,20}$/.test(playlistId)) throw new Error('PLAYLIST_NOT_FOUND');
+    const detail = await getPlaylistDetail(playlistId, true);
+    const trackIds = (detail?.playlist?.trackIds || [])
+      .map(track => String(track.id || track))
+      .filter(trackId => /^\d{1,20}$/.test(trackId));
+    const initialTracks = detail?.playlist?.tracks || [];
+    let tracks = initialTracks;
+    if (trackIds.length) {
+      const data = await getTrackDetail(trackIds.slice(0, 100).join(','));
+      tracks = data?.songs || initialTracks;
+    }
+    const tracksById = new Map(
+      tracks.filter(track => track?.id).map(track => [String(track.id), track])
+    );
+    const orderedTracks = (
+      trackIds.length ? trackIds : tracks.map(track => String(track.id))
+    )
+      .map(trackId => tracksById.get(trackId))
+      .filter(Boolean)
+      .slice(0, 100);
+    return orderedTracks.map(safeCatalogTrack);
+  }
+  if (action === 'toplists') {
+    const data = await toplists();
+    return (data?.list || []).slice(0, 20).map(safePlaylist);
+  }
+  if (action === 'toplistTracks') {
     const playlistId = String(payload.playlistId || '');
     if (!/^\d{1,20}$/.test(playlistId)) throw new Error('PLAYLIST_NOT_FOUND');
     const detail = await getPlaylistDetail(playlistId, true);

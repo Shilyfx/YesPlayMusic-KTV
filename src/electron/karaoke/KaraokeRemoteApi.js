@@ -129,6 +129,7 @@ export class KaraokeCatalogService {
     this.localTrackCache = new Map();
     this.availabilityCache = new Map();
     this.recommendationPlaylistIds = new Set();
+    this.toplistIds = new Set();
   }
 
   async search(query) {
@@ -237,6 +238,27 @@ export class KaraokeCatalogService {
       safePlaylists.map(playlist => String(playlist.id))
     );
     return safePlaylists;
+  }
+
+  async toplists() {
+    if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    const source = await this.hostCatalogBridge('toplists');
+    const playlists = Array.isArray(source) ? source : [];
+    this.toplistIds = new Set(playlists.map(playlist => String(playlist.id)));
+    return playlists;
+  }
+
+  async toplistTracks(playlistId) {
+    if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    const id = String(playlistId);
+    if (!/^\d{1,20}$/.test(id) || !this.toplistIds.has(id))
+      throw new Error('PLAYLIST_NOT_FOUND');
+    const source = await this.hostCatalogBridge('toplistTracks', {
+      playlistId: id,
+    });
+    return Array.isArray(source)
+      ? source.map(track => (track.trackId ? track : sanitizeTrack(track)))
+      : [];
   }
 
   async recommendationTracks(playlistId) {
@@ -490,6 +512,7 @@ export class KaraokeRemoteService {
       name: item.trackName,
       artists: item.artists,
       album: item.albumName,
+      coverUrl: item.coverUrl || '',
       requesterName: item.requesterName,
       requesterId: item.requesterId,
       requesterType: item.requesterType || 'host',
@@ -549,6 +572,13 @@ export class KaraokeRemoteService {
     return this.catalog.recommendations();
   }
 
+  async toplists(client) {
+    if (!this.limiter.check(`toplists:${client.clientId}`, 6))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('toplists:room', 24)) throw new Error('RATE_LIMIT');
+    return this.catalog.toplists();
+  }
+
   async withAvailability(tracks) {
     const source = Array.isArray(tracks) ? tracks : [];
     const results = new Array(source.length);
@@ -576,6 +606,14 @@ export class KaraokeRemoteService {
     return this.withAvailability(
       await this.catalog.recommendationTracks(playlistId)
     );
+  }
+
+  async toplistTracks(client, playlistId) {
+    if (!this.limiter.check(`toplistTracks:${client.clientId}`, 12))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('toplistTracks:room', 80))
+      throw new Error('RATE_LIMIT');
+    return this.withAvailability(await this.catalog.toplistTracks(playlistId));
   }
 
   async artistSearch(client, query) {
@@ -796,6 +834,11 @@ export class RemoteApiRouter {
           playlists: await this.service.recommendations(client),
         });
       }
+      if (url.pathname === '/ktv/api/toplists' && request.method === 'GET') {
+        return json(response, 200, {
+          playlists: await this.service.toplists(client),
+        });
+      }
       const recommendationTracks = url.pathname.match(
         /^\/ktv\/api\/recommendations\/(\d{1,20})\/tracks$/
       );
@@ -805,6 +848,14 @@ export class RemoteApiRouter {
             client,
             recommendationTracks[1]
           ),
+        });
+      }
+      const toplistTracks = url.pathname.match(
+        /^\/ktv\/api\/toplists\/(\d{1,20})\/tracks$/
+      );
+      if (toplistTracks && request.method === 'GET') {
+        return json(response, 200, {
+          tracks: await this.service.toplistTracks(client, toplistTracks[1]),
         });
       }
       if (
