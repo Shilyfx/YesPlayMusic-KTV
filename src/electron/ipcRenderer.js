@@ -114,7 +114,7 @@ async function hostCatalog(action, payload = {}, store = null) {
   }
   if (action === 'toplists') {
     const data = await toplists();
-    return (data?.list || []).slice(0, 20).map(safePlaylist);
+    return (data?.list || []).slice(0, 10).map(safePlaylist);
   }
   if (action === 'toplistTracks') {
     const playlistId = String(payload.playlistId || '');

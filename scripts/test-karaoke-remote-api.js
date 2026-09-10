@@ -312,6 +312,8 @@ async function run() {
   assert.equal(guestA.status, 200);
   assert.match(guestA.body.clientToken, /^[A-Za-z0-9_-]{40,}$/);
   assert.notEqual(guestA.body.clientToken, guestB.body.clientToken);
+  assert.equal(guestA.body.displayName, '麦霸01');
+  assert.equal(guestB.body.displayName, '麦霸02');
   const results = await request(
     port,
     'GET',

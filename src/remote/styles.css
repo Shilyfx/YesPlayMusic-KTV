@@ -392,6 +392,16 @@ h2 {
   gap: 8px;
   align-items: center;
 }
+.playlist-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  align-items: center;
+}
+.chart-content > [hidden],
+.local-playlist-view[hidden] {
+  display: none;
+}
 .recommendation-list {
   display: grid;
   grid-template-columns: repeat(5, minmax(0, 1fr));
@@ -641,6 +651,26 @@ h2 {
   font-weight: 700;
 }
 .local-playlist-block select {
+  min-height: 42px;
+  border: 1px solid #ffffff2e;
+  border-radius: 12px;
+  padding: 0 12px;
+  color: inherit;
+  background: #111731b8;
+}
+.local-playlist-view {
+  display: grid;
+  gap: 10px;
+  margin-top: 16px;
+}
+.local-playlist-view > label {
+  display: grid;
+  gap: 6px;
+  color: #aeb4ca;
+  font-size: 12px;
+  font-weight: 700;
+}
+.local-playlist-view select {
   min-height: 42px;
   border: 1px solid #ffffff2e;
   border-radius: 12px;
@@ -978,6 +1008,11 @@ h2 {
   color: #17203b;
   background: #ffffff;
 }
+:root[data-theme='light'] .local-playlist-view select {
+  border-color: #cbd1e3;
+  color: #17203b;
+  background: #ffffff;
+}
 :root[data-theme='light'] .result-card {
   border-color: #e0e4ef;
   box-shadow: 0 5px 14px #5e6a831f;
@@ -995,6 +1030,11 @@ h2 {
     box-shadow: none;
   }
   :root[data-theme='auto'] .local-playlist-block select {
+    border-color: #cbd1e3;
+    color: #17203b;
+    background: #ffffff;
+  }
+  :root[data-theme='auto'] .local-playlist-view select {
     border-color: #cbd1e3;
     color: #17203b;
     background: #ffffff;

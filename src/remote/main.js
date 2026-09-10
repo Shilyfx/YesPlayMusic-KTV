@@ -32,6 +32,9 @@ let toplistTracks = [];
 let toplistTrackGeneration = 0;
 let toplistsLoaded = false;
 let chartMode = 'recommendations';
+let chartView = 'lists';
+let playlistSource = 'user';
+let localPlaylistsLoaded = false;
 let artistSearchTimer;
 let artistSearchAbort;
 let artistSearchGeneration = 0;
@@ -168,8 +171,71 @@ function initializeShell() {
     .querySelector('.history-area')
     .insertAdjacentHTML(
       'afterend',
-      '<section class="recommendation-area glass"><div class="section-heading"><div><p class="section-label">YESPLAYMUSIC 推荐</p><h2 data-chart-title>为你推荐</h2></div><div class="chart-actions"><button class="quiet recommendation-refresh" type="button" data-recommendations-refresh>换一批</button><button class="quiet chart-toggle" type="button" data-chart-toggle>排行榜</button></div></div><div class="recommendation-list" data-recommendations><div class="hint">正在加载推荐歌单…</div></div><div class="recommendation-track-list" data-recommendation-tracks><div class="hint">选择一个歌单查看歌曲。</div></div></section><section class="artist-area glass"><div class="section-heading"><div><p class="section-label">按歌手点歌</p><h2>找歌手</h2></div><span class="section-helper">选择一位歌手后，可继续添加其他歌手</span></div><div class="featured-artist-list" data-featured-artists><div class="hint">正在加载常用歌手…</div></div><label class="artist-search-box"><span>⌕</span><input data-artist-search maxlength="60" autocomplete="off" placeholder="搜索更多歌手，例如：周杰伦" /></label><div class="artist-picker" data-artists></div><div class="selected-artists" data-selected-artists></div><div class="artist-track-list" data-artist-tracks><div class="hint">选择歌手后显示热门歌曲。</div></div></section>'
+      '<section class="recommendation-area glass"><div class="section-heading"><div><p class="section-label">YESPLAYMUSIC 推荐</p><h2 data-chart-title>为你推荐</h2></div><div class="chart-actions"><button class="quiet chart-toggle" type="button" data-chart-toggle>排行榜</button></div></div><div class="recommendation-list" data-recommendations><div class="hint">正在加载推荐歌单…</div></div><div class="recommendation-track-list" data-recommendation-tracks><div class="hint">选择一个歌单查看歌曲。</div></div></section><section class="artist-area glass"><div class="section-heading"><div><p class="section-label">按歌手点歌</p><h2>找歌手</h2></div><span class="section-helper">选择一位歌手后，可继续添加其他歌手</span></div><div class="featured-artist-list" data-featured-artists><div class="hint">正在加载常用歌手…</div></div><label class="artist-search-box"><span>⌕</span><input data-artist-search maxlength="60" autocomplete="off" placeholder="搜索更多歌手，例如：周杰伦" /></label><div class="artist-picker" data-artists></div><div class="selected-artists" data-selected-artists></div><div class="artist-track-list" data-artist-tracks><div class="hint">选择歌手后显示热门歌曲。</div></div></section>'
     );
+  const playlistArea = app.querySelector('.playlist-area');
+  const playlistHeading = playlistArea?.querySelector('.section-heading');
+  const playlistLabel = playlistHeading?.querySelector('.section-label');
+  const playlistTitle = playlistHeading?.querySelector('h2');
+  const playlistRefresh = playlistHeading?.querySelector(
+    '[data-playlists-refresh]'
+  );
+  const playlistPicker = playlistArea?.querySelector('.playlist-picker');
+  const playlistTracks = playlistArea?.querySelector('[data-playlist-tracks]');
+  if (playlistLabel) playlistLabel.dataset.playlistLabel = '';
+  if (playlistTitle) playlistTitle.dataset.playlistTitle = '';
+  if (playlistPicker) playlistPicker.dataset.userPlaylistPanel = '';
+  if (playlistTracks) playlistTracks.dataset.userPlaylistPanel = '';
+  if (playlistHeading && playlistRefresh) {
+    const playlistActions = document.createElement('div');
+    playlistActions.className = 'playlist-actions';
+    playlistRefresh.replaceWith(playlistActions);
+    playlistActions.append(playlistRefresh);
+    playlistActions.insertAdjacentHTML(
+      'beforeend',
+      '<button class="quiet playlist-source-toggle" type="button" data-playlist-source-toggle>本地歌单</button>'
+    );
+  }
+  const localBlock = playlistArea?.querySelector('.local-playlist-block');
+  if (localBlock) {
+    const localView = document.createElement('div');
+    localView.className = 'local-playlist-view';
+    localView.dataset.localPlaylistPanel = '';
+    localView.hidden = true;
+    const localLabel = [...localBlock.children].find(child =>
+      child.matches('label')
+    );
+    const localTracks = localBlock.querySelector(
+      '[data-local-playlist-tracks]'
+    );
+    if (localLabel) localView.append(localLabel);
+    if (localTracks) localView.append(localTracks);
+    localBlock.replaceWith(localView);
+  }
+  const recommendationArea = app.querySelector('.recommendation-area');
+  const chartActions = recommendationArea?.querySelector('.chart-actions');
+  const chartLists = recommendationArea?.querySelector(
+    '[data-recommendations]'
+  );
+  const chartTracks = recommendationArea?.querySelector(
+    '[data-recommendation-tracks]'
+  );
+  if (chartActions) {
+    chartActions.insertAdjacentHTML(
+      'beforeend',
+      '<button class="quiet chart-back" type="button" data-chart-back hidden>返回歌单</button>'
+    );
+  }
+  if (chartLists && chartTracks) {
+    const chartContent = document.createElement('div');
+    chartContent.className = 'chart-content';
+    chartContent.dataset.chartContent = '';
+    chartLists.parentNode.insertBefore(chartContent, chartLists);
+    chartContent.append(chartLists, chartTracks);
+    chartTracks.hidden = true;
+  }
+  renderPlaylistSource();
+  renderChartHeader();
   const moduleMap = [
     ['.search-area', 'search'],
     ['.recommendation-area', 'recommendations'],
@@ -231,12 +297,12 @@ function initializeShell() {
     else if (button.dataset.recommendation)
       selectRecommendation(button.dataset.recommendation);
     else if (button.dataset.artist) selectArtist(button.dataset.artist);
-    else if (button.hasAttribute('data-playlists-refresh')) loadPlaylists();
-    else if (button.hasAttribute('data-local-playlists-refresh'))
-      loadLocalPlaylists();
-    else if (button.hasAttribute('data-recommendations-refresh'))
-      refreshCharts();
+    else if (button.hasAttribute('data-playlists-refresh'))
+      refreshPlaylistSource();
+    else if (button.hasAttribute('data-playlist-source-toggle'))
+      togglePlaylistSource();
     else if (button.hasAttribute('data-chart-toggle')) toggleChartMode();
+    else if (button.hasAttribute('data-chart-back')) returnChartToLists();
     else if (button.dataset.remove)
       mutate(`/requests/${button.dataset.remove}`, 'DELETE');
     else if (button.dataset.front)
@@ -511,12 +577,24 @@ function mergeArtistTracks(remoteTracks, artistId) {
 
 function renderChartHeader() {
   const title = app.querySelector('[data-chart-title]');
-  const refresh = app.querySelector('[data-recommendations-refresh]');
   const toggle = app.querySelector('[data-chart-toggle]');
+  const back = app.querySelector('[data-chart-back]');
   const isToplist = chartMode === 'toplists';
-  if (title) title.textContent = isToplist ? '排行榜' : '为你推荐';
-  if (refresh) refresh.textContent = isToplist ? '刷新榜单' : '换一批';
+  const selected = activeChartItems().find(
+    playlist => String(playlist.id) === String(activeChartSelectedId())
+  );
+  if (title)
+    title.textContent =
+      chartView === 'tracks'
+        ? selected?.name || '歌曲列表'
+        : isToplist
+        ? '排行榜'
+        : '为你推荐';
   if (toggle) toggle.textContent = isToplist ? '推荐' : '排行榜';
+  if (back) {
+    back.hidden = chartView !== 'tracks';
+    back.textContent = isToplist ? '返回榜单' : '返回歌单';
+  }
 }
 
 function activeChartItems() {
@@ -533,6 +611,15 @@ function activeChartTracks() {
   return chartMode === 'toplists' ? toplistTracks : recommendationTracks;
 }
 
+function renderChartView() {
+  const lists = app.querySelector('[data-recommendations]');
+  const tracks = app.querySelector('[data-recommendation-tracks]');
+  const showingTracks = chartView === 'tracks';
+  if (lists) lists.hidden = showingTracks;
+  if (tracks) tracks.hidden = !showingTracks;
+  renderChartHeader();
+}
+
 function renderRecommendations() {
   const container = app.querySelector('[data-recommendations]');
   if (!container) return;
@@ -544,6 +631,7 @@ function renderRecommendations() {
       chartMode === 'toplists'
         ? '<div class="hint">暂时没有可展示的排行榜。</div>'
         : '<div class="hint">暂时没有可展示的推荐歌单。</div>';
+    renderChartView();
     return;
   }
   container.innerHTML = items
@@ -562,6 +650,7 @@ function renderRecommendations() {
         } 首 · 查看歌单</small></span></button></article>`
     )
     .join('');
+  renderChartView();
 }
 
 function renderRecommendationTracks({ loading = false } = {}) {
@@ -574,24 +663,28 @@ function renderRecommendationTracks({ loading = false } = {}) {
     container.innerHTML = `<div class="hint">正在加载${
       isToplist ? '排行榜' : '推荐歌单'
     }歌曲…</div>`;
+    renderChartView();
     return;
   }
   if (!selectedId) {
     container.innerHTML = `<div class="hint">选择一个${
       isToplist ? '排行榜' : '歌单'
     }查看歌曲。</div>`;
+    renderChartView();
     return;
   }
   if (!tracks.length) {
     container.innerHTML = `<div class="hint">这个${
       isToplist ? '排行榜' : '推荐歌单'
     }暂无可展示歌曲。</div>`;
+    renderChartView();
     return;
   }
   container.innerHTML = tracks
     .slice(0, 30)
     .map(track => trackRequestMarkup(track, 'recommendation-track-card'))
     .join('');
+  renderChartView();
 }
 
 function renderArtists() {
@@ -734,6 +827,33 @@ function renderResults(results, { searching = false } = {}) {
     .join('');
 }
 
+function renderPlaylistSource() {
+  const isLocal = playlistSource === 'local';
+  const label = app.querySelector('[data-playlist-label]');
+  const title = app.querySelector('[data-playlist-title]');
+  const refresh = app.querySelector('[data-playlists-refresh]');
+  const toggle = app.querySelector('[data-playlist-source-toggle]');
+  if (label) label.textContent = isLocal ? '主机本地目录' : '当前账号歌单';
+  if (title) title.textContent = isLocal ? '本地歌单' : '从歌单点歌';
+  if (refresh) refresh.textContent = isLocal ? '刷新本地歌单' : '刷新歌单';
+  if (toggle) toggle.textContent = isLocal ? '用户歌单' : '本地歌单';
+  app.querySelectorAll('[data-user-playlist-panel]').forEach(panel => {
+    panel.hidden = isLocal;
+  });
+  const localPanel = app.querySelector('[data-local-playlist-panel]');
+  if (localPanel) localPanel.hidden = !isLocal;
+}
+
+function togglePlaylistSource() {
+  playlistSource = playlistSource === 'local' ? 'user' : 'local';
+  renderPlaylistSource();
+  if (playlistSource === 'local' && !localPlaylistsLoaded) loadLocalPlaylists();
+}
+
+function refreshPlaylistSource() {
+  return playlistSource === 'local' ? loadLocalPlaylists() : loadPlaylists();
+}
+
 function renderPlaylistPicker() {
   const select = app.querySelector('[data-playlist]');
   if (!select) return;
@@ -823,11 +943,12 @@ function selectLocalPlaylist(playlistId) {
 }
 
 async function loadLocalPlaylists() {
-  const button = app.querySelector('[data-local-playlists-refresh]');
+  const button = app.querySelector('[data-playlists-refresh]');
   if (button) button.disabled = true;
   try {
     const response = await api('/local-playlists');
     localPlaylists = response.playlists || [];
+    localPlaylistsLoaded = true;
     const hasSelected = localPlaylists.some(
       playlist => String(playlist.id) === String(selectedLocalPlaylistId)
     );
@@ -841,18 +962,21 @@ async function loadLocalPlaylists() {
       renderArtistTracks();
     }
   } catch (_) {
+    localPlaylistsLoaded = true;
     localPlaylists = [];
     selectedLocalPlaylistId = '';
     localPlaylistTracks = [];
     renderLocalPlaylistPicker();
     renderLocalPlaylistTracks();
   } finally {
+    renderPlaylistSource();
     if (button) button.disabled = false;
   }
 }
 
 async function selectRecommendation(playlistId) {
   if (chartMode === 'toplists') return selectToplist(playlistId);
+  chartView = 'tracks';
   selectedRecommendationId = playlistId;
   recommendationTracks = [];
   renderRecommendations();
@@ -882,6 +1006,7 @@ async function selectRecommendation(playlistId) {
 }
 
 async function selectToplist(playlistId) {
+  chartView = 'tracks';
   selectedToplistId = playlistId;
   toplistTracks = [];
   renderRecommendations();
@@ -905,8 +1030,6 @@ async function selectToplist(playlistId) {
 }
 
 async function loadRecommendations() {
-  const button = app.querySelector('[data-recommendations-refresh]');
-  if (button) button.disabled = true;
   try {
     const response = await api('/recommendations');
     recommendations = response.playlists || [];
@@ -916,35 +1039,32 @@ async function loadRecommendations() {
     selectedRecommendationId = hasSelected
       ? selectedRecommendationId
       : recommendations[0]?.id || '';
+    chartView = 'lists';
+    recommendationTracks = [];
     renderRecommendations();
-    if (selectedRecommendationId)
-      await selectRecommendation(selectedRecommendationId);
-    else renderRecommendationTracks();
+    renderRecommendationTracks();
   } catch (_) {
     recommendations = [];
     selectedRecommendationId = '';
     renderRecommendations();
     renderRecommendationTracks();
-    setNotice('推荐歌单暂时无法加载，请点击“换一批”重试。', 'error');
-  } finally {
-    if (button) button.disabled = false;
+    setNotice('推荐歌单暂时无法加载，请稍后重试。', 'error');
   }
 }
 
 async function loadToplists() {
-  const button = app.querySelector('[data-recommendations-refresh]');
-  if (button) button.disabled = true;
   try {
     const response = await api('/toplists');
-    toplists = response.playlists || [];
+    toplists = (response.playlists || []).slice(0, 10);
     toplistsLoaded = true;
     const hasSelected = toplists.some(
       playlist => String(playlist.id) === String(selectedToplistId)
     );
     selectedToplistId = hasSelected ? selectedToplistId : toplists[0]?.id || '';
+    chartView = 'lists';
+    toplistTracks = [];
     renderRecommendations();
-    if (selectedToplistId) await selectToplist(selectedToplistId);
-    else renderRecommendationTracks();
+    renderRecommendationTracks();
   } catch (_) {
     toplists = [];
     toplistsLoaded = true;
@@ -952,29 +1072,26 @@ async function loadToplists() {
     renderRecommendations();
     renderRecommendationTracks();
     setNotice('排行榜暂时无法加载，请稍后重试。', 'error');
-  } finally {
-    if (button) button.disabled = false;
   }
-}
-
-function refreshCharts() {
-  return chartMode === 'toplists' ? loadToplists() : loadRecommendations();
 }
 
 async function toggleChartMode() {
   recommendationTrackGeneration += 1;
   toplistTrackGeneration += 1;
   chartMode = chartMode === 'toplists' ? 'recommendations' : 'toplists';
+  chartView = 'lists';
   renderRecommendations();
-  renderRecommendationTracks({ loading: true });
   if (chartMode === 'toplists') {
     if (!toplistsLoaded) return loadToplists();
-    if (selectedToplistId) return selectToplist(selectedToplistId);
     return renderRecommendationTracks();
   }
-  if (selectedRecommendationId)
-    return selectRecommendation(selectedRecommendationId);
   return renderRecommendationTracks();
+}
+
+function returnChartToLists() {
+  chartView = 'lists';
+  renderRecommendations();
+  renderRecommendationTracks();
 }
 
 function scheduleArtistSearch(query) {
@@ -1086,6 +1203,7 @@ async function loadPlaylists() {
       ? selectedPlaylistId
       : playlists[0]?.id || '';
     renderPlaylistPicker();
+    renderPlaylistSource();
     if (selectedPlaylistId) await selectPlaylist(selectedPlaylistId);
     else {
       renderPlaylistTracks();
@@ -1096,6 +1214,7 @@ async function loadPlaylists() {
     selectedPlaylistId = '';
     renderPlaylistPicker();
     renderPlaylistTracks();
+    renderPlaylistSource();
     setNotice(
       error.code === 'HOST_NOT_LOGGED_IN'
         ? '请先在 KTV 主机登录网易云账号，再从歌单点歌。'

@@ -375,7 +375,7 @@ export class RemoteClientSessionStore {
     const session = {
       clientId: id,
       clientToken: token(),
-      displayName: `客人 ${this.clients.size + 1}`.padStart(5, '0'),
+      displayName: `麦霸${String(this.clients.size + 1).padStart(2, '0')}`,
       createdAt: Date.now(),
       roomCode: this.room.code,
       sessionId: this.room.sessionId,
