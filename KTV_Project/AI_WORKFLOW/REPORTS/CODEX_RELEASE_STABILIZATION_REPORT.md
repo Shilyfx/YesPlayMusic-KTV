@@ -6,6 +6,7 @@
 - 执行提示词：`C:/Users/Shilyfx/Downloads/CODEX_KTV_FULL_PRODUCT_STABILIZATION_PROMPT.md`
 - 稳定化分支：`fix/ktv-release-stabilization`
 - 稳定化基线：`a4c5c9c0d84a2d331f005e1a9deee6b37986c6e2`
+- 稳定化代码提交：`5d161670666285ab855e3bb57ca7fb180765ae4d`
 - 范围：启动、API 契约、存储、原生依赖、Electron 本地服务、路由错误态、登录二维码、KTV 局域网二维码与打包验证；未新增 KTV 业务能力。
 
 ## 已完成修复

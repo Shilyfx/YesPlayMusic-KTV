@@ -13,9 +13,9 @@ Phase 3 lineages are historical evidence only and must not be force-rewritten.
 
 - `STABILIZATION_BASE_SHA`: `a4c5c9c0d84a2d331f005e1a9deee6b37986c6e2`
 - Branch: `fix/ktv-release-stabilization`
+- `STABILIZATION_CODE_SHA`: `5d161670666285ab855e3bb57ca7fb180765ae4d`
 - The stabilization branch is additive and does not reset or rewrite the
-  historical Phase 1–4 branches. Its final commit SHA is recorded here after
-  the local verification commit is created.
+  historical Phase 1–4 branches.
 
 ## Final repair code checkpoint
 
