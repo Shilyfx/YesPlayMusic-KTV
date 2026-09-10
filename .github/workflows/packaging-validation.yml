@@ -40,6 +40,8 @@ jobs:
         run: yarn test:anonymous-token
       - name: Build packaged application
         shell: bash
+        env:
+          LUMASING_MAC_ARCH: arm64
         run: yarn ${{ matrix.command }}
       - name: Verify ARM64 application cold start
         shell: bash

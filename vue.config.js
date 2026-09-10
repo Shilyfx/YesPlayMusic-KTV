@@ -170,7 +170,9 @@ module.exports = {
           target: [
             {
               target: 'dmg',
-              arch: ['x64', 'arm64', 'universal'],
+              arch: process.env.LUMASING_MAC_ARCH
+                ? [process.env.LUMASING_MAC_ARCH]
+                : ['x64', 'arm64', 'universal'],
             },
           ],
           artifactName: '${productName}-${os}-${version}-${arch}.${ext}',
