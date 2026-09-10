@@ -43,6 +43,8 @@ let artistSelections = [];
 let selectedModule = 'search';
 const availabilityState = new Map();
 const availabilityChecking = new Set();
+let previewTrackId = '';
+let previewGeneration = 0;
 
 function escape(value = '') {
   return String(value).replace(
@@ -129,9 +131,13 @@ function initializeModuleTabs() {
 function initializeShell() {
   const theme = localStorage.getItem('yesplaymusic-ktv-theme') || 'auto';
   document.documentElement.dataset.theme = theme;
-  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1 data-room-name>房间 ${escape(
-    roomCode || '—'
-  )}</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
+  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1 data-room-name>Shilyfx的KTV</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
+  app
+    .querySelector('[data-notice]')
+    .insertAdjacentHTML(
+      'afterend',
+      '<section class="preview-dock glass" data-preview-dock hidden><div><p class="section-label">正在试听</p><strong data-preview-title>—</strong></div><audio data-preview-audio controls preload="none"></audio><button type="button" class="quiet" data-preview-stop>停止</button></section>'
+    );
   app
     .querySelector('.history-area')
     .insertAdjacentHTML(
@@ -146,7 +152,7 @@ function initializeShell() {
     ['.history-area', 'history'],
     ['.queue-grid', 'queue'],
   ];
-  const firstPanel = app.querySelector('.search-area');
+  const firstPanel = app.querySelector('.now-playing');
   moduleMap.forEach(([selector, module]) => {
     const panel = app.querySelector(selector);
     if (panel) {
@@ -155,7 +161,7 @@ function initializeShell() {
     }
   });
   firstPanel?.insertAdjacentHTML(
-    'beforebegin',
+    'afterend',
     '<nav class="module-tabs" role="tablist" aria-label="点歌模块"><button type="button" role="tab" data-module-tab="search">搜索歌曲</button><button type="button" role="tab" data-module-tab="recommendations">推荐歌单</button><button type="button" role="tab" data-module-tab="artists">歌手点歌</button><button type="button" role="tab" data-module-tab="playlists">我的歌单</button><button type="button" role="tab" data-module-tab="history">已播放</button><button type="button" role="tab" data-module-tab="queue">等待队列</button></nav>'
   );
   app.querySelector('[data-theme]').value = theme;
@@ -188,6 +194,8 @@ function initializeShell() {
       requestSong(button.dataset.priority, true);
     else if (button.dataset.checkAvailability)
       checkAvailability(button.dataset.checkAvailability);
+    else if (button.dataset.preview) previewTrack(button.dataset.preview);
+    else if (button.dataset.previewStop) stopPreview();
     else if (button.dataset.recommendation)
       selectRecommendation(button.dataset.recommendation);
     else if (button.dataset.artist) selectArtist(button.dataset.artist);
@@ -205,9 +213,7 @@ function renderNowPlaying() {
   const current = state?.current;
   const roomTitle = app.querySelector('[data-room-name]');
   if (roomTitle) {
-    roomTitle.textContent = `${state?.room?.name || 'Shilyfx的KTV'} · ${
-      state?.room?.code || roomCode || '—'
-    }`;
+    roomTitle.textContent = state?.room?.name || 'Shilyfx的KTV';
   }
   const target = app.querySelector('[data-now-playing]');
   target.innerHTML = `<p class="section-label">正在演唱</p>${
@@ -257,7 +263,9 @@ function renderHistory() {
           (item.artists || []).join(' / ')
         )}</p><small>已播放 · ${escape(
           item.requesterName || '主机'
-        )}</small></div><div class="request-actions"><button data-request="${escape(
+        )}</small></div><div class="request-actions"><button class="quiet preview-button" data-preview="${escape(
+          item.trackId
+        )}">试听</button><button data-request="${escape(
           item.trackId
         )}">再唱一次</button><button class="priority-button" data-priority="${escape(
           item.trackId
@@ -297,6 +305,89 @@ async function checkAvailability(trackId) {
   }
 }
 
+function findTrack(trackId) {
+  const id = String(trackId);
+  return [
+    ...searchResults,
+    ...playlistTracks,
+    ...recommendationTracks,
+    ...artistTracks,
+    ...playedHistory,
+  ].find(track => String(track.trackId) === id);
+}
+
+function stopPreview() {
+  previewGeneration += 1;
+  previewTrackId = '';
+  const audio = app.querySelector('[data-preview-audio]');
+  const dock = app.querySelector('[data-preview-dock]');
+  if (audio) {
+    audio.pause();
+    audio.removeAttribute('src');
+    audio.load();
+  }
+  if (dock) dock.hidden = true;
+  renderResults(searchResults);
+  renderPlaylistTracks();
+  renderRecommendationTracks();
+  renderArtistTracks();
+}
+
+async function previewTrack(trackId) {
+  const id = String(trackId);
+  const audio = app.querySelector('[data-preview-audio]');
+  const dock = app.querySelector('[data-preview-dock]');
+  const title = app.querySelector('[data-preview-title]');
+  if (!audio || !dock || !title) return;
+  if (previewTrackId === id && !audio.paused) {
+    audio.pause();
+    renderResults(searchResults);
+    renderPlaylistTracks();
+    renderRecommendationTracks();
+    renderArtistTracks();
+    return;
+  }
+  previewTrackId = id;
+  const generation = ++previewGeneration;
+  const track = findTrack(id);
+  title.textContent = track?.name || '歌曲试听';
+  dock.hidden = false;
+  renderResults(searchResults);
+  renderPlaylistTracks();
+  renderRecommendationTracks();
+  renderArtistTracks();
+  audio.pause();
+  audio.removeAttribute('src');
+  audio.load();
+  setNotice('正在加载试听…');
+  try {
+    const response = await api(`/track/${encodeURIComponent(id)}/preview`);
+    if (generation !== previewGeneration) return;
+    audio.src = response.url;
+    audio.load();
+    try {
+      await audio.play();
+      setNotice('正在试听，可使用播放器控制音量。', 'success');
+    } catch (_) {
+      setNotice('试听已加载，请点击播放器开始播放。', 'success');
+    }
+  } catch (error) {
+    if (generation !== previewGeneration) return;
+    previewTrackId = '';
+    dock.hidden = true;
+    renderResults(searchResults);
+    renderPlaylistTracks();
+    renderRecommendationTracks();
+    renderArtistTracks();
+    setNotice(
+      error.code === 'TRACK_NOT_PLAYABLE'
+        ? '这首歌暂时没有可用试听音源。'
+        : '试听加载失败，请稍后重试。',
+      'error'
+    );
+  }
+}
+
 function trackRequestMarkup(track, className = '') {
   const trackId = String(track.trackId);
   const availability = getTrackAvailability(track);
@@ -332,9 +423,11 @@ function trackRequestMarkup(track, className = '') {
     track.versionLabel ? `${escape(track.versionLabel)} · ` : ''
   }${formatDuration(
     track.duration
-  )} · <b class="availability ${availability}">${label}</b></small></div><div class="request-actions">${checkButton}<button data-request="${escape(
+  )} · <b class="availability ${availability}">${label}</b></small></div><div class="request-actions"><button class="quiet preview-button" data-preview="${escape(
     trackId
-  )}" ${
+  )}">${
+    previewTrackId === trackId ? '暂停试听' : '试听'
+  }</button>${checkButton}<button data-request="${escape(trackId)}" ${
     disabled ? 'disabled' : ''
   }>点歌</button><button class="priority-button" data-priority="${escape(
     trackId

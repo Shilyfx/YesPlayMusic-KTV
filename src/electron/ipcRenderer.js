@@ -171,6 +171,15 @@ async function hostCatalog(action, payload = {}, store = null) {
     if (!source?.url) return 'unavailable';
     return source.freeTrialInfo ? 'trial-only' : 'playable';
   }
+  if (action === 'preview') {
+    const trackId = String(payload.trackId || '');
+    if (!/^\d{1,20}$/.test(trackId)) throw new Error('TRACK_NOT_FOUND');
+    const data = await getMP3(trackId);
+    const source = data?.data?.[0];
+    if (!source?.url || !/^https?:\/\//i.test(source.url))
+      throw new Error('TRACK_NOT_PLAYABLE');
+    return source.url;
+  }
   throw new Error('KTV_NOT_ACTIVE');
 }
 

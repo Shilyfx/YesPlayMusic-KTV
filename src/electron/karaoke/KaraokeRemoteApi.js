@@ -258,6 +258,16 @@ export class KaraokeCatalogService {
       return 'error';
     }
   }
+
+  async preview(trackId) {
+    if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    const url = await this.hostCatalogBridge('preview', {
+      trackId: String(trackId),
+    });
+    if (typeof url !== 'string' || !/^https?:\/\//i.test(url))
+      throw new Error('TRACK_NOT_PLAYABLE');
+    return url;
+  }
 }
 
 export class RemoteClientSessionStore {
@@ -537,6 +547,14 @@ export class KaraokeRemoteService {
     return this.catalog.availability(trackId);
   }
 
+  async preview(client, trackId) {
+    if (!this.limiter.check(`preview:${client.clientId}`, 20))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('preview:room', 120)) throw new Error('RATE_LIMIT');
+    if (!/^\d{1,20}$/.test(String(trackId))) throw new Error('TRACK_NOT_FOUND');
+    return this.catalog.preview(trackId);
+  }
+
   async enqueue(client, trackId, priority) {
     if (!this.limiter.check(`mutation:${client.clientId}`, 20))
       throw new Error('RATE_LIMIT');
@@ -717,6 +735,14 @@ export class RemoteApiRouter {
       if (availability && request.method === 'GET') {
         return json(response, 200, {
           playability: await this.service.availability(client, availability[1]),
+        });
+      }
+      const preview = url.pathname.match(
+        /^\/ktv\/api\/track\/(\d{1,20})\/preview$/
+      );
+      if (preview && request.method === 'GET') {
+        return json(response, 200, {
+          url: await this.service.preview(client, preview[1]),
         });
       }
       if (url.pathname === '/ktv/api/requests' && request.method === 'POST') {

@@ -229,6 +229,7 @@ async function run() {
         },
       ];
     if (action === 'availability') return 'playable';
+    if (action === 'preview') return 'https://example.com/preview.mp3';
     throw new Error('UNEXPECTED_CATALOG_ACTION');
   };
   const remoteDistPath = fs.mkdtempSync(
@@ -279,6 +280,12 @@ async function run() {
   assert.equal(results.body.results[0].playability, 'playable');
   assert.ok(bridgeCalls.includes('search'));
   assert.ok(bridgeCalls.includes('availability'));
+  const preview = await request(port, 'GET', '/ktv/api/track/101/preview', {
+    token: guestA.body.clientToken,
+  });
+  assert.equal(preview.status, 200);
+  assert.equal(preview.body.url, 'https://example.com/preview.mp3');
+  assert.ok(bridgeCalls.includes('preview'));
   const playlistResponse = await request(port, 'GET', '/ktv/api/playlists', {
     token: guestA.body.clientToken,
   });
