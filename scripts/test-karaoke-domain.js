@@ -112,6 +112,27 @@ async function run() {
   await loading;
   assert.strictEqual(pendingManager.session.status, 'ended');
   assert.strictEqual(pendingManager.queue.currentItem, null);
+
+  const semanticAdapter = new FakePlayerAdapter();
+  const semanticManager = new KaraokeManager(semanticAdapter);
+  semanticManager.startSession();
+  const guestFirst = semanticManager.enqueueTrack(track(11), {
+    id: 'guest-1',
+    name: '游客 1',
+    type: 'guest',
+  });
+  await semanticManager.startQueue();
+  assert.strictEqual(semanticManager.queue.currentItem.trackId, 11);
+  assert.strictEqual(guestFirst.requesterType, 'guest');
+  semanticManager.enqueueTrack(track(12), {
+    id: 'guest-2',
+    name: '游客 2',
+    type: 'guest',
+  });
+  await semanticManager.next();
+  assert.strictEqual(semanticManager.queue.currentItem.trackId, 12);
+  assert.strictEqual(semanticManager.queue.historyItems[0].trackId, 11);
+  assert.strictEqual(semanticManager.queue.historyItems[0].status, 'skipped');
   console.log('KTV domain transition tests passed');
 }
 
