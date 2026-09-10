@@ -37,6 +37,7 @@ const featuredArtistQueries = [
   '邓紫棋',
   '陈奕迅',
   '薛之谦',
+  '杨宗纬',
 ];
 let featuredArtists = [];
 let selectedArtistId = '';
@@ -482,11 +483,12 @@ function trackRequestMarkup(track, className = '') {
       : `<button class="quiet preview-button" data-preview="${escape(
           trackId
         )}">${previewTrackId === trackId ? '暂停试听' : '试听'}</button>`;
+  const sourceLabel = track.source === 'local' ? '本地歌曲 · ' : '';
   return `<article class="result-card ${className}"><div class="result-info"><strong>${escape(
     track.name
   )}</strong><p>${escape((track.artists || []).join(' / '))} · ${escape(
     track.album || '未知专辑'
-  )}</p><small>${
+  )}</p><small>${sourceLabel}${
     track.versionLabel ? `${escape(track.versionLabel)} · ` : ''
   }${formatDuration(
     track.duration
@@ -497,6 +499,48 @@ function trackRequestMarkup(track, className = '') {
   }>点歌</button><button class="priority-button" data-priority="${escape(
     trackId
   )}" ${disabled ? 'disabled' : ''}>优先点歌</button></div></article>`;
+}
+
+function normalizeArtistName(value) {
+  return String(value || '')
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, '');
+}
+
+function localTracksForArtist(artistId) {
+  const artist = [...artists, ...featuredArtists].find(
+    item => String(item.id) === String(artistId)
+  );
+  const artistName = normalizeArtistName(artist?.name);
+  if (!artistName) return [];
+  const matches = [];
+  const seen = new Set();
+  localPlaylists.forEach(playlist => {
+    (playlist.tracks || []).forEach(track => {
+      const trackId = String(track.trackId || track.id || '');
+      if (!trackId || seen.has(trackId)) return;
+      const trackArtists = (track.artists || track.ar || []).map(item =>
+        typeof item === 'string' ? item : item?.name
+      );
+      if (!trackArtists.some(name => normalizeArtistName(name) === artistName))
+        return;
+      seen.add(trackId);
+      matches.push({ ...track, source: 'local' });
+    });
+  });
+  return matches;
+}
+
+function mergeArtistTracks(remoteTracks, artistId) {
+  const merged = [...(remoteTracks || []), ...localTracksForArtist(artistId)];
+  const seen = new Set();
+  return merged.filter(track => {
+    const trackId = String(track.trackId || track.id || '');
+    if (!trackId || seen.has(trackId)) return false;
+    seen.add(trackId);
+    return true;
+  });
 }
 
 function renderRecommendations() {
@@ -788,6 +832,10 @@ async function loadLocalPlaylists() {
       : localPlaylists[0]?.id || '';
     renderLocalPlaylistPicker();
     selectLocalPlaylist(selectedLocalPlaylistId);
+    if (selectedArtistId) {
+      artistTracks = mergeArtistTracks(artistTracks, selectedArtistId);
+      renderArtistTracks();
+    }
   } catch (_) {
     localPlaylists = [];
     selectedLocalPlaylistId = '';
@@ -908,7 +956,7 @@ async function selectArtist(artistId) {
       `/artists/${encodeURIComponent(artistId)}/tracks`
     );
     if (generation !== artistTrackGeneration) return;
-    artistTracks = response.tracks || [];
+    artistTracks = mergeArtistTracks(response.tracks || [], artistId);
     renderArtistTracks();
   } catch (_) {
     if (generation !== artistTrackGeneration) return;
