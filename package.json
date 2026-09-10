@@ -11,6 +11,8 @@
     "electron:build": "vue-cli-service electron:build -p never",
     "electron:build-all": "vue-cli-service electron:build -p never -mwl",
     "electron:build-mac": "vue-cli-service electron:build -p never -m",
+    "electron:build-mac-x64": "vue-cli-service electron:build -p never -m --x64",
+    "electron:build-mac-arm64": "vue-cli-service electron:build -p never -m --arm64",
     "electron:build-win": "vue-cli-service electron:build -p never -w",
     "electron:build-linux": "vue-cli-service electron:build -p never -l",
     "electron:serve": "vue-cli-service electron:serve",

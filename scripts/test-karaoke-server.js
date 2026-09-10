@@ -13,6 +13,12 @@ const interfaces = () => ({
   Docker: [{ family: 'IPv4', internal: false, address: '172.17.0.1' }],
 });
 
+const macInterfaces = () => ({
+  en0: [{ family: 'IPv4', internal: false, address: '192.168.1.20' }],
+  awdl0: [{ family: 'IPv4', internal: false, address: '169.254.10.20' }],
+  utun4: [{ family: 'IPv4', internal: false, address: '10.8.0.2' }],
+});
+
 function request(port, pathname) {
   return new Promise((resolve, reject) => {
     const req = http.get(`http://127.0.0.1:${port}${pathname}`, response => {
@@ -74,6 +80,14 @@ async function run() {
     port: serverPort,
     networkInterfaces: interfaces,
   });
+  const macCandidates = new KaraokeServer({
+    remoteDistPath,
+    networkInterfaces: macInterfaces,
+  }).getLanAddressCandidates();
+  assert.deepEqual(
+    macCandidates.map(candidate => candidate.address),
+    ['192.168.1.20', '10.8.0.2', '169.254.10.20']
+  );
   const candidates = server.getLanAddressCandidates();
   assert.deepEqual(
     candidates.map(candidate => candidate.address),

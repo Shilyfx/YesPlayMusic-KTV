@@ -51,7 +51,11 @@
         <button type="button" class="session-button" @click="toggleSession">
           {{ isSessionActive ? '结束 KTV' : '开始本机 KTV' }}
         </button>
-        <div v-if="isElectron" class="window-actions" aria-label="窗口控制">
+        <div
+          v-if="isElectron && !isMac"
+          class="window-actions"
+          aria-label="窗口控制"
+        >
           <button
             type="button"
             class="window-action"
@@ -550,6 +554,9 @@ export default {
     },
     currentItem() {
       return this.karaoke.currentItem;
+    },
+    isMac() {
+      return /macintosh|mac os x/i.test(navigator.userAgent);
     },
     waitingItems() {
       return this.karaoke.waitingItems || [];

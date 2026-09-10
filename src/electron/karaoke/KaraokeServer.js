@@ -32,7 +32,7 @@ function getLanAddressCandidates(interfaces = os.networkInterfaces()) {
   const candidates = [];
   for (const [interfaceName, addresses] of Object.entries(interfaces)) {
     const virtualInterface =
-      /tailscale|vmware|virtual|wireguard|docker|loopback|nodebabylink/i.test(
+      /tailscale|vmware|virtual|wireguard|docker|loopback|nodebabylink|awdl|llw|utun|bridge|vmenet|vmnet/i.test(
         interfaceName
       );
     for (const address of addresses || []) {
