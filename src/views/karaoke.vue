@@ -484,6 +484,7 @@ import {
   normalizeLyricFontSize,
   normalizeLyricOffset,
 } from '@/utils/lyricsSettings';
+import findLyricIndex from '@/utils/lyricCursor';
 import KaraokeThemeSwitcher from '@/components/karaoke/KaraokeThemeSwitcher.vue';
 
 export default {
@@ -494,6 +495,11 @@ export default {
       lyrics: [],
       now: 0,
       clock: null,
+      lyricVisibilityListener: null,
+      lyricLoadGeneration: 0,
+      lyricRequestKeyValue: '',
+      activeLyricIndex: -1,
+      lastLyricProgress: null,
       systemTheme: 'light',
       themeMedia: null,
       lanRoom: null,
@@ -553,6 +559,11 @@ export default {
     },
     trackId() {
       return this.track.id;
+    },
+    lyricRequestKey() {
+      return `${this.currentItem?.queueItemId || 'player'}:${
+        this.trackId || ''
+      }`;
     },
     artist() {
       return this.track.ar?.length
@@ -629,7 +640,7 @@ export default {
       return this.copyLinkState === 'copied' ? '已复制' : '一键复制';
     },
     stageLyrics() {
-      const progress = this.now + this.lyricOffset;
+      const activeIndex = this.activeLyricIndex;
       if (!this.lyrics.length) {
         return {
           state: 'waiting',
@@ -640,7 +651,7 @@ export default {
           translation: '',
         };
       }
-      if (progress < this.lyrics[0].time) {
+      if (activeIndex < 0) {
         return {
           state: 'before-first',
           before: '♪',
@@ -650,11 +661,7 @@ export default {
           translation: '即将开始演唱。',
         };
       }
-      const activeIndex = this.lyrics.findIndex((line, index) => {
-        const next = this.lyrics[index + 1];
-        return progress >= line.time && (!next || progress < next.time);
-      });
-      if (activeIndex === -1) {
+      if (activeIndex >= this.lyrics.length) {
         return {
           state: 'after-final',
           before: this.lyrics[this.lyrics.length - 1].content,
@@ -675,10 +682,8 @@ export default {
     },
   },
   watch: {
-    trackId() {
-      this.loadLyrics();
-    },
-    currentItem() {
+    lyricRequestKey(value) {
+      this.lyricRequestKeyValue = value;
       this.loadLyrics();
     },
     lyricFontSize(value) {
@@ -686,6 +691,7 @@ export default {
     },
     lyricOffset(value) {
       this.lyricOffsetDraft = Number(value).toFixed(1);
+      this.syncLyricCursor(this.now + Number(value), true);
     },
   },
   created() {
@@ -726,9 +732,13 @@ export default {
       'MSFullscreenChange',
       this.handleFullscreenChange
     );
-    this.clock = window.setInterval(() => {
-      this.now = this.player.seek(null, false) || 0;
-    }, 100);
+    this.lyricRequestKeyValue = this.lyricRequestKey;
+    this.startLyricClock();
+    this.lyricVisibilityListener = () => {
+      if (document.hidden) window.clearInterval(this.clock);
+      else this.startLyricClock();
+    };
+    document.addEventListener('visibilitychange', this.lyricVisibilityListener);
   },
   beforeDestroy() {
     window.clearInterval(this.clock);
@@ -757,6 +767,10 @@ export default {
       ipcRenderer.removeListener('isMaximized', this.windowStateListener);
     window.clearTimeout(this.copyLinkTimer);
     window.clearTimeout(this.lyricControlsTimer);
+    document.removeEventListener(
+      'visibilitychange',
+      this.lyricVisibilityListener
+    );
   },
   methods: {
     async startDefaultSession() {
@@ -772,8 +786,37 @@ export default {
     syncSystemTheme() {
       this.systemTheme = this.themeMedia?.matches ? 'dark' : 'light';
     },
+    syncLyricCursor(progress = this.now + this.lyricOffset, force = false) {
+      if (!this.lyrics.length) {
+        this.activeLyricIndex = -1;
+        this.lastLyricProgress = progress;
+        return;
+      }
+      const previousIndex = force ? -1 : this.activeLyricIndex;
+      this.activeLyricIndex = findLyricIndex(
+        this.lyrics,
+        progress,
+        previousIndex
+      );
+      this.lastLyricProgress = progress;
+    },
+    startLyricClock() {
+      window.clearInterval(this.clock);
+      if (document.hidden) return;
+      const tick = () => {
+        this.now = this.player.seek(null, false) || 0;
+        this.syncLyricCursor(this.now + this.lyricOffset);
+      };
+      tick();
+      this.clock = window.setInterval(tick, 100);
+    },
     loadLyrics() {
+      const requestedKey = this.lyricRequestKey;
       const requestedTrackId = this.trackId;
+      const generation = ++this.lyricLoadGeneration;
+      this.lyricRequestKeyValue = requestedKey;
+      this.activeLyricIndex = -1;
+      this.lastLyricProgress = null;
       if (!this.trackId) {
         this.lyrics = [];
         return;
@@ -783,17 +826,30 @@ export default {
         Array.isArray(this.currentItem.lyrics)
       ) {
         this.lyrics = this.currentItem.lyrics.filter(line => line.content);
+        this.syncLyricCursor(this.now + this.lyricOffset, true);
         return;
       }
       getLyric(this.trackId)
         .then(data => {
-          if (requestedTrackId !== this.trackId) return;
+          if (
+            generation !== this.lyricLoadGeneration ||
+            requestedKey !== this.lyricRequestKey ||
+            requestedTrackId !== this.trackId
+          )
+            return;
           const parsed = data?.lrc?.lyric ? lyricParser(data).lyric : [];
           this.lyrics = parsed.filter(line => line.content);
+          this.syncLyricCursor(this.now + this.lyricOffset, true);
         })
         .catch(() => {
-          if (requestedTrackId !== this.trackId) return;
+          if (
+            generation !== this.lyricLoadGeneration ||
+            requestedKey !== this.lyricRequestKey ||
+            requestedTrackId !== this.trackId
+          )
+            return;
           this.lyrics = [];
+          this.syncLyricCursor();
         });
     },
     toggleSession() {
