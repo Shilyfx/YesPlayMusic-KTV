@@ -103,10 +103,10 @@ export default class KaraokeLocalLibrary {
     }
     try {
       const source = JSON.parse(await fs.readFile(this.indexPath, 'utf8'));
-      if (source?.version !== INDEX_VERSION || !Array.isArray(source.entries))
+      if (!source || source.version !== INDEX_VERSION || !Array.isArray(source.entries))
         return;
       source.entries.forEach(entry => {
-        if (entry?.localId && entry.track?.audioPath)
+        if (entry && entry.localId && entry.track && entry.track.audioPath)
           this.index.set(String(entry.localId), entry);
       });
       this.rebuildFromIndex();
@@ -230,9 +230,9 @@ export default class KaraokeLocalLibrary {
       previous.audioMtimeMs === audioStat.mtimeMs &&
       previous.audioSize === audioStat.size &&
       previous.lyricsPath === lyricsPath &&
-      previous.lyricsMtimeMs === (lyricsStat?.mtimeMs || 0) &&
+      previous.lyricsMtimeMs === ((lyricsStat && lyricsStat.mtimeMs) || 0) &&
       previous.coverPath === coverPath &&
-      previous.coverMtimeMs === (coverStat?.mtimeMs || 0);
+      previous.coverMtimeMs === ((coverStat && coverStat.mtimeMs) || 0);
     if (unchanged) return previous;
 
     const metadata = parseFileName(audioPath);
@@ -269,9 +269,9 @@ export default class KaraokeLocalLibrary {
       audioMtimeMs: audioStat.mtimeMs,
       audioSize: audioStat.size,
       lyricsPath,
-      lyricsMtimeMs: lyricsStat?.mtimeMs || 0,
+      lyricsMtimeMs: (lyricsStat && lyricsStat.mtimeMs) || 0,
       coverPath,
-      coverMtimeMs: coverStat?.mtimeMs || 0,
+      coverMtimeMs: (coverStat && coverStat.mtimeMs) || 0,
       track,
     };
   }
@@ -322,7 +322,10 @@ export default class KaraokeLocalLibrary {
   rebuildFromIndex() {
     const activeEntries = [...this.index.values()].filter(entry =>
       this.directories.some(directory =>
-        isWithin(directory, entry.audioPath || entry.track?.audioPath || '')
+        isWithin(
+          directory,
+          entry.audioPath || (entry.track && entry.track.audioPath) || ''
+        )
       )
     );
     this.tracks = new Map(
@@ -333,7 +336,10 @@ export default class KaraokeLocalLibrary {
     const byDirectory = new Map();
     activeEntries.forEach(entry => {
       const root = this.directories.find(directory =>
-        isWithin(directory, entry.audioPath || entry.track?.audioPath || '')
+        isWithin(
+          directory,
+          entry.audioPath || (entry.track && entry.track.audioPath) || ''
+        )
       );
       if (!root || !entry.track) return;
       if (!byDirectory.has(root)) byDirectory.set(root, []);
