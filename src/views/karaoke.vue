@@ -183,11 +183,25 @@
       >
         <p class="stage-kicker">LYRIC STAGE</p>
         <div class="stage-lines">
-          <p class="before-line">{{ stageLyrics.before }}</p>
-          <p class="active-line">{{ stageLyrics.active }}</p>
-          <p class="after-line">{{ stageLyrics.after }}</p>
+          <p :key="'before-' + stageLyrics.before" class="before-line">
+            {{ stageLyrics.before }}
+          </p>
+          <p :key="'active-' + stageLyrics.active" class="active-line">
+            {{ stageLyrics.active }}
+          </p>
+          <p :key="'after-' + stageLyrics.after" class="after-line">
+            {{ stageLyrics.after }}
+          </p>
+          <p
+            :key="'after-second-' + stageLyrics.afterSecond"
+            class="after-second-line"
+          >
+            {{ stageLyrics.afterSecond }}
+          </p>
         </div>
-        <p class="translation">{{ stageLyrics.translation }}</p>
+        <p v-if="stageLyrics.translation" class="translation">
+          {{ stageLyrics.translation }}
+        </p>
         <div class="stage-footer">
           <span>{{
             isSessionActive ? '本机队列由主机控制' : '开始本机 KTV 以管理待唱'
@@ -208,7 +222,9 @@
             {{ player.playing ? '暂停' : '播放' }}
           </button>
           <button type="button" @click="nextTrack">切歌</button>
-          <button type="button" @click="exitFullscreen">退出全屏</button>
+          <button type="button" @click.stop.prevent="exitFullscreen">
+            退出全屏
+          </button>
         </div>
       </section>
 
@@ -495,7 +511,8 @@ export default {
           before: '♪',
           active: '等待歌词加载',
           after: '播放带歌词的歌曲后，主舞台会在这里同步显示。',
-          translation: '歌词时间轴始终保留原始数据。',
+          afterSecond: '♪',
+          translation: '',
         };
       }
       if (progress < this.lyrics[0].time) {
@@ -504,7 +521,8 @@ export default {
           before: '♪',
           active: '等待第一句歌词',
           after: this.lyrics[0].content,
-          translation: '歌词将在原始时间轴到达时高亮。',
+          afterSecond: this.lyrics[1]?.content || '♪',
+          translation: '即将开始演唱。',
         };
       }
       const activeIndex = this.lyrics.findIndex((line, index) => {
@@ -517,6 +535,7 @@ export default {
           before: this.lyrics[this.lyrics.length - 1].content,
           active: '本首歌词已结束',
           after: '♪',
+          afterSecond: '♪',
           translation: '等待下一首待唱歌曲。',
         };
       }
@@ -525,8 +544,8 @@ export default {
         before: this.lyrics[activeIndex - 1]?.content || '♪',
         active: this.lyrics[activeIndex].content,
         after: this.lyrics[activeIndex + 1]?.content || '♪',
-        translation:
-          '歌词时间轴保持原始数据，点击歌词页仍会定位到原始播放时间。',
+        afterSecond: this.lyrics[activeIndex + 2]?.content || '♪',
+        translation: '',
       };
     },
   },
@@ -565,6 +584,18 @@ export default {
         .catch(() => {});
     }
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
+    document.addEventListener(
+      'webkitfullscreenchange',
+      this.handleFullscreenChange
+    );
+    document.addEventListener(
+      'mozfullscreenchange',
+      this.handleFullscreenChange
+    );
+    document.addEventListener(
+      'MSFullscreenChange',
+      this.handleFullscreenChange
+    );
     this.clock = window.setInterval(() => {
       this.now = this.player.seek(null, false) || 0;
     }, 100);
@@ -577,6 +608,18 @@ export default {
       this.themeMedia.removeListener(this.syncSystemTheme);
     document.removeEventListener(
       'fullscreenchange',
+      this.handleFullscreenChange
+    );
+    document.removeEventListener(
+      'webkitfullscreenchange',
+      this.handleFullscreenChange
+    );
+    document.removeEventListener(
+      'mozfullscreenchange',
+      this.handleFullscreenChange
+    );
+    document.removeEventListener(
+      'MSFullscreenChange',
       this.handleFullscreenChange
     );
     const ipcRenderer = this.electronIpc();
@@ -757,37 +800,59 @@ export default {
     },
     async enterKtvFullscreen() {
       const target = this.$refs.karaokeSurface;
-      if (!target || !target.requestFullscreen) return;
+      const request =
+        target &&
+        (target.requestFullscreen ||
+          target.webkitRequestFullscreen ||
+          target.mozRequestFullScreen ||
+          target.msRequestFullscreen);
+      if (!request) return;
       try {
-        if (document.fullscreenElement === target) {
-          await document.exitFullscreen();
+        const fullscreenElement = this.getFullscreenElement();
+        if (fullscreenElement === target) {
+          await this.exitFullscreen();
           return;
         }
-        if (document.fullscreenElement) await document.exitFullscreen();
-        await target.requestFullscreen();
+        if (fullscreenElement) await this.exitFullscreen();
+        await request.call(target);
       } catch (error) {
         this.$store.dispatch('showToast', '无法进入全屏：' + error.message);
       }
     },
     async enterLyricFullscreen() {
       const target = this.$refs.lyricStage;
-      if (!target || !target.requestFullscreen) return;
+      const request =
+        target &&
+        (target.requestFullscreen ||
+          target.webkitRequestFullscreen ||
+          target.mozRequestFullScreen ||
+          target.msRequestFullscreen);
+      if (!request) return;
       try {
-        if (document.fullscreenElement === target) {
-          await document.exitFullscreen();
+        const fullscreenElement = this.getFullscreenElement();
+        if (fullscreenElement === target) {
+          await this.exitFullscreen();
           return;
         }
-        if (document.fullscreenElement) await document.exitFullscreen();
-        await target.requestFullscreen();
+        if (fullscreenElement) await this.exitFullscreen();
+        await request.call(target);
       } catch (error) {
         this.$store.dispatch('showToast', '无法进入歌词全屏：' + error.message);
       }
     },
+    getFullscreenElement() {
+      return (
+        document.fullscreenElement ||
+        document.webkitFullscreenElement ||
+        document.mozFullScreenElement ||
+        document.msFullscreenElement ||
+        null
+      );
+    },
     handleFullscreenChange() {
-      this.isKtvFullscreen =
-        document.fullscreenElement === this.$refs.karaokeSurface;
-      this.isLyricFullscreen =
-        document.fullscreenElement === this.$refs.lyricStage;
+      const fullscreenElement = this.getFullscreenElement();
+      this.isKtvFullscreen = fullscreenElement === this.$refs.karaokeSurface;
+      this.isLyricFullscreen = fullscreenElement === this.$refs.lyricStage;
       if (this.isLyricFullscreen) this.showLyricControls();
       else this.lyricControlsVisible = false;
     },
@@ -799,7 +864,18 @@ export default {
       }, 4000);
     },
     async exitFullscreen() {
-      if (document.fullscreenElement) await document.exitFullscreen();
+      const exit =
+        document.exitFullscreen ||
+        document.webkitExitFullscreen ||
+        document.mozCancelFullScreen ||
+        document.msExitFullscreen;
+      try {
+        if (exit) await exit.call(document);
+      } catch (error) {
+        console.warn('[karaoke] fullscreen exit failed', error);
+      } finally {
+        this.handleFullscreenChange();
+      }
     },
     commitFontSizeDraft() {
       const value = normalizeLyricFontSize(this.lyricFontSizeDraft);
@@ -920,6 +996,23 @@ export default {
 .karaoke-header select,
 .karaoke-header .header-actions {
   -webkit-app-region: no-drag;
+}
+.karaoke-desktop button {
+  cursor: pointer;
+  transition: transform 160ms ease, background-color 160ms ease,
+    border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+.karaoke-desktop button:not(:disabled):hover {
+  border-color: rgba(108, 87, 233, 0.42);
+  box-shadow: 0 6px 16px rgba(56, 42, 110, 0.12);
+  transform: translateY(-1px);
+}
+.karaoke-desktop button:not(:disabled):active {
+  box-shadow: none;
+  transform: translateY(1px) scale(0.97);
+}
+.karaoke-desktop button:disabled {
+  cursor: not-allowed;
 }
 .back {
   color: var(--ktv-text-secondary);
@@ -1224,6 +1317,22 @@ button:disabled {
   overflow: hidden;
   text-align: center;
 }
+.stage::before {
+  position: absolute;
+  inset: 18% 22%;
+  border-radius: 50%;
+  background: radial-gradient(
+    circle,
+    rgba(108, 87, 233, 0.2),
+    rgba(194, 78, 155, 0.08) 45%,
+    transparent 72%
+  );
+  content: '';
+  filter: blur(42px);
+  opacity: 0.72;
+  pointer-events: none;
+  animation: ktv-stage-glow 8s ease-in-out infinite;
+}
 .stage::after {
   position: absolute;
   right: -11%;
@@ -1237,6 +1346,28 @@ button:disabled {
     transparent 67%
   );
   content: '';
+}
+@keyframes ktv-stage-glow {
+  0%,
+  100% {
+    opacity: 0.52;
+    transform: translate3d(-4%, 0, 0) scale(0.94);
+  }
+  50% {
+    opacity: 0.82;
+    transform: translate3d(4%, -2%, 0) scale(1.08);
+  }
+}
+@keyframes ktv-active-lyric {
+  0%,
+  100% {
+    text-shadow: 0 0 24px rgba(162, 146, 255, 0.22);
+    transform: translateY(0);
+  }
+  50% {
+    text-shadow: 0 0 40px rgba(171, 156, 255, 0.46);
+    transform: translateY(-2px);
+  }
 }
 .stage-kicker {
   position: absolute;
@@ -1257,6 +1388,15 @@ button:disabled {
   color: var(--ktv-text-muted);
   font-size: clamp(12px, calc(var(--ktv-active-lyric-size) * 0.58), 38px);
   font-weight: 600;
+  transition: color 220ms ease, opacity 220ms ease, transform 220ms ease;
+}
+.after-second-line {
+  margin: 14px 0 0;
+  color: var(--ktv-text-muted);
+  font-size: clamp(10px, calc(var(--ktv-active-lyric-size) * 0.42), 28px);
+  font-weight: 500;
+  opacity: 0.58;
+  transition: color 220ms ease, opacity 220ms ease, transform 220ms ease;
 }
 .active-line {
   margin: 22px 0;
@@ -1265,12 +1405,14 @@ button:disabled {
   font-weight: 800;
   line-height: 1.18;
   text-shadow: 0 0 28px rgba(162, 146, 255, 0.28);
+  animation: ktv-active-lyric 3.6s ease-in-out infinite;
 }
 .stage[data-lyric-state='before-first'] .active-line,
 .stage[data-lyric-state='waiting'] .active-line,
 .stage[data-lyric-state='after-final'] .active-line {
   color: var(--ktv-text-secondary);
   text-shadow: none;
+  animation: none;
 }
 .translation {
   margin: 4px auto 0;
@@ -1328,6 +1470,14 @@ button:disabled {
 .stage:fullscreen .before-line,
 .stage:fullscreen .after-line {
   font-size: clamp(20px, calc(var(--ktv-active-lyric-size) * 0.52 + 1vw), 58px);
+}
+.stage:fullscreen .after-second-line {
+  font-size: clamp(
+    16px,
+    calc(var(--ktv-active-lyric-size) * 0.38 + 0.6vw),
+    42px
+  );
+  opacity: 0.5;
 }
 .stage:fullscreen .translation {
   font-size: clamp(

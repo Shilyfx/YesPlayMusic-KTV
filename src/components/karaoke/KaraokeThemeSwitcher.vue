@@ -50,6 +50,18 @@ export default {
     color: var(--ktv-text-secondary);
     font-size: 12px;
     font-weight: 600;
+    transition: transform 160ms ease, background-color 160ms ease,
+      box-shadow 160ms ease, color 160ms ease;
+  }
+
+  button:not(.active):hover {
+    background: var(--ktv-glass-strong);
+    color: var(--ktv-text-primary);
+    transform: translateY(-1px);
+  }
+
+  button:not(.active):active {
+    transform: translateY(1px) scale(0.97);
   }
 
   button.active {

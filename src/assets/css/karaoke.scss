@@ -51,6 +51,27 @@ html.karaoke-remote-route {
   backdrop-filter: blur(var(--ktv-blur)) saturate(135%);
 }
 
+.karaoke-surface button {
+  cursor: pointer;
+  transition: transform 160ms ease, background-color 160ms ease,
+    border-color 160ms ease, box-shadow 160ms ease, color 160ms ease;
+}
+
+.karaoke-surface button:not(:disabled):hover {
+  border-color: rgba(108, 87, 233, 0.42);
+  box-shadow: 0 6px 16px rgba(56, 42, 110, 0.12);
+  transform: translateY(-1px);
+}
+
+.karaoke-surface button:not(:disabled):active {
+  box-shadow: none;
+  transform: translateY(1px) scale(0.97);
+}
+
+.karaoke-surface button:disabled {
+  cursor: not-allowed;
+}
+
 .karaoke-surface button:focus-visible,
 .karaoke-surface input:focus-visible {
   outline: 2px solid var(--ktv-accent);
