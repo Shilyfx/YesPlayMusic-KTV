@@ -1,4 +1,5 @@
 import { app, dialog, globalShortcut, ipcMain, shell } from 'electron';
+import path from 'path';
 import { registerGlobalShortcut } from '@/electron/globalShortcut';
 import cloneDeep from 'lodash/cloneDeep';
 import shortcuts from '@/utils/shortcuts';
@@ -163,9 +164,21 @@ export function initIpcMain(
   // UNM.enableLogging(UNM.LoggingType.ConsoleEnv);
   const karaokeLanLifecycle = new KaraokeLanLifecycle(karaokeServer);
   const karaokeLocalLibrary = new KaraokeLocalLibrary(
-    store.get('settings.localKaraokeDirectories', [])
+    store.get('settings.localKaraokeDirectories', []),
+    {
+      indexPath: path.join(app.getPath('userData'), 'karaoke-local-index.json'),
+    }
   );
   karaokeServer.setLocalLibrary(karaokeLocalLibrary);
+  const decorateLocalPlaylists = playlists =>
+    playlists.map(playlist => ({
+      ...playlist,
+      tracks: (playlist.tracks || []).map(track => ({
+        ...track,
+        coverUrl:
+          karaokeServer.getLocalCoverUrl(track.localId || track.trackId) || '',
+      })),
+    }));
   ipcMain.on('renderer:ready', (_, payload = {}) => {
     if (!runtime) return;
     runtime.renderer = 'ready';
@@ -300,20 +313,20 @@ export function initIpcMain(
     return { ok: true, directories };
   });
 
+  ipcMain.handle('karaoke:local:list', async () => ({
+    ok: true,
+    directories: karaokeLocalLibrary.listDirectories(),
+    playlists: decorateLocalPlaylists(
+      await karaokeLocalLibrary.ensureIndexed()
+    ),
+  }));
+
   ipcMain.handle('karaoke:local:scan', async () => {
     const playlists = await karaokeLocalLibrary.scan();
     return {
       ok: true,
       directories: karaokeLocalLibrary.listDirectories(),
-      playlists: playlists.map(playlist => ({
-        ...playlist,
-        tracks: (playlist.tracks || []).map(track => ({
-          ...track,
-          coverUrl:
-            karaokeServer.getLocalCoverUrl(track.localId || track.trackId) ||
-            '',
-        })),
-      })),
+      playlists: decorateLocalPlaylists(playlists),
     };
   });
 

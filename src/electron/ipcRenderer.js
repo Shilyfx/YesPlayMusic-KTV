@@ -217,7 +217,7 @@ async function hostCatalog(action, payload = {}, store = null) {
   if (action === 'localPlaylists') {
     if (process.env.IS_ELECTRON !== true || !window.require) return [];
     const localElectron = window.require('electron');
-    const result = await localElectron.ipcRenderer.invoke('karaoke:local:scan');
+    const result = await localElectron.ipcRenderer.invoke('karaoke:local:list');
     return result?.playlists || [];
   }
   throw new Error('KTV_NOT_ACTIVE');

@@ -183,7 +183,7 @@
             type="button"
             class="room-tool"
             :disabled="localLoading"
-            @click="loadLocalLibrary"
+            @click="scanLocalLibrary"
           >
             {{ localLoading ? '扫描中…' : '重新扫描' }}
           </button>
@@ -697,7 +697,7 @@ export default {
     this.loadLyrics();
     this.loadLanRoom();
     if (!this.isSessionActive) this.startDefaultSession();
-    if (this.isElectron) this.loadLocalLibrary();
+    if (this.isElectron) this.loadLocalLibrarySummary();
     this.lyricFontSizeDraft = String(this.lyricFontSize);
     this.lyricOffsetDraft = this.lyricOffset.toFixed(1);
     const ipcRenderer = this.electronIpc();
@@ -835,19 +835,33 @@ export default {
         console.warn('[karaoke] LAN status unavailable', error);
       }
     },
-    async loadLocalLibrary() {
+    applyLocalLibraryResult(result) {
+      this.localDirectories = result?.directories || [];
+      this.localPlaylists = result?.playlists || [];
+      this.localTrackCount = this.localPlaylists.reduce(
+        (count, playlist) => count + Number(playlist.trackCount || 0),
+        0
+      );
+    },
+    async loadLocalLibrarySummary() {
+      const ipcRenderer = this.electronIpc();
+      if (!ipcRenderer) return;
+      this.localError = '';
+      try {
+        const result = await ipcRenderer.invoke('karaoke:local:list');
+        this.applyLocalLibraryResult(result);
+      } catch (error) {
+        this.localError = error.message || '本地歌单读取失败';
+      }
+    },
+    async scanLocalLibrary() {
       const ipcRenderer = this.electronIpc();
       if (!ipcRenderer) return;
       this.localLoading = true;
       this.localError = '';
       try {
         const result = await ipcRenderer.invoke('karaoke:local:scan');
-        this.localDirectories = result?.directories || [];
-        this.localPlaylists = result?.playlists || [];
-        this.localTrackCount = this.localPlaylists.reduce(
-          (count, playlist) => count + Number(playlist.trackCount || 0),
-          0
-        );
+        this.applyLocalLibraryResult(result);
       } catch (error) {
         this.localError = error.message || '本地歌单扫描失败';
       } finally {
@@ -860,13 +874,13 @@ export default {
       const result = await ipcRenderer.invoke(
         'karaoke:local:choose-directories'
       );
-      if (result?.ok) await this.loadLocalLibrary();
+      if (result?.ok) await this.scanLocalLibrary();
     },
     async removeLocalDirectory(directory) {
       const ipcRenderer = this.electronIpc();
       if (!ipcRenderer) return;
       await ipcRenderer.invoke('karaoke:local:remove-directory', directory);
-      await this.loadLocalLibrary();
+      await this.scanLocalLibrary();
     },
     async loadLanCandidates() {
       const ipcRenderer = this.electronIpc();
