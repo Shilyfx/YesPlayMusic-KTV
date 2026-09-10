@@ -138,7 +138,7 @@ function initializeModuleTabs() {
 function initializeShell() {
   const theme = localStorage.getItem('yesplaymusic-ktv-theme') || 'auto';
   document.documentElement.dataset.theme = theme;
-  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1 data-room-name>Shilyfx的KTV</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div><div class="local-playlist-block"><div class="section-heading"><div><p class="section-label">主机本地目录</p><h3>本地歌单</h3></div><button class="quiet" type="button" data-local-playlists-refresh>刷新本地歌单</button></div><label>选择本地歌单<select data-local-playlist><option value="">正在加载本地歌单…</option></select></label><div class="playlist-track-list" data-local-playlist-tracks><div class="hint">主机尚未配置本地音乐目录。</div></div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
+  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1 data-room-name>Shilyfx的KTV</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div><div class="local-playlist-block"><div class="section-heading"><div><p class="section-label">主机本地目录</p><h3>本地歌单</h3></div><button class="quiet" type="button" data-local-playlists-refresh>刷新本地歌单</button></div><label>选择本地歌单<select data-local-playlist><option value="">正在加载本地歌单…</option></select></label><div class="playlist-track-list" data-local-playlist-tracks><div class="hint">主机尚未配置本地音乐目录。</div></div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section></section></main>`;
   app.insertAdjacentHTML(
     'beforeend',
     '<div class="preview-float" data-preview-float hidden><button type="button" class="preview-float-toggle" data-preview-toggle="true" aria-label="播放试听" title="播放或暂停试听">▶</button><strong data-preview-title>试听</strong><button type="button" class="preview-float-close" data-preview-stop="true" aria-label="关闭试听" title="关闭试听">×</button><audio data-preview-audio preload="none"></audio></div>'
@@ -224,6 +224,7 @@ function initializeShell() {
     else if (button.hasAttribute('data-preview-toggle'))
       togglePreviewPlayback();
     else if (button.hasAttribute('data-preview-stop')) stopPreview();
+    else if (button.hasAttribute('data-next-track')) nextTrack();
     else if (button.dataset.recommendation)
       selectRecommendation(button.dataset.recommendation);
     else if (button.dataset.artist) selectArtist(button.dataset.artist);
@@ -247,13 +248,13 @@ function renderNowPlaying() {
   const target = app.querySelector('[data-now-playing]');
   target.innerHTML = `<p class="section-label">正在演唱</p>${
     current
-      ? `<div class="track-title"><div class="record">♫</div><div><h2>${escape(
+      ? `<div class="now-playing-row"><div class="track-title"><div class="record">♫</div><div><h2>${escape(
           current.name
         )}</h2><p>${escape(
           (current.artists || []).join(' / ')
         )}</p><small>由 ${escape(
           current.requesterName || '主机'
-        )} 点播</small></div></div>`
+        )} 点播</small></div></div><button type="button" class="next-track-button" data-next-track="true">切歌</button></div>`
       : '<div class="empty">等待主机选择歌曲</div>'
   }`;
 }
@@ -268,8 +269,6 @@ function renderQueue() {
         )
         .join('')
     : '<div class="empty">还没有待唱歌曲</div>';
-  app.querySelector('[data-guest-name]').textContent =
-    client?.displayName || '访客';
 }
 
 function renderHistory() {
@@ -1036,6 +1035,21 @@ async function mutate(path, method) {
     await refresh();
   } catch (_) {
     setNotice('操作未完成，队列可能已发生变化。', 'error');
+  }
+}
+
+async function nextTrack() {
+  try {
+    const response = await api('/next', { method: 'POST' });
+    setNotice(
+      response.item
+        ? `已切歌，开始播放${response.item.name}`
+        : '已切歌，等待下一首歌曲。',
+      'success'
+    );
+    await refresh();
+  } catch (_) {
+    setNotice('切歌未完成，队列可能已发生变化。', 'error');
   }
 }
 

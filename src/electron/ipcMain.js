@@ -214,6 +214,7 @@ export function initIpcMain(
         remoteCommand('remove', { queueItemId, expected }),
       front: (queueItemId, expected) =>
         remoteCommand('front', { queueItemId, expected }),
+      next: expected => remoteCommand('next', { expected }),
     },
   });
   karaokeServer.setRemoteApi(new RemoteApiRouter(remoteService), remoteService);

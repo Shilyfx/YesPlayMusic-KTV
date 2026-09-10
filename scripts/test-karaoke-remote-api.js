@@ -149,6 +149,10 @@ async function run() {
       waitingItems.unshift(waitingItems.splice(index, 1)[0]);
       return true;
     },
+    next: async expected => {
+      assertExpectedSession(expected);
+      return null;
+    },
   };
   const bridgeCalls = [];
   const hostCatalogBridge = async (action, payload) => {
@@ -324,6 +328,11 @@ async function run() {
   });
   assert.equal(localRequest.status, 201);
   assert.equal(localRequest.body.item.source, 'local');
+  const next = await request(port, 'POST', '/ktv/api/next', {
+    token: guestA.body.clientToken,
+  });
+  assert.equal(next.status, 200);
+  assert.equal(next.body.item, null);
   const playlistResponse = await request(port, 'GET', '/ktv/api/playlists', {
     token: guestA.body.clientToken,
   });

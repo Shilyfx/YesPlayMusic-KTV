@@ -233,6 +233,10 @@ export function ipcRenderer(vueInstance) {
           assertExpectedKaraokeSession(manager, command.payload.expected);
           result = manager.moveQueueItemToFront(command.payload.queueItemId);
           break;
+        case 'next':
+          assertExpectedKaraokeSession(manager, command.payload.expected);
+          result = await manager.next();
+          break;
         case 'catalog':
           result = await hostCatalog(
             command.payload.action,

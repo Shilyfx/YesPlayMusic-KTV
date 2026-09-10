@@ -705,6 +705,19 @@ export class KaraokeRemoteService {
     )
       throw new Error('WAITING_ITEM_NOT_FOUND');
   }
+
+  async next(client) {
+    if (!this.limiter.check(`mutation:${client.clientId}`, 20))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('mutation:room', 120))
+      throw new Error('RATE_LIMIT');
+    this.client(client.clientToken);
+    const item = await this.managerBridge.next({
+      sessionId: client.sessionId,
+      generation: client.generation,
+    });
+    return item ? this.sanitizeItem(item) : null;
+  }
 }
 
 export class RemoteApiRouter {
@@ -851,6 +864,11 @@ export class RemoteApiRouter {
       ) {
         await this.service.front(client, item[1]);
         return json(response, 200, { ok: true });
+      }
+      if (url.pathname === '/ktv/api/next' && request.method === 'POST') {
+        return json(response, 200, {
+          item: await this.service.next(client),
+        });
       }
       return error(response, 404, 'NOT_FOUND');
     } catch (exception) {
