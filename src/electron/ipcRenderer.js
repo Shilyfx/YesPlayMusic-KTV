@@ -5,6 +5,7 @@ import { getRecommendPlayList } from '@/utils/playList';
 import { getArtist } from '@/api/artist';
 import { userPlaylist } from '@/api/user';
 import { isAccountLoggedIn } from '@/utils/auth';
+import createUserPlaylistCache from './userPlaylistCache';
 
 export function assertExpectedKaraokeSession(manager, expected) {
   const session = manager.getSnapshot().session;
@@ -51,6 +52,26 @@ function safeArtist(artist) {
     albumCount: Number(artist.albumSize || artist.albumCount || 0),
     mvCount: Number(artist.mvSize || artist.mvCount || 0),
   };
+}
+
+const userPlaylistCache = createUserPlaylistCache();
+
+async function getUserPlaylistAllowlist(store, { force = false } = {}) {
+  if (!isAccountLoggedIn()) throw new Error('HOST_NOT_LOGGED_IN');
+  const uid = store?.state?.data?.user?.userId;
+  if (!uid) throw new Error('HOST_NOT_LOGGED_IN');
+  return userPlaylistCache({
+    userId: uid,
+    force,
+    fetchPlaylists: async () => {
+      const data = await userPlaylist({
+        uid,
+        limit: 2000,
+        timestamp: Date.now(),
+      });
+      return (data?.playlist || []).map(safePlaylist);
+    },
+  });
 }
 
 async function hostCatalog(action, payload = {}, store = null) {
@@ -147,28 +168,13 @@ async function hostCatalog(action, payload = {}, store = null) {
     return safeCatalogTrack(track);
   }
   if (action === 'playlists') {
-    if (!isAccountLoggedIn()) throw new Error('HOST_NOT_LOGGED_IN');
-    const uid = store?.state?.data?.user?.userId;
-    if (!uid) throw new Error('HOST_NOT_LOGGED_IN');
-    const data = await userPlaylist({
-      uid,
-      limit: 2000,
-      timestamp: Date.now(),
-    });
-    return (data?.playlist || []).map(safePlaylist);
+    return getUserPlaylistAllowlist(store, { force: Boolean(payload.force) });
   }
   if (action === 'playlistTracks') {
-    if (!isAccountLoggedIn()) throw new Error('HOST_NOT_LOGGED_IN');
     const playlistId = String(payload.playlistId || '');
     if (!/^\d{1,20}$/.test(playlistId)) throw new Error('PLAYLIST_NOT_FOUND');
-    const uid = store?.state?.data?.user?.userId;
-    if (!uid) throw new Error('HOST_NOT_LOGGED_IN');
-    const playlists = await userPlaylist({
-      uid,
-      limit: 2000,
-      timestamp: Date.now(),
-    });
-    const allowed = (playlists?.playlist || []).some(
+    const playlists = await getUserPlaylistAllowlist(store);
+    const allowed = playlists.some(
       playlist => String(playlist.id) === playlistId
     );
     if (!allowed) throw new Error('PLAYLIST_NOT_FOUND');

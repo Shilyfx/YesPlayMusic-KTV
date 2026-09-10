@@ -128,6 +128,8 @@ export class KaraokeCatalogService {
     this.trackCache = new Map();
     this.localTrackCache = new Map();
     this.availabilityCache = new Map();
+    this.trackDetailPromises = new Map();
+    this.availabilityPromises = new Map();
     this.recommendationPlaylistIds = new Set();
     this.toplistIds = new Set();
   }
@@ -180,24 +182,31 @@ export class KaraokeCatalogService {
     if (local) return local;
     const cached = this.trackCache.get(key);
     if (cached && cached.expiresAt > Date.now()) return cached.value;
-    const data = this.hostCatalogBridge
-      ? await this.hostCatalogBridge('trackDetail', {
-          trackId: String(trackId),
-        })
-      : await this.upstream(`/song/detail?ids=${encodeURIComponent(trackId)}`);
-    const song = this.hostCatalogBridge ? data : data.songs && data.songs[0];
-    if (!song) throw new Error('TRACK_NOT_FOUND');
-    const track = sanitizeTrack(song);
-    this.trackCache.set(track.trackId, {
-      value: track,
-      expiresAt: Date.now() + CACHE_TTL,
+    const pending = this.trackDetailPromises.get(key);
+    if (pending) return pending;
+    const request = (async () => {
+      const data = this.hostCatalogBridge
+        ? await this.hostCatalogBridge('trackDetail', { trackId: key })
+        : await this.upstream(`/song/detail?ids=${encodeURIComponent(key)}`);
+      const song = this.hostCatalogBridge ? data : data.songs && data.songs[0];
+      if (!song) throw new Error('TRACK_NOT_FOUND');
+      const track = sanitizeTrack(song);
+      this.trackCache.set(track.trackId, {
+        value: track,
+        expiresAt: Date.now() + CACHE_TTL,
+      });
+      return track;
+    })();
+    this.trackDetailPromises.set(key, request);
+    return request.finally(() => {
+      if (this.trackDetailPromises.get(key) === request)
+        this.trackDetailPromises.delete(key);
     });
-    return track;
   }
 
-  async playlists() {
+  async playlists({ force = false } = {}) {
     if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
-    const playlists = await this.hostCatalogBridge('playlists');
+    const playlists = await this.hostCatalogBridge('playlists', { force });
     return Array.isArray(playlists) ? playlists : [];
   }
 
@@ -293,39 +302,50 @@ export class KaraokeCatalogService {
       });
       return 'playable';
     }
+    const pending = this.availabilityPromises.get(key);
+    if (pending) return pending;
     const cached = this.availabilityCache.get(key);
     if (!fresh && cached && cached.expiresAt > Date.now()) return cached.value;
-    try {
-      if (this.hostCatalogBridge) {
-        const value = await this.hostCatalogBridge('availability', {
-          trackId: key,
-        });
-        if (!['playable', 'trial-only', 'unavailable', 'error'].includes(value))
-          throw new Error('UPSTREAM');
+    const request = (async () => {
+      try {
+        if (this.hostCatalogBridge) {
+          const value = await this.hostCatalogBridge('availability', {
+            trackId: key,
+          });
+          if (
+            !['playable', 'trial-only', 'unavailable', 'error'].includes(value)
+          )
+            throw new Error('UPSTREAM');
+          this.availabilityCache.set(key, {
+            value,
+            expiresAt: Date.now() + CACHE_TTL,
+          });
+          return value;
+        }
+        const data = await this.upstream(
+          `/song/url?id=${encodeURIComponent(key)}`
+        );
+        const source = data.data && data.data[0];
+        const value =
+          !source || !source.url
+            ? 'unavailable'
+            : source.freeTrialInfo
+            ? 'trial-only'
+            : 'playable';
         this.availabilityCache.set(key, {
           value,
           expiresAt: Date.now() + CACHE_TTL,
         });
         return value;
+      } catch (_) {
+        return 'error';
       }
-      const data = await this.upstream(
-        `/song/url?id=${encodeURIComponent(key)}`
-      );
-      const source = data.data && data.data[0];
-      const value =
-        !source || !source.url
-          ? 'unavailable'
-          : source.freeTrialInfo
-          ? 'trial-only'
-          : 'playable';
-      this.availabilityCache.set(key, {
-        value,
-        expiresAt: Date.now() + CACHE_TTL,
-      });
-      return value;
-    } catch (_) {
-      return 'error';
-    }
+    })();
+    this.availabilityPromises.set(key, request);
+    return request.finally(() => {
+      if (this.availabilityPromises.get(key) === request)
+        this.availabilityPromises.delete(key);
+    });
   }
 
   peekAvailability(trackId) {
@@ -543,12 +563,12 @@ export class KaraokeRemoteService {
     return this.withAvailability(await this.catalog.search(query));
   }
 
-  async playlists(client) {
+  async playlists(client, options = {}) {
     if (!this.limiter.check(`playlists:${client.clientId}`, 6))
       throw new Error('RATE_LIMIT');
     if (!this.limiter.check('playlists:room', 24))
       throw new Error('RATE_LIMIT');
-    return this.catalog.playlists();
+    return this.catalog.playlists(options);
   }
 
   async localPlaylists(client) {
@@ -787,7 +807,9 @@ export class RemoteApiRouter {
       }
       if (url.pathname === '/ktv/api/playlists' && request.method === 'GET') {
         return json(response, 200, {
-          playlists: await this.service.playlists(client),
+          playlists: await this.service.playlists(client, {
+            force: url.searchParams.get('force') === '1',
+          }),
         });
       }
       if (
