@@ -482,6 +482,7 @@ export class KaraokeRemoteService {
     if (!this.limiter.check('state:room', 240)) throw new Error('RATE_LIMIT');
     const snapshot = await this.managerBridge.snapshot();
     return {
+      revision: snapshot.revision ?? 0,
       room: {
         active: true,
         code: this.getRoom().code,

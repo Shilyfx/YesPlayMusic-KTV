@@ -1,4 +1,5 @@
 import './styles.css';
+import createRefreshScheduler from './refreshScheduler';
 
 const app = document.querySelector('#remote-app');
 const apiRoot = '/ktv/api';
@@ -9,6 +10,9 @@ let state;
 let searchTimer;
 let searchAbort;
 let refreshTimer;
+let roomEnded = false;
+let lastStateRevision = null;
+let renderedNowPlayingKey = null;
 let retryDelay = 2000;
 let searchQuery = '';
 let searchResults = [];
@@ -56,6 +60,10 @@ let artistSelections = [];
 let selectedModule = 'search';
 let previewTrackId = '';
 let previewGeneration = 0;
+const refreshScheduler = createRefreshScheduler(
+  () => performRefresh(),
+  () => !roomEnded
+);
 
 function escape(value = '') {
   return String(value).replace(
@@ -160,11 +168,7 @@ function initializeShell() {
         if (float) float.hidden = true;
       }
       renderPreviewControls();
-      renderResults(searchResults);
-      renderPlaylistTracks();
-      renderLocalPlaylistTracks();
-      renderRecommendationTracks();
-      renderArtistTracks();
+      updatePreviewButtons();
     })
   );
   app
@@ -326,6 +330,16 @@ function renderNowPlaying() {
   if (roomTitle) {
     roomTitle.textContent = state?.room?.name || 'Shilyfx的KTV';
   }
+  const currentKey = current
+    ? [
+        current.queueItemId,
+        current.trackId,
+        current.status,
+        current.requesterId,
+      ].join('|')
+    : 'empty';
+  if (currentKey === renderedNowPlayingKey) return;
+  renderedNowPlayingKey = currentKey;
   const target = app.querySelector('[data-now-playing]');
   const coverMarkup = current?.coverUrl
     ? `<img class="record cover-art" src="${escape(
@@ -413,11 +427,7 @@ function stopPreview() {
   }
   if (float) float.hidden = true;
   renderPreviewControls();
-  renderResults(searchResults);
-  renderPlaylistTracks();
-  renderLocalPlaylistTracks();
-  renderRecommendationTracks();
-  renderArtistTracks();
+  updatePreviewButtons();
 }
 
 async function previewTrack(trackId) {
@@ -431,11 +441,7 @@ async function previewTrack(trackId) {
       if (audio.src) audio.play().catch(() => {});
     } else audio.pause();
     renderPreviewControls();
-    renderResults(searchResults);
-    renderPlaylistTracks();
-    renderLocalPlaylistTracks();
-    renderRecommendationTracks();
-    renderArtistTracks();
+    updatePreviewButtons();
     return;
   }
   previewTrackId = id;
@@ -444,11 +450,7 @@ async function previewTrack(trackId) {
   title.textContent = track?.name || '歌曲试听';
   float.hidden = false;
   renderPreviewControls();
-  renderResults(searchResults);
-  renderPlaylistTracks();
-  renderLocalPlaylistTracks();
-  renderRecommendationTracks();
-  renderArtistTracks();
+  updatePreviewButtons();
   audio.pause();
   audio.removeAttribute('src');
   audio.load();
@@ -472,11 +474,7 @@ async function previewTrack(trackId) {
     previewTrackId = '';
     float.hidden = true;
     renderPreviewControls();
-    renderResults(searchResults);
-    renderPlaylistTracks();
-    renderLocalPlaylistTracks();
-    renderRecommendationTracks();
-    renderArtistTracks();
+    updatePreviewButtons();
     setNotice(
       error.code === 'TRACK_NOT_PLAYABLE'
         ? '这首歌暂时没有可用试听音源。'
@@ -493,6 +491,15 @@ function renderPreviewControls() {
   const playing = !audio.paused;
   toggle.textContent = playing ? 'Ⅱ' : '▶';
   toggle.setAttribute('aria-label', playing ? '暂停试听' : '播放试听');
+}
+
+function updatePreviewButtons() {
+  app.querySelectorAll('[data-preview]').forEach(button => {
+    const active = String(button.dataset.preview) === String(previewTrackId);
+    button.textContent = active ? '暂停试听' : '试听';
+    button.setAttribute('aria-pressed', String(active));
+    button.classList.toggle('active', active);
+  });
 }
 
 function togglePreviewPlayback() {
@@ -523,7 +530,9 @@ function trackRequestMarkup(track, className = '') {
       ? ''
       : `<button class="quiet preview-button" data-preview="${escape(
           trackId
-        )}">${previewTrackId === trackId ? '暂停试听' : '试听'}</button>`;
+        )}" aria-pressed="${previewTrackId === trackId}">${
+          previewTrackId === trackId ? '暂停试听' : '试听'
+        }</button>`;
   const sourceLabel = track.source === 'local' ? '本地歌曲 · ' : '';
   return `<article class="result-card ${className}"><div class="result-info"><strong>${escape(
     track.name
@@ -1279,7 +1288,7 @@ async function requestSong(trackId, priority) {
       priority ? `${name}点歌成功，已优先加入等待队列` : `${name}点歌成功`,
       'success'
     );
-    await refresh();
+    await requestRefresh();
   } catch (error) {
     setNotice(
       error.code === 'TRACK_NOT_PLAYABLE'
@@ -1297,7 +1306,7 @@ async function mutate(path, method) {
       method === 'DELETE' ? '已取消点歌。' : '已调整到等待队列前列。',
       'success'
     );
-    await refresh();
+    await requestRefresh();
   } catch (_) {
     setNotice('操作未完成，队列可能已发生变化。', 'error');
   }
@@ -1312,7 +1321,7 @@ async function nextTrack() {
         : '已切歌，等待下一首歌曲。',
       'success'
     );
-    await refresh();
+    await requestRefresh();
   } catch (_) {
     setNotice('切歌未完成，队列可能已发生变化。', 'error');
   }
@@ -1320,17 +1329,23 @@ async function nextTrack() {
 
 function scheduleRefresh(delay) {
   clearTimeout(refreshTimer);
-  refreshTimer = setTimeout(refresh, delay);
+  if (roomEnded) return;
+  refreshTimer = setTimeout(() => requestRefresh(), delay);
 }
 
-async function refresh() {
+async function performRefresh() {
   try {
     state = await api('/state');
-    playedHistory = state?.history || [];
     retryDelay = 2000;
+    const revision = state?.revision;
+    const changed = revision == null || revision !== lastStateRevision;
+    lastStateRevision = revision == null ? lastStateRevision : revision;
     renderNowPlaying();
-    renderHistory();
-    renderQueue();
+    if (changed) {
+      playedHistory = state?.history || [];
+      renderHistory();
+      renderQueue();
+    }
     scheduleRefresh(document.hidden ? 5000 : 1500);
   } catch (error) {
     if (error.code === 'INVALID_CLIENT_TOKEN' || error.code === 'ROOM_ENDED')
@@ -1340,7 +1355,12 @@ async function refresh() {
   }
 }
 
+function requestRefresh() {
+  return refreshScheduler();
+}
+
 function showEnded() {
+  roomEnded = true;
   clearTimeout(refreshTimer);
   sessionStorage.removeItem(storageKey);
   app.innerHTML =
@@ -1363,7 +1383,7 @@ async function bootstrap() {
       history.replaceState({}, '', window.location.pathname);
     }
     initializeShell();
-    await refresh();
+    await requestRefresh();
     await Promise.all([
       loadRecommendations(),
       loadPlaylists(),
@@ -1376,6 +1396,6 @@ async function bootstrap() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && client) refresh();
+  if (!document.hidden && client) requestRefresh();
 });
 bootstrap();

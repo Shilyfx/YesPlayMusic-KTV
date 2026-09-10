@@ -10,6 +10,7 @@ export default class KaraokeManager {
     this.session = new KaraokeSession();
     this.queue = new KaraokeQueue();
     this.listeners = [];
+    this.revision = 0;
     this.transitionPromise = null;
     this.transitionId = 0;
     this.playerAdapter.onEnded(() => this.handleTrackEnded());
@@ -38,6 +39,7 @@ export default class KaraokeManager {
       waitingItems: this.queue.waitingItems.map(clone),
       historyItems: this.queue.historyItems.map(clone),
       queueCount: this.queue.waitingItems.length,
+      revision: this.revision,
     };
   }
 
@@ -50,6 +52,7 @@ export default class KaraokeManager {
   }
 
   notify() {
+    this.revision += 1;
     const snapshot = this.getSnapshot();
     this.listeners.forEach(listener => listener(snapshot));
   }
