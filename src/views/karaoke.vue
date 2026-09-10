@@ -89,7 +89,7 @@
 
     <section
       v-if="isSessionActive && (!lanRoom || showRoomCode)"
-      class="room-access glass-panel"
+      class="room-access room-access-overlay glass-panel"
       :class="{ 'room-access-pending': !lanRoom }"
     >
       <div v-if="lanRoom" class="room-qr-wrap">
@@ -165,7 +165,7 @@
 
     <section
       v-if="isElectron && showLocalLibraryPanel"
-      class="local-library glass-panel"
+      class="local-library local-library-overlay glass-panel"
     >
       <div class="local-library-heading">
         <div>
@@ -207,6 +207,15 @@
             >×</button
           >
         </span>
+      </div>
+      <div
+        v-if="localLoading"
+        class="local-scan-progress"
+        role="status"
+        aria-live="polite"
+      >
+        <span class="local-scan-progress-bar" aria-hidden="true"></span>
+        <span>正在扫描目录并更新本地索引…</span>
       </div>
       <p v-if="localError" class="room-warning">{{ localError }}</p>
       <p v-else class="local-library-status">
@@ -1403,6 +1412,20 @@ export default {
   padding: 12px;
   box-sizing: border-box;
 }
+@media (min-width: 761px) {
+  .room-access-overlay,
+  .local-library-overlay {
+    position: fixed;
+    top: 92px;
+    left: 50%;
+    z-index: 20;
+    max-height: calc(100vh - 112px);
+    overflow: auto;
+    margin: 0;
+    transform: translateX(-50%);
+    box-shadow: 0 24px 60px rgba(24, 15, 65, 0.24);
+  }
+}
 .local-library {
   position: relative;
   z-index: 1;
@@ -1429,6 +1452,38 @@ export default {
   margin: 4px 0 0;
   color: var(--ktv-text-muted);
   font-size: 12px;
+}
+.local-scan-progress {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--ktv-text-secondary);
+  font-size: 12px;
+}
+.local-scan-progress-bar {
+  display: block;
+  width: 72px;
+  height: 4px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: var(--ktv-glass-border);
+}
+.local-scan-progress-bar::after {
+  display: block;
+  width: 42%;
+  height: 100%;
+  border-radius: inherit;
+  background: var(--ktv-accent);
+  content: '';
+  animation: ktv-local-scan 1.2s ease-in-out infinite;
+}
+@keyframes ktv-local-scan {
+  0% {
+    transform: translateX(-150%);
+  }
+  100% {
+    transform: translateX(340%);
+  }
 }
 .local-library-actions {
   display: flex;
@@ -2304,6 +2359,33 @@ button:disabled {
   }
   .lyric-effect-setting {
     margin-left: 0;
+  }
+}
+@media (min-width: 2560px) {
+  .ambient {
+    filter: blur(28px) saturate(1.1);
+    opacity: 0.34;
+  }
+  .stage::before {
+    filter: blur(26px);
+    animation: none;
+  }
+  .active-line {
+    animation: none;
+  }
+  .karaoke-desktop button {
+    transition: background-color 160ms ease, border-color 160ms ease,
+      color 160ms ease;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .karaoke-desktop *,
+  .karaoke-desktop *::before,
+  .karaoke-desktop *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
   }
 }
 </style>
