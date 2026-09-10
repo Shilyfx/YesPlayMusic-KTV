@@ -585,9 +585,9 @@ class Background {
 
     app.on('quit', () => {
       if (this.expressApp) this.expressApp.close();
-      this.karaokeServer.stopRoom().catch(error =>
-        electronLog.warn('[KTV_STOP_ON_QUIT]', error)
-      );
+      this.karaokeServer
+        .stopRoom()
+        .catch(error => electronLog.warn('[KTV_STOP_ON_QUIT]', error));
     });
 
     app.on('will-quit', () => {
