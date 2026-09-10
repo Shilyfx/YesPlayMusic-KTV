@@ -1,5 +1,6 @@
 const webpack = require('webpack');
 const path = require('path');
+const fs = require('fs');
 const { isolateRemoteAssets } = require('./scripts/isolate-remote-assets');
 function resolve(dir) {
   return path.join(__dirname, dir);
@@ -9,6 +10,36 @@ class IsolateElectronRemoteAssetsPlugin {
   apply(compiler) {
     compiler.hooks.afterEmit.tap('IsolateElectronRemoteAssetsPlugin', () => {
       isolateRemoteAssets(compiler.options.output.path);
+      const desktopIndexPath = path.join(
+        compiler.options.output.path,
+        'index.html'
+      );
+      if (fs.existsSync(desktopIndexPath)) {
+        const html = fs.readFileSync(desktopIndexPath, 'utf8');
+        // Electron loads the desktop shell from the local HTTP server so
+        // relative /api requests reach the bundled NetEase proxy. The
+        // electron-builder default app:// asset URLs are cross-origin from
+        // that page and can leave the boot screen visible forever.
+        const httpHtml = html.replace(/app:\/\/\.\//g, '/');
+        if (httpHtml !== html) fs.writeFileSync(desktopIndexPath, httpHtml);
+      }
+      const desktopScriptPaths = [
+        ...fs
+          .readdirSync(path.join(compiler.options.output.path, 'js'))
+          .filter(file => file.endsWith('.js'))
+          .map(file => path.join(compiler.options.output.path, 'js', file)),
+        ...fs
+          .readdirSync(compiler.options.output.path)
+          .filter(file =>
+            /^(?:service-worker|precache-manifest\.).*\.js$/.test(file)
+          )
+          .map(file => path.join(compiler.options.output.path, file)),
+      ];
+      desktopScriptPaths.forEach(scriptPath => {
+        const source = fs.readFileSync(scriptPath, 'utf8');
+        const httpSource = source.replace(/app:\/\/\.\//g, '/');
+        if (httpSource !== source) fs.writeFileSync(scriptPath, httpSource);
+      });
     });
   }
 }
@@ -48,7 +79,10 @@ module.exports = {
       template: 'public/index.html',
       filename: 'index.html',
       title: 'LumaSing',
-      chunks: ['main', 'chunk-vendors', 'chunk-common', 'index'],
+      // The custom splitChunks rule names the desktop vendor bundle
+      // `vendors~index`. Listing Vue CLI's default `chunk-vendors` name here
+      // silently omitted the real dependency script from packaged index.html.
+      chunks: ['vendors~index', 'index'],
     },
     remote: {
       entry: 'src/remote/main.js',

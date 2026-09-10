@@ -389,6 +389,18 @@ class Background {
       this.runtime.stage = 'DID_FAIL_LOAD';
       electronLog.error('[DID_FAIL_LOAD]', code, description);
     });
+    this.window.webContents.on(
+      'console-message',
+      (_, level, message, line, sourceId) => {
+        if (level < 3) return;
+        electronLog.error('[RENDERER_CONSOLE]', {
+          level,
+          message,
+          line,
+          sourceId,
+        });
+      }
+    );
     this.window.webContents.on('render-process-gone', (_, details) => {
       this.runtime.renderer = 'error';
       this.runtime.stage = 'RENDER_PROCESS_GONE';
