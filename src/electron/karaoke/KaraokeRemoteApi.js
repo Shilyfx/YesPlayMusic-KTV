@@ -515,7 +515,7 @@ export class KaraokeRemoteService {
       room: {
         active: true,
         code: this.getRoom().code,
-        name: this.getRoom().name || 'Shilyfx的KTV',
+        name: this.getRoom().name || 'LumaSing KTV',
       },
       current: this.sanitizeItem(snapshot.currentItem),
       waiting: snapshot.waitingItems.map(item => this.sanitizeItem(item)),

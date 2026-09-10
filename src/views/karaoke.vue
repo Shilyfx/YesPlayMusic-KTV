@@ -556,7 +556,7 @@ export default {
       return `${this.roomName}${this.isSessionActive ? ' · 进行中' : ''}`;
     },
     roomName() {
-      return this.lanRoom?.name || 'Shilyfx的KTV';
+      return this.lanRoom?.name || 'LumaSing KTV';
     },
     statusEyebrow() {
       return this.isSessionActive ? '等待下一首' : '准备开始';

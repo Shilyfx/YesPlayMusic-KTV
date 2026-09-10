@@ -429,7 +429,7 @@ async function run() {
     token: guestA.body.clientToken,
   });
   assert.equal(stateResponse.status, 200);
-  assert.equal(stateResponse.body.room.name, 'Shilyfx的KTV');
+  assert.equal(stateResponse.body.room.name, 'LumaSing KTV');
   assert.equal(stateResponse.body.history.length, 1);
   assert.equal(stateResponse.body.history[0].trackId, '99');
   service.sessions.clients.clear();

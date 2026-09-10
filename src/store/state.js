@@ -27,7 +27,7 @@ const persistedData = safeJsonRead('data', initLocalStorage.data, isData);
 export default {
   showLyrics: false,
   enableScrolling: true,
-  title: 'YesPlayMusic',
+  title: 'LumaSing',
   liked: {
     songs: [],
     songsWithDetails: [], // 只有前12首

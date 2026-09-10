@@ -97,7 +97,7 @@ async function run() {
     sessionId: 'session-test',
     lanAddress: '192.168.8.20',
   });
-  assert.equal(room.name, 'Shilyfx的KTV');
+  assert.equal(room.name, 'LumaSing KTV');
   const roomUrl = new URL(room.url);
   assert.equal(roomUrl.hostname, '192.168.8.20');
   const roomToken = roomUrl.hash.slice('#token='.length);

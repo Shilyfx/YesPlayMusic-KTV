@@ -17,12 +17,12 @@
 <br />
 <p align="center">
   <a href="https://music.qier222.com" target="blank">
-    <img src="images/logo.png" alt="Logo" width="156" height="156">
+    <img src="images/logo.png" alt="LumaSing Logo" width="156" height="156">
   </a>
-  <h2 align="center" style="font-weight: 600">YesPlayMusic</h2>
+  <h2 align="center" style="font-weight: 600">LumaSing</h2>
 
   <p align="center">
-    高颜值的第三方网易云播放器
+    高颜值的第三方网易云播放器与局域网 KTV
     <br />
     <a href="https://music.qier222.com" target="blank"><strong>🌎 访问DEMO</strong></a>&nbsp;&nbsp;|&nbsp;&nbsp;
     <a href="#%EF%B8%8F-安装" target="blank"><strong>📦️ 下载安装包</strong></a>&nbsp;&nbsp;|&nbsp;&nbsp;
@@ -36,7 +36,7 @@
 
 ## 全新版本
 
-全新 2.0 Alpha 测试版已发布，欢迎前往 [Releases](https://github.com/qier222/YesPlayMusic/releases) 页面下载。
+LumaSing 的构建产物与版本说明请前往 [Releases](https://github.com/Shilyfx/YesPlayMusic-KTV/releases) 页面查看。
 当前版本将会进入维护模式，除重大 bug 修复外，不会再更新新功能。
 
 ## ✨ 特性
@@ -63,14 +63,12 @@
 
 ## 📦️ 安装
 
-Electron 版本由 [@hawtim](https://github.com/hawtim) 和 [@qier222](https://github.com/qier222) 适配并维护，支持 macOS、Windows、Linux。
+Electron 版本支持 macOS、Windows、Linux；LumaSing 的打包验证由 GitHub Actions 分别覆盖 Windows、macOS x64 与 macOS arm64。
 
-访问本项目的 [Releases](https://github.com/qier222/YesPlayMusic/releases)
+访问本项目的 [Releases](https://github.com/Shilyfx/YesPlayMusic-KTV/releases)
 页面下载安装包。
 
-- macOS 用户可以通过 Homebrew 来安装：`brew install --cask yesplaymusic`
-
-- Windows 用户可以通过 Scoop 来安装：`scoop install extras/yesplaymusic`
+- macOS 和 Windows 的安装包名称以 Release 页面实际发布的 LumaSing 构建产物为准。
 
 ## 同类项目（排名无先后）
 
@@ -123,7 +121,7 @@ Electron 版本由 [@hawtim](https://github.com/hawtim) 和 [@qier222](https://g
 2. 克隆本仓库
 
 ```sh
-git clone --recursive https://github.com/qier222/YesPlayMusic.git
+git clone --recursive https://github.com/Shilyfx/YesPlayMusic-KTV.git
 ```
 
 3. 安装依赖
@@ -135,7 +133,7 @@ yarn install
 
 4. （可选）使用 Nginx 反向代理 API，将 API 路径映射为 `/api`，如果 API 和网页不在同一个域名下的话（跨域），会有一些 bug。
 
-5. 复制 `/.env.example` 文件为 `/.env`，修改里面 `VUE_APP_NETEASE_API_URL` 的值为网易云 API 地址。本地开发的话可以填写 API 地址为 `http://localhost:3000`，YesPlayMusic 地址为 `http://localhost:8080`。如果你使用了反向代理 API，可以填写 API 地址为 `/api`。
+5. 复制 `/.env.example` 文件为 `/.env`，修改里面 `VUE_APP_NETEASE_API_URL` 的值为网易云 API 地址。本地开发的话可以填写 API 地址为 `http://localhost:3000`，LumaSing 地址为 `http://localhost:8080`。如果你使用了反向代理 API，可以填写 API 地址为 `/api`。
 
 ```
 VUE_APP_NETEASE_API_URL=http://localhost:3000
@@ -155,7 +153,7 @@ yarn run build
 
 2. 安装后登录宝塔面板，在左侧导航栏中点击 Docker，首次进入会提示安装 Docker 服务，点击立即安装，按提示完成安装
 
-3. 安装完成后在应用商店中找到 YesPlayMusic，点击安装，配置域名、端口等基本信息即可完成安装。
+3. 安装完成后在应用商店中找到 LumaSing，点击安装，配置域名、端口等基本信息即可完成安装。
 
 4. 安装后在浏览器输入上一步骤设置的域名即可访问。
 
@@ -164,13 +162,13 @@ yarn run build
 1. 构建 Docker Image
 
 ```sh
-docker build -t yesplaymusic .
+docker build -t lumasing .
 ```
 
 2. 启动 Docker Container
 
 ```sh
-docker run -d --name YesPlayMusic -p 80:80 yesplaymusic
+docker run -d --name LumaSing -p 80:80 lumasing
 ```
 
 3. Docker Compose 启动
@@ -179,7 +177,7 @@ docker run -d --name YesPlayMusic -p 80:80 yesplaymusic
 docker-compose up -d
 ```
 
-YesPlayMusic 地址为 `http://localhost`
+LumaSing 地址为 `http://localhost`
 
 ## ⚙️ 部署至 Replit
 
@@ -188,7 +186,7 @@ YesPlayMusic 地址为 `http://localhost`
 2. 在 Replit shell 中运行以下命令
 
 ```sh
-bash <(curl -s -L https://raw.githubusercontent.com/qier222/YesPlayMusic/main/install-replit.sh)
+bash <(curl -s -L https://raw.githubusercontent.com/Shilyfx/YesPlayMusic-KTV/main/install-replit.sh)
 ```
 
 3. 首次运行成功后，只需点击绿色按钮 `Run` 即可再次运行
@@ -206,7 +204,7 @@ cd /home/runner/${REPL_SLUG}/music && yarn install && yarn run build
 1. 打包 Electron 需要用到 Node.js 和 Yarn。可前往 [Node.js 官网](https://nodejs.org/zh-cn/) 下载安装包。安装 Node.js
    后可在终端里执行 `npm install -g yarn` 来安装 Yarn。
 
-2. 使用 `git clone --recursive https://github.com/qier222/YesPlayMusic.git` 克隆本仓库到本地。
+2. 使用 `git clone --recursive https://github.com/Shilyfx/YesPlayMusic-KTV.git` 克隆本仓库到本地。
 
 3. 使用 `yarn install` 安装项目依赖。
 
@@ -250,7 +248,7 @@ yarn netease_api:run
 
 ## ☑️ Todo
 
-查看 Todo 请访问本项目的 [Projects](https://github.com/qier222/YesPlayMusic/projects/1)
+查看 Todo 请访问本项目的 [Projects](https://github.com/Shilyfx/YesPlayMusic-KTV/projects/1)
 
 欢迎提 Issue 和 Pull request。
 

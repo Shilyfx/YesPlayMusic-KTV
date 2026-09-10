@@ -7,7 +7,7 @@ import { createReadStream } from 'fs';
 import QRCode from 'qrcode';
 
 const ROOM_PORT = 27233;
-const DEFAULT_ROOM_NAME = 'Shilyfx的KTV';
+const DEFAULT_ROOM_NAME = 'LumaSing KTV';
 const roomCode = () => crypto.randomBytes(3).toString('hex').toUpperCase();
 // Electron 13 ships with a Node.js version that does not support the
 // `base64url` Buffer encoding. Keep the token URL-safe without relying on

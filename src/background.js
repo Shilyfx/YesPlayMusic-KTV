@@ -269,7 +269,7 @@ class Background {
         isWindows ||
         (isLinux && this.store.get('settings.linuxEnableCustomTitlebar'))
       ),
-      title: 'YesPlayMusic',
+      title: 'LumaSing',
       show: false,
       webPreferences: {
         webSecurity: false,
@@ -365,7 +365,7 @@ class Background {
         .then(result => {
           if (result.response === 0) {
             shell.openExternal(
-              'https://github.com/qier222/YesPlayMusic/releases'
+              'https://github.com/Shilyfx/YesPlayMusic-KTV/releases'
             );
           }
         });
@@ -451,7 +451,7 @@ class Background {
           width: 800,
           height: 600,
           titleBarStyle: 'default',
-          title: 'YesPlayMusic',
+          title: 'LumaSing',
           webPreferences: {
             webSecurity: false,
             nodeIntegration: true,
@@ -483,7 +483,7 @@ class Background {
         await this.desktopServerReady;
       } catch (error) {
         dialog.showErrorBox(
-          'YesPlayMusic 启动失败',
+          'LumaSing 启动失败',
           `本地服务 127.0.0.1:27232 无法启动：${error.message}`
         );
         return;

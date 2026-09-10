@@ -58,8 +58,8 @@ export const TRANSIENT_PLAYER_KEYS = [
 
 function setTitle(track) {
   document.title = track
-    ? `${track.name} · ${track.ar[0].name} - YesPlayMusic`
-    : 'YesPlayMusic';
+    ? `${track.name} · ${track.ar[0].name} - LumaSing`
+    : 'LumaSing';
   if (isCreateTray) {
     ipcRenderer?.send('updateTrayTooltip', document.title);
   }
