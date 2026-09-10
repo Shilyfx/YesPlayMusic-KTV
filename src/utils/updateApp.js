@@ -2,6 +2,8 @@ import initLocalStorage from '@/store/initLocalStorage.js';
 import pkg from '../../package.json';
 import { safeJsonRead, safeJsonWrite } from './safeStorage';
 
+const KTV_FONT_DEFAULT_MIGRATION_KEY = 'ktvLyricFontSizeDefaultV1';
+
 const updateSetting = () => {
   const parsedSettings = safeJsonRead('settings', {});
   const settings = {
@@ -26,6 +28,15 @@ const updateSetting = () => {
 
   if (localStorage.getItem('appVersion') === '"0.3.9"') {
     settings.lyricsBackground = true;
+  }
+
+  // 28px was the shipped KTV default before the stage controls were made
+  // directly editable. Migrate only that legacy default once, preserving any
+  // size the user has already chosen.
+  if (localStorage.getItem(KTV_FONT_DEFAULT_MIGRATION_KEY) !== '1') {
+    if (settings.lyricFontSize === 28)
+      settings.lyricFontSize = initLocalStorage.settings.lyricFontSize;
+    localStorage.setItem(KTV_FONT_DEFAULT_MIGRATION_KEY, '1');
   }
 
   safeJsonWrite('settings', settings);

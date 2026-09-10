@@ -24,25 +24,70 @@
       <div class="header-actions">
         <KaraokeThemeSwitcher v-model="karaokeTheme" />
         <button
+          type="button"
+          class="session-button fullscreen-button"
+          :aria-label="isKtvFullscreen ? '退出全屏' : '全屏 KTV'"
+          @click="enterKtvFullscreen"
+        >
+          {{ isKtvFullscreen ? '退出全屏' : '全屏 KTV' }}
+        </button>
+        <button
           v-if="lanRoom"
           type="button"
           class="session-button"
+          :aria-expanded="showRoomCode"
           @click="showRoomCode = !showRoomCode"
-          >{{ showRoomCode ? '收起二维码' : '房间二维码' }}</button
+          >{{ showRoomCode ? '收起二维码' : '显示二维码' }}</button
         >
         <button type="button" class="session-button" @click="toggleSession">
           {{ isSessionActive ? '结束 KTV' : '开始本机 KTV' }}
         </button>
+        <div v-if="isElectron" class="window-actions" aria-label="窗口控制">
+          <button
+            type="button"
+            class="window-action"
+            aria-label="最小化窗口"
+            title="最小化窗口"
+            @click="windowMinimize"
+          >
+            −
+          </button>
+          <button
+            type="button"
+            class="window-action"
+            :aria-label="isWindowMaximized ? '还原窗口' : '最大化窗口'"
+            :title="isWindowMaximized ? '还原窗口' : '最大化窗口'"
+            @click="windowMaxRestore"
+          >
+            {{ isWindowMaximized ? '❐' : '□' }}
+          </button>
+          <button
+            type="button"
+            class="window-action window-action-close"
+            aria-label="关闭窗口"
+            title="关闭窗口"
+            @click="windowClose"
+          >
+            ×
+          </button>
+        </div>
       </div>
     </header>
 
-    <section v-if="isSessionActive" class="room-access glass-panel">
-      <img
-        v-if="lanRoom && showRoomCode && lanRoom.qrDataUrl"
-        :src="lanRoom.qrDataUrl"
-        alt="局域网 KTV 房间二维码"
-      />
-      <div>
+    <section
+      v-if="isSessionActive && (!lanRoom || showRoomCode)"
+      class="room-access glass-panel"
+      :class="{ 'room-access-pending': !lanRoom }"
+    >
+      <div v-if="lanRoom" class="room-qr-wrap">
+        <img
+          v-if="lanRoom.qrDataUrl"
+          :src="lanRoom.qrDataUrl"
+          alt="局域网 KTV 房间二维码"
+        />
+        <div v-else class="room-qr-placeholder">二维码暂不可用</div>
+      </div>
+      <div class="room-access-copy">
         <strong>{{
           lanRoom ? '用同一局域网设备扫码加入' : '选择对外网卡'
         }}</strong>
@@ -52,9 +97,15 @@
         <p v-if="lanRoom && lanRoom.qrError" class="room-warning">
           {{ lanRoom.qrError }}
         </p>
-        <p v-if="lanRoom" class="room-link">{{
-          lanRoom.joinUrl || lanRoom.url
-        }}</p>
+        <div v-if="lanRoom" class="room-link-block">
+          <span class="room-link-label">直接加入链接</span>
+          <div class="room-link-row">
+            <code class="room-link">{{ lanRoom.joinUrl || lanRoom.url }}</code>
+            <button type="button" class="room-link-copy" @click="copyLanLink">
+              {{ copyLinkLabel }}
+            </button>
+          </div>
+        </div>
         <p v-else>服务会监听全部网络；你选择的网卡只决定二维码中的访问地址。</p>
         <label v-if="lanCandidates.length">
           网卡地址
@@ -83,9 +134,6 @@
           >按当前网卡更新二维码</button
         >
         <div v-if="lanRoom" class="room-tools">
-          <button type="button" class="room-tool" @click="copyLanLink">
-            复制加入链接
-          </button>
           <button type="button" class="room-tool" @click="retryLanQr">
             重试二维码
           </button>
@@ -250,7 +298,19 @@
           @click="adjustOffset(-0.1)"
           >−</button
         >
-        <strong>{{ lyricOffsetLabel }}</strong>
+        <input
+          v-model="lyricOffsetDraft"
+          class="setting-input offset-input"
+          type="number"
+          min="-10"
+          max="10"
+          step="0.1"
+          aria-label="直接编辑歌词同步偏移秒数"
+          title="正数提前，负数延迟"
+          @change="commitOffsetDraft"
+          @keydown.enter.prevent="$event.target.blur()"
+        />
+        <span class="setting-unit">s</span>
         <button
           type="button"
           aria-label="歌词提前 0.1 秒"
@@ -285,7 +345,18 @@
           @click="adjustFontSize(-1)"
           >−</button
         >
-        <strong>{{ lyricFontSize }}px</strong>
+        <input
+          v-model="lyricFontSizeDraft"
+          class="setting-input font-size-input"
+          type="number"
+          min="16"
+          max="64"
+          step="1"
+          aria-label="直接编辑歌词字号"
+          @change="commitFontSizeDraft"
+          @keydown.enter.prevent="$event.target.blur()"
+        />
+        <span class="setting-unit">px</span>
         <button
           type="button"
           aria-label="增大歌词字号"
@@ -322,6 +393,14 @@ export default {
       showRoomCode: false,
       selectedLanAddress: '',
       lanSelfTest: 'idle',
+      copyLinkState: 'idle',
+      copyLinkTimer: null,
+      lyricFontSizeDraft: '45',
+      lyricOffsetDraft: '0.0',
+      isElectron: process.env.IS_ELECTRON === true,
+      isWindowMaximized: false,
+      windowStateListener: null,
+      isKtvFullscreen: false,
       isLyricFullscreen: false,
       lyricControlsVisible: false,
       lyricControlsTimer: null,
@@ -405,6 +484,9 @@ export default {
         this.lyricOffset
       ).toFixed(1)}s`;
     },
+    copyLinkLabel() {
+      return this.copyLinkState === 'copied' ? '已复制' : '一键复制';
+    },
     stageLyrics() {
       const progress = this.now + this.lyricOffset;
       if (!this.lyrics.length) {
@@ -452,6 +534,12 @@ export default {
     trackId() {
       this.loadLyrics();
     },
+    lyricFontSize(value) {
+      this.lyricFontSizeDraft = String(value);
+    },
+    lyricOffset(value) {
+      this.lyricOffsetDraft = Number(value).toFixed(1);
+    },
   },
   created() {
     this.themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
@@ -461,6 +549,21 @@ export default {
     else this.themeMedia.addListener(this.syncSystemTheme);
     this.loadLyrics();
     this.loadLanRoom();
+    this.lyricFontSizeDraft = String(this.lyricFontSize);
+    this.lyricOffsetDraft = this.lyricOffset.toFixed(1);
+    const ipcRenderer = this.electronIpc();
+    if (ipcRenderer) {
+      this.windowStateListener = (_, value) => {
+        this.isWindowMaximized = Boolean(value);
+      };
+      ipcRenderer.on('isMaximized', this.windowStateListener);
+      ipcRenderer
+        .invoke('window:state')
+        .then(state => {
+          this.isWindowMaximized = Boolean(state && state.maximized);
+        })
+        .catch(() => {});
+    }
     document.addEventListener('fullscreenchange', this.handleFullscreenChange);
     this.clock = window.setInterval(() => {
       this.now = this.player.seek(null, false) || 0;
@@ -476,6 +579,10 @@ export default {
       'fullscreenchange',
       this.handleFullscreenChange
     );
+    const ipcRenderer = this.electronIpc();
+    if (ipcRenderer && this.windowStateListener)
+      ipcRenderer.removeListener('isMaximized', this.windowStateListener);
+    window.clearTimeout(this.copyLinkTimer);
     window.clearTimeout(this.lyricControlsTimer);
   },
   methods: {
@@ -529,6 +636,7 @@ export default {
       try {
         const result = await ipcRenderer.invoke('karaoke:lan:status');
         this.lanRoom = result.room;
+        this.showRoomCode = Boolean(result.room);
         this.selectedLanAddress = result.room?.selectedAddress || '';
         this.lanCandidates = result.room?.candidates || [];
         if (!this.lanCandidates.length) await this.loadLanCandidates();
@@ -593,6 +701,7 @@ export default {
       this.lanRoom = null;
       this.showRoomCode = false;
       this.lanSelfTest = 'idle';
+      this.copyLinkState = 'idle';
     },
     async restartLanRoom() {
       await this.stopLanRoom();
@@ -640,14 +749,43 @@ export default {
         document.body.removeChild(input);
       }
       this.$store.dispatch('showToast', 'KTV 加入链接已复制');
+      this.copyLinkState = 'copied';
+      window.clearTimeout(this.copyLinkTimer);
+      this.copyLinkTimer = window.setTimeout(() => {
+        this.copyLinkState = 'idle';
+      }, 1800);
     },
-    enterKtvFullscreen() {
-      this.$refs.karaokeSurface.requestFullscreen();
+    async enterKtvFullscreen() {
+      const target = this.$refs.karaokeSurface;
+      if (!target || !target.requestFullscreen) return;
+      try {
+        if (document.fullscreenElement === target) {
+          await document.exitFullscreen();
+          return;
+        }
+        if (document.fullscreenElement) await document.exitFullscreen();
+        await target.requestFullscreen();
+      } catch (error) {
+        this.$store.dispatch('showToast', '无法进入全屏：' + error.message);
+      }
     },
-    enterLyricFullscreen() {
-      this.$refs.lyricStage.requestFullscreen();
+    async enterLyricFullscreen() {
+      const target = this.$refs.lyricStage;
+      if (!target || !target.requestFullscreen) return;
+      try {
+        if (document.fullscreenElement === target) {
+          await document.exitFullscreen();
+          return;
+        }
+        if (document.fullscreenElement) await document.exitFullscreen();
+        await target.requestFullscreen();
+      } catch (error) {
+        this.$store.dispatch('showToast', '无法进入歌词全屏：' + error.message);
+      }
     },
     handleFullscreenChange() {
+      this.isKtvFullscreen =
+        document.fullscreenElement === this.$refs.karaokeSurface;
       this.isLyricFullscreen =
         document.fullscreenElement === this.$refs.lyricStage;
       if (this.isLyricFullscreen) this.showLyricControls();
@@ -660,8 +798,30 @@ export default {
         this.lyricControlsVisible = false;
       }, 4000);
     },
-    exitFullscreen() {
-      if (document.fullscreenElement) document.exitFullscreen();
+    async exitFullscreen() {
+      if (document.fullscreenElement) await document.exitFullscreen();
+    },
+    commitFontSizeDraft() {
+      const value = normalizeLyricFontSize(this.lyricFontSizeDraft);
+      this.$store.commit('changeLyricFontSize', value);
+      this.lyricFontSizeDraft = String(value);
+    },
+    commitOffsetDraft() {
+      const value = normalizeLyricOffset(this.lyricOffsetDraft);
+      this.setOffset(value);
+      this.lyricOffsetDraft = value.toFixed(1);
+    },
+    windowMinimize() {
+      const ipcRenderer = this.electronIpc();
+      if (ipcRenderer) ipcRenderer.send('minimize');
+    },
+    windowMaxRestore() {
+      const ipcRenderer = this.electronIpc();
+      if (ipcRenderer) ipcRenderer.send('maximizeOrUnmaximize');
+    },
+    windowClose() {
+      const ipcRenderer = this.electronIpc();
+      if (ipcRenderer) ipcRenderer.send('close');
     },
     enqueueCurrentTrack() {
       const item = this.karaokeManager.enqueueTrack(this.track);
@@ -754,6 +914,12 @@ export default {
   justify-content: space-between;
   gap: 16px;
   padding: 0 16px;
+  -webkit-app-region: drag;
+}
+.karaoke-header button,
+.karaoke-header select,
+.karaoke-header .header-actions {
+  -webkit-app-region: no-drag;
 }
 .back {
   color: var(--ktv-text-secondary);
@@ -799,20 +965,76 @@ export default {
   color: var(--ktv-text-primary);
   font-weight: 700;
 }
-.room-access {
+.fullscreen-button {
+  border-color: rgba(108, 87, 233, 0.28);
+}
+.window-actions {
   display: flex;
+  align-items: stretch;
+  overflow: hidden;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 10px;
+  background: var(--ktv-glass-soft);
+}
+.window-action {
+  width: 34px;
+  min-height: 32px;
+  padding: 0;
+  border: 0;
+  border-left: 1px solid var(--ktv-glass-border);
+  color: var(--ktv-text-secondary);
+  font-size: 16px;
+  line-height: 1;
+}
+.window-action:first-child {
+  border-left: 0;
+}
+.window-action:hover {
+  background: var(--ktv-glass-strong);
+  color: var(--ktv-text-primary);
+}
+.window-action-close:hover {
+  background: #c94c5f;
+  color: #fff;
+}
+.room-access {
+  display: grid;
+  grid-template-columns: minmax(190px, 240px) minmax(0, 1fr);
   align-items: center;
   gap: 14px;
-  width: min(460px, calc(100% - 32px));
+  width: min(720px, calc(100% - 32px));
   margin: 14px auto 0;
   padding: 12px;
+  box-sizing: border-box;
+}
+.room-access-pending .room-access-copy {
+  grid-column: 1 / -1;
+}
+.room-access-copy {
+  min-width: 0;
+}
+.room-qr-wrap {
+  display: grid;
+  width: 100%;
+  aspect-ratio: 1;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 12px;
+  background: #fff;
 }
 .room-access img {
-  width: 240px;
-  height: 240px;
-  flex: 0 0 240px;
+  display: block;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
   border-radius: 10px;
   background: #fff;
+}
+.room-qr-placeholder {
+  padding: 16px;
+  color: #777;
+  font-size: 12px;
+  text-align: center;
 }
 .room-access strong,
 .room-access p {
@@ -820,10 +1042,53 @@ export default {
   margin: 0;
 }
 .room-link {
-  max-width: 220px;
+  min-width: 0;
   overflow-wrap: anywhere;
+  word-break: break-word;
+  color: var(--ktv-text-muted);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1.45;
+}
+.room-link-block {
+  min-width: 0;
+  margin-top: 8px;
+}
+.room-link-label {
+  display: block;
+  margin-bottom: 5px;
   color: var(--ktv-text-muted);
   font-size: 11px;
+}
+.room-link-row {
+  display: flex;
+  align-items: stretch;
+  gap: 8px;
+  min-width: 0;
+}
+.room-link {
+  flex: 1 1 auto;
+  padding: 8px 9px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 8px;
+  background: var(--ktv-glass-soft);
+}
+.room-link-copy {
+  flex: 0 0 auto;
+  min-height: 36px;
+  padding: 0 10px;
+  border: 1px solid rgba(108, 87, 233, 0.3);
+  border-radius: 8px;
+  background: var(--ktv-accent);
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+.room-link-copy:hover {
+  background: var(--ktv-accent-strong);
+}
+.room-access .room-link {
+  overflow-wrap: anywhere;
 }
 .room-warning {
   color: #f2b56b !important;
@@ -1057,6 +1322,20 @@ button:disabled {
 .stage:fullscreen .stage-footer {
   display: none;
 }
+.stage:fullscreen .active-line {
+  font-size: clamp(48px, calc(var(--ktv-active-lyric-size) + 3vw), 132px);
+}
+.stage:fullscreen .before-line,
+.stage:fullscreen .after-line {
+  font-size: clamp(20px, calc(var(--ktv-active-lyric-size) * 0.52 + 1vw), 58px);
+}
+.stage:fullscreen .translation {
+  font-size: clamp(
+    14px,
+    calc(var(--ktv-active-lyric-size) * 0.34 + 0.5vw),
+    34px
+  );
+}
 .lyric-fullscreen-overlay {
   position: fixed;
   right: 24px;
@@ -1208,6 +1487,30 @@ button:disabled {
   text-align: center;
   font-variant-numeric: tabular-nums;
 }
+.setting-input {
+  width: 58px;
+  min-height: 34px;
+  padding: 0 7px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 9px;
+  background: var(--ktv-glass-soft);
+  color: var(--ktv-text-primary);
+  font: inherit;
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  text-align: center;
+}
+.offset-input {
+  width: 58px;
+}
+.font-size-input {
+  width: 58px;
+}
+.setting-unit {
+  margin-left: -4px;
+  color: var(--ktv-text-muted);
+  font-size: 12px;
+}
 .quick-setting button,
 .player-actions button {
   min-height: 36px;
@@ -1254,17 +1557,22 @@ button:disabled {
     padding: 12px;
   }
   .room-access {
+    grid-template-columns: 1fr;
     align-items: flex-start;
-    flex-direction: column;
+    width: min(520px, calc(100% - 24px));
   }
-  .room-access img {
+  .room-qr-wrap {
     width: min(240px, 100%);
-    height: auto;
-    aspect-ratio: 1;
-    align-self: center;
+    justify-self: center;
+  }
+  .room-access-copy,
+  .room-access-pending .room-access-copy {
+    grid-column: 1;
+    width: 100%;
   }
   .header-actions {
     width: 100%;
+    flex-wrap: wrap;
     justify-content: space-between;
   }
   .karaoke-layout {

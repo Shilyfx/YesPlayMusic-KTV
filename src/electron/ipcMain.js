@@ -173,6 +173,9 @@ export function initIpcMain(
     await shell.openPath(logPath);
     return { ok: true, path: logPath };
   });
+  ipcMain.handle('window:state', async () => ({
+    maximized: Boolean(win && win.isMaximized()),
+  }));
   let remoteCommandSequence = 0;
   const pendingRemoteCommands = new Map();
   const remoteCommand = (action, payload = {}) =>

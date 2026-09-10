@@ -14,7 +14,7 @@ let localStorage = {
     appearance: 'auto',
     themeColor: 'default',
     musicQuality: 320000,
-    lyricFontSize: 28,
+    lyricFontSize: 45,
     // Positive values make a lyric line appear earlier than its source time.
     lyricOffsetSeconds: 0,
     karaokeTheme: 'auto',
