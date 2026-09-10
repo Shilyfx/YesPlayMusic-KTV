@@ -1,23 +1,5 @@
 const assert = require('assert');
-const babel = require('@babel/core');
-
-const originalJsLoader = require.extensions['.js'];
-require.extensions['.js'] = function transpileKaraokeModule(module, filename) {
-  if (
-    !filename.includes(
-      `${require('path').sep}src${require('path').sep}karaoke${
-        require('path').sep
-      }`
-    )
-  ) {
-    return originalJsLoader(module, filename);
-  }
-  const result = babel.transformFileSync(filename, {
-    presets: ['@vue/cli-plugin-babel/preset'],
-    plugins: ['@babel/plugin-transform-modules-commonjs'],
-  });
-  module._compile(result.code, filename);
-};
+require('./helpers/register-babel-src');
 
 const KaraokeManager = require('../src/karaoke/KaraokeManager').default;
 

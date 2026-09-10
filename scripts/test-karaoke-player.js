@@ -1,25 +1,6 @@
 const assert = require('assert');
-const Module = require('module');
 const path = require('path');
-const babel = require('@babel/core');
-
-const root = path.resolve(__dirname, '..');
-const originalResolve = Module._resolveFilename;
-Module._resolveFilename = function resolveAlias(
-  request,
-  parent,
-  isMain,
-  options
-) {
-  if (request.startsWith('@/'))
-    return originalResolve(
-      path.join(root, 'src', request.slice(2)),
-      parent,
-      isMain,
-      options
-    );
-  return originalResolve(request, parent, isMain, options);
-};
+const { root } = require('./helpers/register-babel-src');
 
 function stub(relativePath, exports) {
   const filename = require.resolve(path.join(root, 'src', relativePath));
@@ -57,22 +38,6 @@ stub('utils/db.js', {
 stub('utils/platform.js', { isCreateMpris: false, isCreateTray: false });
 stub('utils/base64.js', { decode: () => Buffer.alloc(0) });
 stub('store/initLocalStorage.js', { settings: { shortcuts: [] } });
-
-const originalJsLoader = require.extensions['.js'];
-require.extensions['.js'] = function transpilePlayer(module, filename) {
-  if (
-    ![
-      path.join(root, 'src', 'utils', 'Player.js'),
-      path.join(root, 'src', 'utils', 'updateApp.js'),
-    ].includes(filename)
-  )
-    return originalJsLoader(module, filename);
-  const result = babel.transformFileSync(filename, {
-    presets: ['@vue/cli-plugin-babel/preset'],
-    plugins: ['@babel/plugin-transform-modules-commonjs'],
-  });
-  module._compile(result.code, filename);
-};
 
 const Player = require('../src/utils/Player').default;
 const { TRANSIENT_PLAYER_KEYS } = require('../src/utils/Player');

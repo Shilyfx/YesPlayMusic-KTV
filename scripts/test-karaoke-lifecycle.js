@@ -1,23 +1,5 @@
 const assert = require('assert');
-const path = require('path');
-const babel = require('@babel/core');
-
-const originalJsLoader = require.extensions['.js'];
-require.extensions['.js'] = function transpileKaraokeLifecycle(
-  module,
-  filename
-) {
-  if (
-    !filename.includes(`${path.sep}src${path.sep}electron${path.sep}karaoke`)
-  ) {
-    return originalJsLoader(module, filename);
-  }
-  const result = babel.transformFileSync(filename, {
-    presets: ['@vue/cli-plugin-babel/preset'],
-    plugins: ['@babel/plugin-transform-modules-commonjs'],
-  });
-  module._compile(result.code, filename);
-};
+require('./helpers/register-babel-src');
 
 const KaraokeLanLifecycle =
   require('../src/electron/karaoke/KaraokeLanLifecycle').default;

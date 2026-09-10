@@ -29,8 +29,6 @@ jobs:
       - run: yarn install --frozen-lockfile
       - name: Build packaged application
         shell: bash
-        env:
-          NODE_OPTIONS: --openssl-legacy-provider
         run: yarn ${{ matrix.command }}
       - name: Verify packaged output exists
         shell: bash
