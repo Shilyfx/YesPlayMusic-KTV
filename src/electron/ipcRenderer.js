@@ -1,6 +1,8 @@
 import { search } from '@/api/others';
 import { getMP3, getTrackDetail } from '@/api/track';
-import { getPlaylistDetail } from '@/api/playlist';
+import { getPlaylistDetail, recommendPlaylist } from '@/api/playlist';
+import { getRecommendPlayList } from '@/utils/playList';
+import { getArtist } from '@/api/artist';
 import { userPlaylist } from '@/api/user';
 import { isAccountLoggedIn } from '@/utils/auth';
 
@@ -41,6 +43,16 @@ function safePlaylist(playlist) {
   };
 }
 
+function safeArtist(artist) {
+  return {
+    id: String(artist.id),
+    name: artist.name || '未知歌手',
+    coverUrl: artist.picUrl || artist.img1v1Url || artist.avatar || '',
+    albumCount: Number(artist.albumSize || artist.albumCount || 0),
+    mvCount: Number(artist.mvSize || artist.mvCount || 0),
+  };
+}
+
 async function hostCatalog(action, payload = {}, store = null) {
   if (action === 'search') {
     const data = await search({
@@ -50,6 +62,55 @@ async function hostCatalog(action, payload = {}, store = null) {
     });
     const songs = data.result?.songs || data.result?.song?.songs || [];
     return songs.slice(0, 15).map(safeCatalogTrack);
+  }
+  if (action === 'artistSearch') {
+    const data = await search({
+      keywords: String(payload.query || ''),
+      limit: 12,
+      type: 100,
+    });
+    const artists = data.result?.artists || data.result?.artist?.artists || [];
+    return artists.slice(0, 12).map(safeArtist);
+  }
+  if (action === 'artistTracks') {
+    const artistId = String(payload.artistId || '');
+    if (!/^\d{1,20}$/.test(artistId)) throw new Error('ARTIST_NOT_FOUND');
+    const data = await getArtist(artistId);
+    return (data?.hotSongs || []).slice(0, 30).map(safeCatalogTrack);
+  }
+  if (action === 'recommendations') {
+    let playlists;
+    try {
+      playlists = await getRecommendPlayList(10, false);
+    } catch (_) {
+      const fallback = await recommendPlaylist({ limit: 10 });
+      playlists = fallback?.result || [];
+    }
+    return (playlists || []).slice(0, 10).map(safePlaylist);
+  }
+  if (action === 'recommendationTracks') {
+    const playlistId = String(payload.playlistId || '');
+    if (!/^\d{1,20}$/.test(playlistId)) throw new Error('PLAYLIST_NOT_FOUND');
+    const detail = await getPlaylistDetail(playlistId, true);
+    const trackIds = (detail?.playlist?.trackIds || [])
+      .map(track => String(track.id || track))
+      .filter(trackId => /^\d{1,20}$/.test(trackId));
+    const initialTracks = detail?.playlist?.tracks || [];
+    let tracks = initialTracks;
+    if (trackIds.length) {
+      const data = await getTrackDetail(trackIds.slice(0, 100).join(','));
+      tracks = data?.songs || initialTracks;
+    }
+    const tracksById = new Map(
+      tracks.filter(track => track?.id).map(track => [String(track.id), track])
+    );
+    const orderedTracks = (
+      trackIds.length ? trackIds : tracks.map(track => String(track.id))
+    )
+      .map(trackId => tracksById.get(trackId))
+      .filter(Boolean)
+      .slice(0, 100);
+    return orderedTracks.map(safeCatalogTrack);
   }
   if (action === 'trackDetail') {
     const data = await getTrackDetail(String(payload.trackId));

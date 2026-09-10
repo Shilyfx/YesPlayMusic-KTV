@@ -6,6 +6,7 @@ import { promises as fs } from 'fs';
 import QRCode from 'qrcode';
 
 const ROOM_PORT = 27233;
+const DEFAULT_ROOM_NAME = 'Shilyfx的KTV';
 const roomCode = () => crypto.randomBytes(3).toString('hex').toUpperCase();
 // Electron 13 ships with a Node.js version that does not support the
 // `base64url` Buffer encoding. Keep the token URL-safe without relying on
@@ -99,11 +100,11 @@ export class KaraokeServer {
     return getLanAddressCandidates(this.networkInterfaces());
   }
 
-  async startRoom({ lanAddress, sessionId } = {}) {
+  async startRoom({ lanAddress, sessionId, roomName } = {}) {
     if (this.room) return this.describeRoom();
     if (this.startPromise) return this.startPromise;
     if (!sessionId) throw new Error('缺少有效的 KTV Session');
-    this.startPromise = this._startRoom({ lanAddress, sessionId });
+    this.startPromise = this._startRoom({ lanAddress, sessionId, roomName });
     try {
       return await this.startPromise;
     } finally {
@@ -111,7 +112,7 @@ export class KaraokeServer {
     }
   }
 
-  async _startRoom({ lanAddress, sessionId }) {
+  async _startRoom({ lanAddress, sessionId, roomName }) {
     const generation = (this.generation += 1);
     const candidates = this.getLanAddressCandidates();
     const firstCandidate = candidates[0];
@@ -126,6 +127,7 @@ export class KaraokeServer {
 
     const room = {
       code: roomCode(),
+      name: roomName || DEFAULT_ROOM_NAME,
       token: roomToken(),
       lanAddress: selectedAddress,
       candidates,
@@ -203,6 +205,7 @@ export class KaraokeServer {
     }
     return {
       code: this.room.code,
+      name: this.room.name,
       url,
       joinUrl: url,
       candidates: this.room.candidates,
@@ -327,7 +330,7 @@ export class KaraokeServer {
       'X-Content-Type-Options': 'nosniff',
       'Referrer-Policy': 'no-referrer',
       'Content-Security-Policy':
-        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data:; base-uri 'none'; frame-ancestors 'none'",
+        "default-src 'none'; script-src 'self'; style-src 'self'; connect-src 'self'; img-src 'self' data: http: https:; base-uri 'none'; frame-ancestors 'none'",
     };
   }
 }

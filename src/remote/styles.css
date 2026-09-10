@@ -128,6 +128,20 @@ h2 {
   color: inherit;
   background: #14192e99;
 }
+:root[data-theme='light'] select,
+:root[data-theme='light'] input,
+:root[data-theme='light'] option {
+  color: #17203b;
+  background-color: #ffffff;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme='auto'] select,
+  :root[data-theme='auto'] input,
+  :root[data-theme='auto'] option {
+    color: #17203b;
+    background-color: #ffffff;
+  }
+}
 .glass,
 .result-card,
 .guest-card {
@@ -187,6 +201,193 @@ h2 {
   font-size: 12px;
   font-variant-numeric: tabular-nums;
   font-weight: 800;
+}
+.recommendation-area,
+.artist-area {
+  margin-top: 24px;
+  padding: 20px;
+  border-radius: 24px;
+}
+.recommendation-list {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 16px;
+}
+.recommendation-card {
+  min-width: 0;
+}
+.recommendation-card button {
+  display: grid;
+  width: 100%;
+  min-height: 100%;
+  gap: 8px;
+  padding: 0;
+  overflow: hidden;
+  border: 1px solid #ffffff1e;
+  border-radius: 16px;
+  color: inherit;
+  background: #ffffff0e;
+  text-align: left;
+}
+.recommendation-card button:hover,
+.recommendation-card.selected button {
+  border-color: #a69bff99;
+  background: #ffffff1c;
+}
+.recommendation-card img,
+.recommendation-placeholder {
+  display: block;
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  background: linear-gradient(135deg, #6653dc, #bb5aa0);
+}
+.recommendation-placeholder {
+  display: grid;
+  place-items: center;
+  color: #fff;
+  font-size: 38px;
+}
+.recommendation-copy {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+  padding: 0 11px 12px;
+}
+.recommendation-copy strong {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-size: 13px;
+}
+.recommendation-copy small,
+.section-helper {
+  color: #aeb4ca;
+  font-size: 11px;
+}
+.recommendation-track-list,
+.artist-track-list {
+  display: grid;
+  gap: 9px;
+  max-height: 400px;
+  margin-top: 16px;
+  overflow: auto;
+  padding-right: 3px;
+}
+.recommendation-track-card,
+.artist-track-card {
+  padding: 12px 14px;
+}
+.artist-area .section-heading {
+  align-items: flex-end;
+}
+.artist-search-box {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 16px;
+  padding: 12px 15px;
+  border: 1px solid #ffffff2e;
+  border-radius: 14px;
+  background: #111731b8;
+}
+.artist-search-box input {
+  width: 100%;
+  border: 0;
+  outline: 0;
+  color: inherit;
+  background: transparent;
+}
+.artist-picker {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 12px;
+}
+.artist-chip {
+  display: flex;
+  min-width: 0;
+  gap: 9px;
+  align-items: center;
+  padding: 8px;
+  border: 1px solid #ffffff1e;
+  border-radius: 13px;
+  color: inherit;
+  background: #ffffff0e;
+  text-align: left;
+}
+.artist-chip:hover,
+.artist-chip.selected {
+  border-color: #a69bff99;
+  background: #ffffff1c;
+}
+.artist-chip img,
+.artist-placeholder {
+  display: grid;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
+  place-items: center;
+  overflow: hidden;
+  border-radius: 50%;
+  object-fit: cover;
+  background: linear-gradient(135deg, #6653dc, #bb5aa0);
+}
+.artist-placeholder {
+  color: #fff;
+  font-size: 18px;
+}
+.artist-chip span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
+}
+.artist-chip strong,
+.artist-chip small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.artist-chip strong {
+  font-size: 13px;
+}
+.artist-chip small {
+  color: #aeb4ca;
+  font-size: 10px;
+}
+.selected-artists {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 7px;
+  align-items: center;
+  min-height: 0;
+  margin-top: 12px;
+  color: #aeb4ca;
+  font-size: 11px;
+}
+.selected-artist {
+  min-height: 30px;
+  padding: 0 10px;
+  border: 1px solid #ffffff26;
+  border-radius: 999px;
+  color: #dfe1f2;
+  background: #ffffff12;
+  font-size: 11px;
+}
+.selected-artist:hover,
+.selected-artist.selected {
+  border-color: #a69bff99;
+  color: #fff;
+  background: #6452e9;
+}
+@media (max-width: 960px) and (min-width: 721px) {
+  .recommendation-list {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+  .artist-picker {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
 }
 .playlist-area {
   margin-top: 24px;
@@ -405,6 +606,25 @@ h2 {
   .playlist-area {
     padding: 17px;
   }
+  .recommendation-area,
+  .artist-area {
+    padding: 17px;
+  }
+  .recommendation-list {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 9px;
+  }
+  .recommendation-copy {
+    padding: 0 9px 10px;
+  }
+  .artist-area .section-heading {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+  .artist-picker {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
   .playlist-picker {
     grid-template-columns: 1fr;
   }
@@ -421,6 +641,11 @@ h2 {
   }
   .request-actions button {
     flex: 1;
+    min-height: 42px;
+  }
+  .artist-chip,
+  .recommendation-card button {
+    min-height: 48px;
   }
   .queue-grid {
     grid-template-columns: 1fr;
@@ -443,5 +668,19 @@ h2 {
   .queue-actions {
     width: 100%;
     margin-left: 36px;
+  }
+}
+:root[data-theme='light'] .theme-picker select,
+:root[data-theme='light'] .playlist-picker select {
+  border-color: #cbd1e3;
+  color: #17203b;
+  background: #ffffff;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme='auto'] .theme-picker select,
+  :root[data-theme='auto'] .playlist-picker select {
+    border-color: #cbd1e3;
+    color: #17203b;
+    background: #ffffff;
   }
 }

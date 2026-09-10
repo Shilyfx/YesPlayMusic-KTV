@@ -190,6 +190,44 @@ async function run() {
           dt: 180000,
         },
       ];
+    if (action === 'recommendations')
+      return [
+        {
+          id: '9002',
+          name: '推荐歌单',
+          trackCount: 1,
+          coverUrl: 'https://example.com/recommendation.jpg',
+        },
+      ];
+    if (action === 'recommendationTracks')
+      return [
+        {
+          id: 101,
+          name: '测试歌 Live',
+          ar: [{ name: '歌手' }],
+          al: { name: '专辑' },
+          dt: 180000,
+        },
+      ];
+    if (action === 'artistSearch')
+      return [
+        {
+          id: '7001',
+          name: '测试歌手',
+          coverUrl: 'https://example.com/artist.jpg',
+          albumCount: 3,
+        },
+      ];
+    if (action === 'artistTracks')
+      return [
+        {
+          id: 101,
+          name: '测试歌 Live',
+          ar: [{ name: '歌手' }],
+          al: { name: '专辑' },
+          dt: 180000,
+        },
+      ];
     if (action === 'availability') return 'playable';
     throw new Error('UNEXPECTED_CATALOG_ACTION');
   };
@@ -257,10 +295,47 @@ async function run() {
   assert.equal(playlistTracks.body.tracks[0].playability, 'playable');
   assert.ok(bridgeCalls.includes('playlists'));
   assert.ok(bridgeCalls.includes('playlistTracks'));
+  const recommendations = await request(
+    port,
+    'GET',
+    '/ktv/api/recommendations',
+    { token: guestA.body.clientToken }
+  );
+  assert.equal(recommendations.status, 200);
+  assert.equal(recommendations.body.playlists[0].id, '9002');
+  const recommendationTracks = await request(
+    port,
+    'GET',
+    '/ktv/api/recommendations/9002/tracks',
+    { token: guestA.body.clientToken }
+  );
+  assert.equal(recommendationTracks.status, 200);
+  assert.equal(recommendationTracks.body.tracks[0].trackId, '101');
+  const artistSearch = await request(
+    port,
+    'GET',
+    '/ktv/api/artists/search?q=%E6%B5%8B%E8%AF%95',
+    { token: guestA.body.clientToken }
+  );
+  assert.equal(artistSearch.status, 200);
+  assert.equal(artistSearch.body.artists[0].id, '7001');
+  const artistTracks = await request(
+    port,
+    'GET',
+    '/ktv/api/artists/7001/tracks',
+    { token: guestA.body.clientToken }
+  );
+  assert.equal(artistTracks.status, 200);
+  assert.equal(artistTracks.body.tracks[0].trackId, '101');
+  assert.ok(bridgeCalls.includes('recommendations'));
+  assert.ok(bridgeCalls.includes('recommendationTracks'));
+  assert.ok(bridgeCalls.includes('artistSearch'));
+  assert.ok(bridgeCalls.includes('artistTracks'));
   const stateResponse = await request(port, 'GET', '/ktv/api/state', {
     token: guestA.body.clientToken,
   });
   assert.equal(stateResponse.status, 200);
+  assert.equal(stateResponse.body.room.name, 'Shilyfx的KTV');
   assert.equal(stateResponse.body.history.length, 1);
   assert.equal(stateResponse.body.history[0].trackId, '99');
   service.sessions.clients.clear();

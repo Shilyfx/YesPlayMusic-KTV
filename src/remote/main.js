@@ -19,6 +19,19 @@ let playlistTracks = [];
 let playlistQuery = '';
 let playlistTrackGeneration = 0;
 let playedHistory = [];
+let recommendations = [];
+let selectedRecommendationId = '';
+let recommendationTracks = [];
+let recommendationTrackGeneration = 0;
+let artistSearchTimer;
+let artistSearchAbort;
+let artistSearchGeneration = 0;
+let artistQuery = '';
+let artists = [];
+let selectedArtistId = '';
+let artistTracks = [];
+let artistTrackGeneration = 0;
+let artistSelections = [];
 
 function escape(value = '') {
   return String(value).replace(
@@ -85,9 +98,15 @@ function itemMarkup(item, index, own = false) {
 function initializeShell() {
   const theme = localStorage.getItem('yesplaymusic-ktv-theme') || 'auto';
   document.documentElement.dataset.theme = theme;
-  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1>房间 ${escape(
+  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">YESPLAYMUSIC · LAN KTV</p><h1 data-room-name>房间 ${escape(
     roomCode || '—'
   )}</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section><section class="queue-panel guest-card"><p class="section-label">本次加入</p><h2 data-guest-name>访客</h2><p>仅能调整或取消自己尚未开始的点歌。房间结束后，此会话会自动失效。</p></section></section></main>`;
+  app
+    .querySelector('.history-area')
+    .insertAdjacentHTML(
+      'afterend',
+      '<section class="recommendation-area glass"><div class="section-heading"><div><p class="section-label">YESPLAYMUSIC 推荐</p><h2>为你推荐</h2></div><button class="quiet recommendation-refresh" type="button" data-recommendations-refresh>换一批</button></div><div class="recommendation-list" data-recommendations><div class="hint">正在加载推荐歌单…</div></div><div class="recommendation-track-list" data-recommendation-tracks><div class="hint">选择一个歌单查看歌曲。</div></div></section><section class="artist-area glass"><div class="section-heading"><div><p class="section-label">按歌手点歌</p><h2>找歌手</h2></div><span class="section-helper">搜索后可连续选择多个歌手</span></div><label class="artist-search-box"><span>⌕</span><input data-artist-search maxlength="60" autocomplete="off" placeholder="输入歌手名，例如：周杰伦" /></label><div class="artist-picker" data-artists><div class="hint">输入歌手名开始查找。</div></div><div class="selected-artists" data-selected-artists></div><div class="artist-track-list" data-artist-tracks><div class="hint">选择歌手后显示热门歌曲。</div></div></section>'
+    );
   app.querySelector('[data-theme]').value = theme;
   app.querySelector('[data-theme]').addEventListener('change', event => {
     localStorage.setItem('yesplaymusic-ktv-theme', event.target.value);
@@ -105,13 +124,22 @@ function initializeShell() {
       playlistQuery = event.target.value;
       renderPlaylistTracks();
     });
+  app
+    .querySelector('[data-artist-search]')
+    .addEventListener('input', event =>
+      scheduleArtistSearch(event.target.value)
+    );
   app.addEventListener('click', event => {
     const button = event.target.closest('button');
     if (!button) return;
     if (button.dataset.request) requestSong(button.dataset.request, false);
     else if (button.dataset.priority)
       requestSong(button.dataset.priority, true);
+    else if (button.dataset.recommendation)
+      selectRecommendation(button.dataset.recommendation);
+    else if (button.dataset.artist) selectArtist(button.dataset.artist);
     else if (button.dataset.playlistsRefresh) loadPlaylists();
+    else if (button.dataset.recommendationsRefresh) loadRecommendations();
     else if (button.dataset.remove)
       mutate(`/requests/${button.dataset.remove}`, 'DELETE');
     else if (button.dataset.front)
@@ -121,6 +149,12 @@ function initializeShell() {
 
 function renderNowPlaying() {
   const current = state?.current;
+  const roomTitle = app.querySelector('[data-room-name]');
+  if (roomTitle) {
+    roomTitle.textContent = `${state?.room?.name || 'Shilyfx的KTV'} · ${
+      state?.room?.code || roomCode || '—'
+    }`;
+  }
   const target = app.querySelector('[data-now-playing]');
   target.innerHTML = `<p class="section-label">正在演唱</p>${
     current
@@ -175,6 +209,145 @@ function renderHistory() {
           item.trackId
         )}">优先再唱</button></div></article>`
     )
+    .join('');
+}
+
+function trackRequestMarkup(track, className = '') {
+  const availability = track.playability || 'unknown';
+  const label =
+    availability === 'playable'
+      ? '可播放'
+      : availability === 'trial-only'
+      ? '仅试听'
+      : availability === 'unavailable'
+      ? '不可播放'
+      : '点歌时检测';
+  const disabled = availability !== 'unknown' && availability !== 'playable';
+  return `<article class="result-card ${className}"><div class="result-info"><strong>${escape(
+    track.name
+  )}</strong><p>${escape((track.artists || []).join(' / '))} · ${escape(
+    track.album || '未知专辑'
+  )}</p><small>${formatDuration(
+    track.duration
+  )} · <b class="availability ${availability}">${label}</b></small></div><div class="request-actions"><button data-request="${escape(
+    track.trackId
+  )}" ${
+    disabled ? 'disabled' : ''
+  }>点歌</button><button class="priority-button" data-priority="${escape(
+    track.trackId
+  )}" ${disabled ? 'disabled' : ''}>优先点歌</button></div></article>`;
+}
+
+function renderRecommendations() {
+  const container = app.querySelector('[data-recommendations]');
+  if (!container) return;
+  if (!recommendations.length) {
+    container.innerHTML = '<div class="hint">暂时没有可展示的推荐歌单。</div>';
+    return;
+  }
+  container.innerHTML = recommendations
+    .map(
+      playlist =>
+        `<article class="recommendation-card ${
+          playlist.id === selectedRecommendationId ? 'selected' : ''
+        }"><button type="button" data-recommendation="${escape(playlist.id)}">${
+          playlist.coverUrl
+            ? `<img src="${escape(playlist.coverUrl)}" alt="" loading="lazy" />`
+            : '<span class="recommendation-placeholder">♫</span>'
+        }<span class="recommendation-copy"><strong>${escape(
+          playlist.name
+        )}</strong><small>${
+          playlist.trackCount || '多'
+        } 首 · 查看歌单</small></span></button></article>`
+    )
+    .join('');
+}
+
+function renderRecommendationTracks({ loading = false } = {}) {
+  const container = app.querySelector('[data-recommendation-tracks]');
+  if (!container) return;
+  if (loading) {
+    container.innerHTML = '<div class="hint">正在加载推荐歌单歌曲…</div>';
+    return;
+  }
+  if (!selectedRecommendationId) {
+    container.innerHTML = '<div class="hint">选择一个歌单查看歌曲。</div>';
+    return;
+  }
+  if (!recommendationTracks.length) {
+    container.innerHTML =
+      '<div class="hint">这个推荐歌单暂无可展示歌曲。</div>';
+    return;
+  }
+  container.innerHTML = recommendationTracks
+    .slice(0, 30)
+    .map(track => trackRequestMarkup(track, 'recommendation-track-card'))
+    .join('');
+}
+
+function renderArtists() {
+  const container = app.querySelector('[data-artists]');
+  if (!container) return;
+  renderSelectedArtists();
+  if (!artistQuery.trim()) {
+    container.innerHTML = '<div class="hint">输入歌手名开始查找。</div>';
+    return;
+  }
+  if (!artists.length) {
+    container.innerHTML = '<div class="hint">没有找到匹配的歌手。</div>';
+    return;
+  }
+  container.innerHTML = artists
+    .map(
+      artist =>
+        `<button type="button" class="artist-chip ${
+          artist.id === selectedArtistId ? 'selected' : ''
+        }" data-artist="${escape(artist.id)}">${
+          artist.coverUrl
+            ? `<img src="${escape(artist.coverUrl)}" alt="" loading="lazy" />`
+            : '<span class="artist-placeholder">♪</span>'
+        }<span><strong>${escape(artist.name)}</strong><small>${
+          artist.albumCount ? `${artist.albumCount} 张专辑` : '热门歌曲'
+        }</small></span></button>`
+    )
+    .join('');
+}
+
+function renderSelectedArtists() {
+  const container = app.querySelector('[data-selected-artists]');
+  if (!container) return;
+  container.innerHTML = artistSelections.length
+    ? `<span>已选歌手</span>${artistSelections
+        .map(
+          artist =>
+            `<button type="button" class="selected-artist ${
+              artist.id === selectedArtistId ? 'selected' : ''
+            }" data-artist="${escape(artist.id)}">${escape(
+              artist.name
+            )}</button>`
+        )
+        .join('')}`
+    : '';
+}
+
+function renderArtistTracks({ loading = false } = {}) {
+  const container = app.querySelector('[data-artist-tracks]');
+  if (!container) return;
+  if (loading) {
+    container.innerHTML = '<div class="hint">正在加载歌手热门歌曲…</div>';
+    return;
+  }
+  if (!selectedArtistId) {
+    container.innerHTML = '<div class="hint">选择歌手后显示热门歌曲。</div>';
+    return;
+  }
+  if (!artistTracks.length) {
+    container.innerHTML = '<div class="hint">这个歌手暂无可展示歌曲。</div>';
+    return;
+  }
+  container.innerHTML = artistTracks
+    .slice(0, 30)
+    .map(track => trackRequestMarkup(track, 'artist-track-card'))
     .join('');
 }
 
@@ -291,6 +464,120 @@ function renderPlaylistTracks({ loading = false } = {}) {
         }>优先点歌</button></div></article>`
     )
     .join('');
+}
+
+async function selectRecommendation(playlistId) {
+  selectedRecommendationId = playlistId;
+  recommendationTracks = [];
+  renderRecommendations();
+  renderRecommendationTracks({ loading: Boolean(playlistId) });
+  if (!playlistId) return;
+  const generation = ++recommendationTrackGeneration;
+  try {
+    const response = await api(
+      `/recommendations/${encodeURIComponent(playlistId)}/tracks`
+    );
+    if (generation !== recommendationTrackGeneration) return;
+    recommendationTracks = response.tracks || [];
+    renderRecommendationTracks();
+  } catch (_) {
+    if (generation !== recommendationTrackGeneration) return;
+    renderRecommendationTracks();
+    setNotice('推荐歌单歌曲暂时无法加载，请稍后重试。', 'error');
+  }
+}
+
+async function loadRecommendations() {
+  const button = app.querySelector('[data-recommendations-refresh]');
+  if (button) button.disabled = true;
+  try {
+    const response = await api('/recommendations');
+    recommendations = response.playlists || [];
+    const hasSelected = recommendations.some(
+      playlist => playlist.id === selectedRecommendationId
+    );
+    selectedRecommendationId = hasSelected
+      ? selectedRecommendationId
+      : recommendations[0]?.id || '';
+    renderRecommendations();
+    if (selectedRecommendationId)
+      await selectRecommendation(selectedRecommendationId);
+    else renderRecommendationTracks();
+  } catch (_) {
+    recommendations = [];
+    selectedRecommendationId = '';
+    renderRecommendations();
+    renderRecommendationTracks();
+    setNotice('推荐歌单暂时无法加载，请点击“换一批”重试。', 'error');
+  } finally {
+    if (button) button.disabled = false;
+  }
+}
+
+function scheduleArtistSearch(query) {
+  artistQuery = query;
+  const generation = ++artistSearchGeneration;
+  clearTimeout(artistSearchTimer);
+  if (artistSearchAbort) artistSearchAbort.abort();
+  const clean = query.trim();
+  artists = [];
+  selectedArtistId = '';
+  artistTracks = [];
+  renderArtists();
+  renderArtistTracks();
+  if (!clean) return;
+  artistSearchTimer = setTimeout(async () => {
+    artistSearchAbort = new AbortController();
+    const container = app.querySelector('[data-artists]');
+    if (container)
+      container.innerHTML = '<div class="hint">正在查找歌手…</div>';
+    try {
+      const response = await api(
+        `/artists/search?q=${encodeURIComponent(clean)}`,
+        {
+          signal: artistSearchAbort.signal,
+        }
+      );
+      if (generation !== artistSearchGeneration || clean !== artistQuery.trim())
+        return;
+      artists = response.artists || [];
+      renderArtists();
+    } catch (error) {
+      if (
+        error.name !== 'AbortError' &&
+        generation === artistSearchGeneration
+      ) {
+        artists = [];
+        renderArtists();
+        setNotice('歌手搜索暂时不可用，请稍后重试。', 'error');
+      }
+    }
+  }, 300);
+}
+
+async function selectArtist(artistId) {
+  selectedArtistId = artistId;
+  const selected = artists.find(artist => artist.id === String(artistId));
+  if (selected && !artistSelections.some(artist => artist.id === selected.id))
+    artistSelections.push(selected);
+  renderSelectedArtists();
+  artistTracks = [];
+  renderArtists();
+  renderArtistTracks({ loading: Boolean(artistId) });
+  if (!artistId) return;
+  const generation = ++artistTrackGeneration;
+  try {
+    const response = await api(
+      `/artists/${encodeURIComponent(artistId)}/tracks`
+    );
+    if (generation !== artistTrackGeneration) return;
+    artistTracks = response.tracks || [];
+    renderArtistTracks();
+  } catch (_) {
+    if (generation !== artistTrackGeneration) return;
+    renderArtistTracks();
+    setNotice('歌手歌曲暂时无法加载，请稍后重试。', 'error');
+  }
 }
 
 async function selectPlaylist(playlistId) {
@@ -458,7 +745,7 @@ async function bootstrap() {
     }
     initializeShell();
     await refresh();
-    await loadPlaylists();
+    await Promise.all([loadRecommendations(), loadPlaylists()]);
   } catch (_) {
     showEnded();
   }

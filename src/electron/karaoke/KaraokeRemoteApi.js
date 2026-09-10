@@ -120,6 +120,7 @@ export class KaraokeCatalogService {
     this.hostCatalogBridge = hostCatalogBridge;
     this.trackCache = new Map();
     this.availabilityCache = new Map();
+    this.recommendationPlaylistIds = new Set();
   }
 
   async search(query) {
@@ -148,6 +149,22 @@ export class KaraokeCatalogService {
     });
   }
 
+  async artistSearch(query) {
+    if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    const artists = await this.hostCatalogBridge('artistSearch', { query });
+    return Array.isArray(artists) ? artists : [];
+  }
+
+  async artistTracks(artistId) {
+    if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    const tracks = await this.hostCatalogBridge('artistTracks', {
+      artistId: String(artistId),
+    });
+    return Array.isArray(tracks)
+      ? tracks.map(track => (track.trackId ? track : sanitizeTrack(track)))
+      : [];
+  }
+
   async getTrack(trackId) {
     const cached = this.trackCache.get(String(trackId));
     if (cached && cached.expiresAt > Date.now()) return cached.value;
@@ -170,6 +187,29 @@ export class KaraokeCatalogService {
     if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
     const playlists = await this.hostCatalogBridge('playlists');
     return Array.isArray(playlists) ? playlists : [];
+  }
+
+  async recommendations() {
+    if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    const playlists = await this.hostCatalogBridge('recommendations');
+    const safePlaylists = Array.isArray(playlists) ? playlists : [];
+    this.recommendationPlaylistIds = new Set(
+      safePlaylists.map(playlist => String(playlist.id))
+    );
+    return safePlaylists;
+  }
+
+  async recommendationTracks(playlistId) {
+    if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    const id = String(playlistId);
+    if (!/^\d{1,20}$/.test(id) || !this.recommendationPlaylistIds.has(id))
+      throw new Error('PLAYLIST_NOT_FOUND');
+    const source = await this.hostCatalogBridge('recommendationTracks', {
+      playlistId: id,
+    });
+    return Array.isArray(source)
+      ? source.map(track => (track.trackId ? track : sanitizeTrack(track)))
+      : [];
   }
 
   async playlistTracks(playlistId) {
@@ -363,7 +403,11 @@ export class KaraokeRemoteService {
     if (!this.limiter.check('state:room', 240)) throw new Error('RATE_LIMIT');
     const snapshot = await this.managerBridge.snapshot();
     return {
-      room: { active: true, code: this.getRoom().code },
+      room: {
+        active: true,
+        code: this.getRoom().code,
+        name: this.getRoom().name || 'Shilyfx的KTV',
+      },
       current: this.sanitizeItem(snapshot.currentItem),
       waiting: snapshot.waitingItems.map(item => this.sanitizeItem(item)),
       // Only completed songs are exposed as history. Skipped, failed, and
@@ -425,6 +469,40 @@ export class KaraokeRemoteService {
     if (!this.limiter.check('playlists:room', 24))
       throw new Error('RATE_LIMIT');
     return this.catalog.playlists();
+  }
+
+  async recommendations(client) {
+    if (!this.limiter.check(`recommendations:${client.clientId}`, 6))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('recommendations:room', 24))
+      throw new Error('RATE_LIMIT');
+    return this.catalog.recommendations();
+  }
+
+  async recommendationTracks(client, playlistId) {
+    if (!this.limiter.check(`recommendationTracks:${client.clientId}`, 12))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('recommendationTracks:room', 80))
+      throw new Error('RATE_LIMIT');
+    return this.catalog.recommendationTracks(playlistId);
+  }
+
+  async artistSearch(client, query) {
+    if (!this.limiter.check(`artistSearch:${client.clientId}`, 10))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('artistSearch:room', 60))
+      throw new Error('RATE_LIMIT');
+    return this.catalog.artistSearch(query);
+  }
+
+  async artistTracks(client, artistId) {
+    if (!this.limiter.check(`artistTracks:${client.clientId}`, 12))
+      throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('artistTracks:room', 80))
+      throw new Error('RATE_LIMIT');
+    if (!/^\d{1,20}$/.test(String(artistId)))
+      throw new Error('ARTIST_NOT_FOUND');
+    return this.catalog.artistTracks(artistId);
   }
 
   async playlistTracks(client, playlistId) {
@@ -587,6 +665,44 @@ export class RemoteApiRouter {
           playlists: await this.service.playlists(client),
         });
       }
+      if (
+        url.pathname === '/ktv/api/recommendations' &&
+        request.method === 'GET'
+      ) {
+        return json(response, 200, {
+          playlists: await this.service.recommendations(client),
+        });
+      }
+      const recommendationTracks = url.pathname.match(
+        /^\/ktv\/api\/recommendations\/(\d{1,20})\/tracks$/
+      );
+      if (recommendationTracks && request.method === 'GET') {
+        return json(response, 200, {
+          tracks: await this.service.recommendationTracks(
+            client,
+            recommendationTracks[1]
+          ),
+        });
+      }
+      if (
+        url.pathname === '/ktv/api/artists/search' &&
+        request.method === 'GET'
+      ) {
+        const query = (url.searchParams.get('q') || '').trim();
+        if (!query || query.length > 80)
+          return error(response, 400, 'INVALID_QUERY');
+        return json(response, 200, {
+          artists: await this.service.artistSearch(client, query),
+        });
+      }
+      const artistTracks = url.pathname.match(
+        /^\/ktv\/api\/artists\/(\d{1,20})\/tracks$/
+      );
+      if (artistTracks && request.method === 'GET') {
+        return json(response, 200, {
+          tracks: await this.service.artistTracks(client, artistTracks[1]),
+        });
+      }
       const playlistTracks = url.pathname.match(
         /^\/ktv\/api\/playlists\/(\d{1,20})\/tracks$/
       );
@@ -651,6 +767,7 @@ export class RemoteApiRouter {
         KTV_NOT_ACTIVE: [409, 'KTV_NOT_ACTIVE'],
         HOST_NOT_LOGGED_IN: [409, 'HOST_NOT_LOGGED_IN'],
         PLAYLIST_NOT_FOUND: [404, 'PLAYLIST_NOT_FOUND'],
+        ARTIST_NOT_FOUND: [404, 'ARTIST_NOT_FOUND'],
         WAITING_ITEM_NOT_FOUND: [404, 'WAITING_ITEM_NOT_FOUND'],
         BODY_TOO_LARGE: [413, 'BODY_TOO_LARGE'],
         INVALID_JSON: [400, 'INVALID_JSON'],

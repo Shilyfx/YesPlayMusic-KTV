@@ -464,10 +464,10 @@ export default {
       return this.session.status === 'active';
     },
     sessionLabel() {
-      if (this.isSessionActive) return '本机 KTV 进行中';
-      return this.session.status === 'ended'
-        ? '本机 KTV 已结束'
-        : 'KTV 尚未开始';
+      return `${this.roomName}${this.isSessionActive ? ' · 进行中' : ''}`;
+    },
+    roomName() {
+      return this.lanRoom?.name || 'Shilyfx的KTV';
     },
     statusEyebrow() {
       return this.isSessionActive ? '等待下一首' : '准备开始';
