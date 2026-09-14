@@ -101,7 +101,7 @@ jobs:
             rmdir "$mount_path" 2>/dev/null || true
           }
           trap cleanup EXIT
-          hdiutil attach "$dmg_path" -nobrowse -readonly -acceptlicense -mountpoint "$mount_path"
+          hdiutil attach "$dmg_path" -nobrowse -readonly -mountpoint "$mount_path"
           mounted_app=$(find "$mount_path" -maxdepth 1 -type d -name 'LumaSing.app' -print -quit)
           test -n "$mounted_app"
           mounted_archs=$(lipo -archs "$mounted_app/Contents/MacOS/LumaSing")
