@@ -266,12 +266,22 @@
         class="stage glass-panel"
         :data-lyric-state="stageLyrics.state"
         :data-lyric-effect="lyricEffect"
+        :data-stage-mode="lyricStageMode"
         aria-label="KTV 歌词舞台"
         @mousemove="showLyricControls"
         @touchstart="showLyricControls"
       >
         <p class="stage-kicker">LYRIC STAGE</p>
-        <div class="stage-lines">
+        <KaraokeLyricScene
+          v-if="lyricStageMode !== 'classic'"
+          :mode="lyricStageMode"
+          :lines="stageLyrics"
+          :cue-key="lyricRequestKey + ':' + activeLyricIndex"
+          :playing="player.playing"
+          :effect="lyricEffect"
+          :fullscreen="isLyricFullscreen"
+        />
+        <div v-else class="stage-lines">
           <p :key="'before-' + stageLyrics.before" class="before-line">
             {{ stageLyrics.before }}
           </p>
@@ -487,6 +497,17 @@
           >+</button
         >
         <label class="lyric-effect-setting">
+          <span>歌词舞台</span>
+          <select v-model="lyricStageMode" aria-label="歌词舞台展示方式">
+            <option
+              v-for="mode in stageModeOptions"
+              :key="mode.value"
+              :value="mode.value"
+              >{{ mode.label }}</option
+            >
+          </select>
+        </label>
+        <label class="lyric-effect-setting">
           <span>歌词字效</span>
           <select v-model="lyricEffect" aria-label="自定义歌词字体效果">
             <option value="gradient">渐变</option>
@@ -509,6 +530,8 @@ import {
   normalizeLyricOffset,
 } from '@/utils/lyricsSettings';
 import findLyricIndex from '@/utils/lyricCursor';
+import { normalizeStageMode, stageModeOptions } from '@/utils/lyricStageModes';
+import KaraokeLyricScene from '@/components/karaoke/KaraokeLyricScene.vue';
 import KaraokeThemeSwitcher from '@/components/karaoke/KaraokeThemeSwitcher.vue';
 import createWebRoomBridge from '@/karaoke/webRoomBridge';
 import { executeKaraokeCommand } from '@/electron/ipcRenderer';
@@ -516,7 +539,7 @@ import { Howl, Howler } from 'howler';
 
 export default {
   name: 'Karaoke',
-  components: { KaraokeThemeSwitcher },
+  components: { KaraokeThemeSwitcher, KaraokeLyricScene },
   data() {
     return {
       lyrics: [],
@@ -557,6 +580,20 @@ export default {
     };
   },
   computed: {
+    stageModeOptions() {
+      return stageModeOptions;
+    },
+    lyricStageMode: {
+      get() {
+        return normalizeStageMode(this.settings.karaokeLyricStageMode);
+      },
+      set(value) {
+        this.$store.commit('updateSettings', {
+          key: 'karaokeLyricStageMode',
+          value: normalizeStageMode(value),
+        });
+      },
+    },
     ...mapState(['player', 'settings', 'karaoke']),
     karaokeManager() {
       return this.$store.$karaokeManager;
@@ -2020,6 +2057,9 @@ button:disabled {
   color: var(--ktv-text-secondary);
   font-size: 12px;
 }
+.stage:not([data-stage-mode='classic']) .fullscreen-actions {
+  margin-bottom: 48px;
+}
 .karaoke-desktop:fullscreen {
   overflow: auto;
   padding: 24px;
@@ -2029,6 +2069,25 @@ button:disabled {
   overflow: auto;
   padding: 24px;
   background: var(--ktv-bg-base);
+}
+/* Keep the standard selector separate: unsupported vendor selectors in the old
+   selector list can invalidate the entire rule in Chromium. */
+.stage:fullscreen {
+  display: flex;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
+  min-height: 0;
+  padding: 32px;
+  box-sizing: border-box;
+  border: 0;
+  border-radius: 0;
+  background: var(--ktv-bg-base);
+}
+.stage:fullscreen .stage-footer,
+.stage:fullscreen .stage-kicker,
+.stage:fullscreen .fullscreen-actions {
+  display: none;
 }
 .stage:fullscreen,
 .stage:-webkit-full-screen,
@@ -2288,6 +2347,8 @@ button:disabled {
   margin-left: 4px;
   color: var(--ktv-text-secondary);
   font-size: 12px;
+  flex-shrink: 0;
+  white-space: nowrap;
 }
 .lyric-effect-setting select {
   min-height: 34px;
@@ -2308,6 +2369,7 @@ button:disabled {
 }
 .font-setting {
   justify-content: flex-end;
+  flex-wrap: wrap;
 }
 .quick-setting strong {
   min-width: 62px;
@@ -2426,6 +2488,7 @@ button:disabled {
     display: flex;
     flex-direction: column;
     min-height: 0;
+    flex: none;
   }
   .track-identity {
     display: grid;
@@ -2448,9 +2511,11 @@ button:disabled {
   .karaoke-controls {
     grid-template-columns: 1fr;
     justify-items: center;
+    flex-shrink: 0;
   }
   .font-setting {
     justify-content: center;
+    flex-wrap: wrap;
   }
   .stage-footer {
     flex-direction: column;

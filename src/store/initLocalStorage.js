@@ -18,6 +18,7 @@ let localStorage = {
     // Positive values make a lyric line appear earlier than its source time.
     lyricOffsetSeconds: 0,
     karaokeLyricEffect: 'gradient',
+    karaokeLyricStageMode: 'classic',
     karaokeTheme: 'auto',
     localKaraokeDirectories: [],
     outputDevice: 'default',
