@@ -59,6 +59,15 @@ jobs:
         run: node scripts/test-karaoke-remote-api.js
       - name: Safe storage validation
         run: node scripts/test-safe-storage.js
+      - name: Node runtime for Docker KTV tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Docker KTV host and browser transport
+        run: |
+          node scripts/test-karaoke-web-host.js
+          node scripts/test-karaoke-web-bridge.js
+          node scripts/build-ktv-server.js
       - name: Full repository lint diagnostic (known upstream failures)
         continue-on-error: true
         run: yarn lint

@@ -74,7 +74,7 @@ async function getUserPlaylistAllowlist(store, { force = false } = {}) {
   });
 }
 
-async function hostCatalog(action, payload = {}, store = null) {
+export async function hostCatalog(action, payload = {}, store = null) {
   if (action === 'search') {
     const data = await search({
       keywords: String(payload.query || ''),
@@ -223,6 +223,32 @@ async function hostCatalog(action, payload = {}, store = null) {
   throw new Error('KTV_NOT_ACTIVE');
 }
 
+export async function executeKaraokeCommand(command, store) {
+  const manager = store.$karaokeManager;
+  if (!manager) throw new Error('KTV_NOT_ACTIVE');
+  const payload = command.payload || {};
+  if (command.action === 'snapshot') return manager.getSnapshot();
+  if (command.action === 'catalog')
+    return hostCatalog(payload.action, payload.payload, store);
+  assertExpectedKaraokeSession(manager, payload.expected);
+  switch (command.action) {
+    case 'enqueue': {
+      const item = manager.enqueueTrack(payload.track, payload.requester);
+      if (item && !manager.queue.currentItem && !manager.transitionPromise)
+        manager.startQueue();
+      return item;
+    }
+    case 'remove':
+      return manager.removeQueueItem(payload.queueItemId);
+    case 'front':
+      return manager.moveQueueItemToFront(payload.queueItemId);
+    case 'next':
+      return manager.next();
+    default:
+      throw new Error('KTV_NOT_ACTIVE');
+  }
+}
+
 export function ipcRenderer(vueInstance) {
   const self = vueInstance;
   const store = self.$store;
@@ -238,49 +264,8 @@ export function ipcRenderer(vueInstance) {
   const ipcRenderer = electron.ipcRenderer;
 
   ipcRenderer.on('karaoke:remote:command', async (_, command) => {
-    const manager = store.$karaokeManager;
     try {
-      if (!manager) throw new Error('KTV_NOT_ACTIVE');
-      let result;
-      switch (command.action) {
-        case 'snapshot':
-          result = manager.getSnapshot();
-          break;
-        case 'enqueue':
-          assertExpectedKaraokeSession(manager, command.payload.expected);
-          result = manager.enqueueTrack(
-            command.payload.track,
-            command.payload.requester
-          );
-          if (
-            result &&
-            !manager.queue.currentItem &&
-            !manager.transitionPromise
-          )
-            manager.startQueue();
-          break;
-        case 'remove':
-          assertExpectedKaraokeSession(manager, command.payload.expected);
-          result = manager.removeQueueItem(command.payload.queueItemId);
-          break;
-        case 'front':
-          assertExpectedKaraokeSession(manager, command.payload.expected);
-          result = manager.moveQueueItemToFront(command.payload.queueItemId);
-          break;
-        case 'next':
-          assertExpectedKaraokeSession(manager, command.payload.expected);
-          result = await manager.next();
-          break;
-        case 'catalog':
-          result = await hostCatalog(
-            command.payload.action,
-            command.payload.payload,
-            store
-          );
-          break;
-        default:
-          throw new Error('KTV_NOT_ACTIVE');
-      }
+      const result = await executeKaraokeCommand(command, store);
       ipcRenderer.send('karaoke:remote:result', {
         id: command.id,
         ok: true,

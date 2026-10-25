@@ -1,0 +1,51 @@
+name: lumasing
+services:
+  lumasing-api:
+    build:
+      context: .
+      dockerfile: Dockerfile.api
+    image: lumasing-router-api:4.29.7
+    restart: unless-stopped
+    volumes:
+      - ./data:/data
+    mem_limit: 384m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3000/login/status').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+  ktv:
+    build:
+      context: .
+      dockerfile: Dockerfile.ktv
+    image: lumasing-router-ktv:0.4.10
+    restart: unless-stopped
+    environment:
+      KTV_PUBLIC_ORIGIN: http://192.168.100.1:18080
+    volumes:
+      - ./dist/remote:/app/remote:ro
+    mem_limit: 192m
+    cpus: 1.0
+    healthcheck:
+      test: ["CMD", "node", "-e", "fetch('http://127.0.0.1:3100/ktv/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))"]
+      interval: 15s
+      timeout: 5s
+      retries: 3
+      start_period: 10s
+  web:
+    image: nginx:stable-alpine
+    restart: unless-stopped
+    ports:
+      - "192.168.100.1:18080:80"
+    volumes:
+      - ./dist:/usr/share/nginx/html:ro
+      - ./nginx.conf:/etc/nginx/conf.d/default.conf:ro
+    depends_on:
+      lumasing-api:
+        condition: service_healthy
+      ktv:
+        condition: service_healthy
+    mem_limit: 64m
+    cpus: 0.5

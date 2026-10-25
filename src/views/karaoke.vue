@@ -24,6 +24,13 @@
       <div class="header-actions">
         <KaraokeThemeSwitcher v-model="karaokeTheme" />
         <button
+          v-if="!isElectron"
+          type="button"
+          class="session-button"
+          @click="enableBrowserAudio"
+          >点击启用声音 / 播放</button
+        >
+        <button
           type="button"
           class="session-button fullscreen-button"
           :aria-label="isKtvFullscreen ? '退出全屏' : '全屏 KTV'"
@@ -503,6 +510,9 @@ import {
 } from '@/utils/lyricsSettings';
 import findLyricIndex from '@/utils/lyricCursor';
 import KaraokeThemeSwitcher from '@/components/karaoke/KaraokeThemeSwitcher.vue';
+import createWebRoomBridge from '@/karaoke/webRoomBridge';
+import { executeKaraokeCommand } from '@/electron/ipcRenderer';
+import { Howl, Howler } from 'howler';
 
 export default {
   name: 'Karaoke',
@@ -520,6 +530,7 @@ export default {
       systemTheme: 'light',
       themeMedia: null,
       lanRoom: null,
+      webRoomBridge: null,
       lanCandidates: [],
       showRoomCode: false,
       selectedLanAddress: '',
@@ -715,6 +726,18 @@ export default {
     },
   },
   created() {
+    if (!this.isElectron) {
+      this.webRoomBridge = createWebRoomBridge({
+        manager: this.karaokeManager,
+        execute: command => executeKaraokeCommand(command, this.$store),
+        onError: error => {
+          this.lanRoom = null;
+          this.$store.dispatch('showToast', error.message);
+        },
+      });
+      this.webRoomPageHide = () => this.webRoomBridge.dispose();
+      window.addEventListener('pagehide', this.webRoomPageHide);
+    }
     this.themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
     this.syncSystemTheme();
     if (this.themeMedia.addEventListener)
@@ -762,6 +785,10 @@ export default {
     document.addEventListener('click', this.handleOverlayOutsideClick);
   },
   beforeDestroy() {
+    if (this.webRoomBridge) this.webRoomBridge.dispose();
+    if (this.browserUnlockSound) this.browserUnlockSound.unload();
+    if (this.webRoomPageHide)
+      window.removeEventListener('pagehide', this.webRoomPageHide);
     window.clearInterval(this.clock);
     if (this.themeMedia?.removeEventListener)
       this.themeMedia.removeEventListener('change', this.syncSystemTheme);
@@ -795,6 +822,29 @@ export default {
     document.removeEventListener('click', this.handleOverlayOutsideClick);
   },
   methods: {
+    enableBrowserAudio() {
+      if (Howler.ctx && Howler.ctx.state === 'suspended') Howler.ctx.resume();
+      // Initialize Howler's HTML5 audio unlock pool inside a user gesture.
+      if (!this.browserUnlockSound) {
+        this.browserUnlockSound = new Howl({
+          src: [
+            'data:audio/wav;base64,UklGRigAAABXQVZFZm10IBAAAAABAAEARKwAAIhYAQACABAAZGF0YQQAAAAAAAAA',
+          ],
+          format: ['wav'],
+          html5: true,
+          volume: 0,
+        });
+      }
+      this.browserUnlockSound.play();
+      if (this.currentItem) this.player.play();
+      this.$store.dispatch(
+        'showToast',
+        '请保持此 KTV 页面打开；若无声音，请再点击播放'
+      );
+    },
+    roomIpc() {
+      return this.electronIpc() || this.webRoomBridge;
+    },
     async startDefaultSession() {
       if (this.isSessionActive) return;
       this.karaokeManager.startSession();
@@ -926,7 +976,7 @@ export default {
       this.showLocalLibraryPanel = false;
     },
     async loadLanRoom() {
-      const ipcRenderer = this.electronIpc();
+      const ipcRenderer = this.roomIpc();
       if (!ipcRenderer) return;
       try {
         const result = await ipcRenderer.invoke('karaoke:lan:status');
@@ -988,7 +1038,7 @@ export default {
       await this.scanLocalLibrary();
     },
     async loadLanCandidates() {
-      const ipcRenderer = this.electronIpc();
+      const ipcRenderer = this.roomIpc();
       if (!ipcRenderer) return;
       try {
         const result = await ipcRenderer.invoke('karaoke:lan:candidates');
@@ -1000,13 +1050,18 @@ export default {
       }
     },
     async setLanSessionActive(active) {
-      const ipcRenderer = this.electronIpc();
+      if (!active) {
+        this.lanRoom = null;
+        this.lanSelfTest = 'idle';
+      }
+      const ipcRenderer = this.roomIpc();
       if (ipcRenderer)
         await ipcRenderer.invoke('karaoke:lan:set-session-active', active);
     },
     async startLanRoom() {
-      const ipcRenderer = this.electronIpc();
+      const ipcRenderer = this.roomIpc();
       if (!ipcRenderer) return;
+      if (!this.isElectron) this.enableBrowserAudio();
       if (!this.selectedLanAddress) {
         this.$store.dispatch('showToast', '请先选择用于生成二维码的网卡');
         return;
@@ -1033,7 +1088,7 @@ export default {
       }
     },
     async stopLanRoom() {
-      const ipcRenderer = this.electronIpc();
+      const ipcRenderer = this.roomIpc();
       if (ipcRenderer) {
         try {
           await ipcRenderer.invoke('karaoke:lan:stop');
@@ -1051,7 +1106,7 @@ export default {
       await this.startLanRoom();
     },
     async retryLanQr() {
-      const ipcRenderer = this.electronIpc();
+      const ipcRenderer = this.roomIpc();
       if (!ipcRenderer || !this.lanRoom) return;
       try {
         const result = await ipcRenderer.invoke('karaoke:lan:refresh-qr');
@@ -1061,7 +1116,7 @@ export default {
       }
     },
     async selfTestLan() {
-      const ipcRenderer = this.electronIpc();
+      const ipcRenderer = this.roomIpc();
       if (!ipcRenderer || !this.lanRoom) return;
       this.lanSelfTest = 'checking';
       try {

@@ -1,0 +1,5 @@
+FROM lumasing-router-api:4.29.7
+COPY dist/ktv-server.cjs /app/ktv-server.cjs
+ENV NODE_ENV=production PORT=3100 KTV_REMOTE_DIST=/app/remote
+EXPOSE 3100
+CMD ["node", "/app/ktv-server.cjs"]

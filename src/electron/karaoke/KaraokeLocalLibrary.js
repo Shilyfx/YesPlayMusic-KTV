@@ -103,7 +103,11 @@ export default class KaraokeLocalLibrary {
     }
     try {
       const source = JSON.parse(await fs.readFile(this.indexPath, 'utf8'));
-      if (!source || source.version !== INDEX_VERSION || !Array.isArray(source.entries))
+      if (
+        !source ||
+        source.version !== INDEX_VERSION ||
+        !Array.isArray(source.entries)
+      )
         return;
       source.entries.forEach(entry => {
         if (entry && entry.localId && entry.track && entry.track.audioPath)
