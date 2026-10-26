@@ -6,6 +6,8 @@ export default function createWebRoomBridge({
   schedule = setTimeout,
   cancel = clearTimeout,
   onError = () => {},
+  getPresentation = () => null,
+  hostName = '主电脑',
 }) {
   let hostToken = '';
   let room = null;
@@ -65,6 +67,7 @@ export default function createWebRoomBridge({
     const results = [...outbox.values()];
     const data = await call('exchange', {
       results,
+      presentation: getPresentation(),
       ...(state.revision !== lastRevision ? { snapshot: state } : {}),
     });
     if (version !== generation) return;
@@ -154,7 +157,11 @@ export default function createWebRoomBridge({
     if (startPromise) return startPromise;
     const version = generation;
     const operation = (async () => {
-      const opened = await call('open', { snapshot: snapshot() });
+      const opened = await call('open', {
+        snapshot: snapshot(),
+        hostName,
+        presentation: getPresentation(),
+      });
       if (version !== generation) {
         try {
           await call('close', {}, opened.hostToken);

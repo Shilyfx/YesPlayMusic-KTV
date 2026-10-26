@@ -22,6 +22,7 @@
         </div>
       </div>
       <div class="header-actions">
+        <slot name="docker-controls" />
         <KaraokeThemeSwitcher v-model="karaokeTheme" />
         <button
           v-if="!isElectron"
@@ -534,12 +535,14 @@ import { normalizeStageMode, stageModeOptions } from '@/utils/lyricStageModes';
 import KaraokeLyricScene from '@/components/karaoke/KaraokeLyricScene.vue';
 import KaraokeThemeSwitcher from '@/components/karaoke/KaraokeThemeSwitcher.vue';
 import createWebRoomBridge from '@/karaoke/webRoomBridge';
+import { buildLyricWindow } from '@/karaoke/lyricDisplay';
 import { executeKaraokeCommand } from '@/electron/ipcRenderer';
 import { Howl, Howler } from 'howler';
 
 export default {
   name: 'Karaoke',
   components: { KaraokeThemeSwitcher, KaraokeLyricScene },
+  props: { webHostName: { type: String, default: '主电脑' } },
   data() {
     return {
       lyrics: [],
@@ -767,9 +770,12 @@ export default {
       this.webRoomBridge = createWebRoomBridge({
         manager: this.karaokeManager,
         execute: command => executeKaraokeCommand(command, this.$store),
+        hostName: this.webHostName,
+        getPresentation: () => this.getWebPresentation(),
         onError: error => {
           this.lanRoom = null;
           this.$store.dispatch('showToast', error.message);
+          this.$emit('web-room-lost');
         },
       });
       this.webRoomPageHide = () => this.webRoomBridge.dispose();
@@ -859,6 +865,27 @@ export default {
     document.removeEventListener('click', this.handleOverlayOutsideClick);
   },
   methods: {
+    getWebPresentation() {
+      const item = this.currentItem;
+      const position = item
+        ? Math.max(0, Number(this.player.seek(null, false)) || 0)
+        : 0;
+      return {
+        itemId: item?.queueItemId || '',
+        title: item?.trackName || '',
+        artists: item?.artists?.join(' / ') || '',
+        position,
+        playing: Boolean(item && this.player.playing),
+        offset: this.lyricOffset,
+        mode: this.lyricStageMode,
+        effect: this.lyricEffect,
+        theme: this.resolvedTheme,
+        fontSize: this.lyricFontSize,
+        lines: item
+          ? buildLyricWindow(this.lyrics, position, this.lyricOffset)
+          : [],
+      };
+    },
     enableBrowserAudio() {
       if (Howler.ctx && Howler.ctx.state === 'suspended') Howler.ctx.resume();
       // Initialize Howler's HTML5 audio unlock pool inside a user gesture.
@@ -926,6 +953,7 @@ export default {
       this.lyricRequestKeyValue = requestedKey;
       this.activeLyricIndex = -1;
       this.lastLyricProgress = null;
+      this.lyrics = [];
       if (!this.trackId) {
         this.lyrics = [];
         return;
@@ -979,6 +1007,7 @@ export default {
       }
       this.setLanSessionActive(false);
       this.karaokeManager.endSession();
+      this.$emit('web-host-ended');
       this.showRoomCode = false;
       this.showLocalLibraryPanel = false;
       this.$store.dispatch('showToast', '本机 KTV 已结束，临时队列已清空');
@@ -1114,6 +1143,7 @@ export default {
           this.showRoomCode = true;
           this.showLocalLibraryPanel = false;
           this.selfTestLan();
+          return result;
         } else {
           this.$store.dispatch(
             'showToast',

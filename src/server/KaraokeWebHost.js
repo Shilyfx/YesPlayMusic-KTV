@@ -1,5 +1,6 @@
 import crypto from 'crypto';
 import QRCode from 'qrcode';
+import { sanitizePresentation } from '../karaoke/lyricDisplay';
 import { KaraokeServer } from '../electron/karaoke/KaraokeServer';
 import {
   KaraokeCatalogService,
@@ -146,6 +147,27 @@ export default class KaraokeWebHost {
         ok: true,
         active: Boolean(this.owner),
       });
+    if (route === '/ktv/display') {
+      if (request.method !== 'GET')
+        return this.json(response, 405, { error: 'READ_ONLY' });
+      const owner = this.owner;
+      return this.json(
+        response,
+        200,
+        owner
+          ? {
+              active: true,
+              generation: this.generation,
+              hostName: owner.name,
+              stale:
+                !owner.presentation || this.now() - owner.presentedAt > 5000,
+              updatedAt: owner.presentedAt,
+              serverTime: this.now(),
+              presentation: owner.presentation,
+            }
+          : { active: false }
+      );
+    }
     if (!route.startsWith('/ktv/host/')) {
       try {
         return await this.roomServer.handleRequest(request, response);
@@ -186,10 +208,19 @@ export default class KaraokeWebHost {
       if (route === '/ktv/host/open') {
         if (this.owner) return this.json(response, 409, { error: 'HOST_BUSY' });
         this.validateSnapshot(body.snapshot);
+        const presentation = body.presentation
+          ? sanitizePresentation(body.presentation)
+          : null;
         this.owner = {
           token: secret(),
           snapshot: body.snapshot,
           lastSeen: this.now(),
+          name:
+            typeof body.hostName === 'string'
+              ? body.hostName.trim().slice(0, 40) || '主电脑'
+              : '主电脑',
+          presentation,
+          presentedAt: presentation ? this.now() : 0,
         };
         this.roomServer.room = {
           code: crypto.randomBytes(3).toString('hex').toUpperCase(),
@@ -215,7 +246,14 @@ export default class KaraokeWebHost {
         });
       if (route === '/ktv/host/exchange') {
         if (body.snapshot) this.validateSnapshot(body.snapshot);
+        const presentation = body.presentation
+          ? sanitizePresentation(body.presentation)
+          : null;
         this.owner.lastSeen = this.now();
+        if (presentation) {
+          this.owner.presentation = presentation;
+          this.owner.presentedAt = this.now();
+        }
         if (body.snapshot) this.owner.snapshot = body.snapshot;
         for (const result of (Array.isArray(body.results)
           ? body.results

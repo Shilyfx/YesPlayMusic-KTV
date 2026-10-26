@@ -120,8 +120,18 @@ player = new Proxy(player, {
 window.addEventListener('beforeunload', () => flushPlayerState(player));
 store.state.player = player;
 store.$karaokeManager = createKaraokeRuntime(player, store);
-player.initialize().catch(error => {
-  console.warn('[player] initialization deferred:', error);
-});
+let playerInitialization;
+store.$initializePlayerOnce = () => {
+  if (!playerInitialization)
+    playerInitialization = player.initialize().catch(error => {
+      console.warn('[player] initialization deferred:', error);
+    });
+  return playerInitialization;
+};
+if (
+  !(store.state.webKtvDisplayOnly && window.location.pathname === '/karaoke')
+) {
+  store.$initializePlayerOnce();
+}
 
 export default store;

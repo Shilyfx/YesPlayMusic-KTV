@@ -97,6 +97,9 @@ export default {
   font-size: clamp(12px, calc(var(--ktv-active-lyric-size) * 0.34), 26px);
   opacity: 0.3;
 }
+[data-scene='classic'] .scene-now {
+  margin: 24px 0;
+}
 [data-effect='gradient'] .scene-now {
   background: linear-gradient(
     105deg,

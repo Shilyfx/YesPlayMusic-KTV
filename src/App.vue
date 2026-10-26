@@ -72,7 +72,11 @@ export default {
       );
     },
     enablePlayer() {
-      return this.player.enabled && this.$route.name !== 'lastfmCallback';
+      return (
+        this.player.enabled &&
+        this.$route.name !== 'lastfmCallback' &&
+        !(this.$route.name === 'karaoke' && this.$store.state.webKtvDisplayOnly)
+      );
     },
     showNavbar() {
       return !['lastfmCallback', 'karaoke', 'karaokeRemote'].includes(
@@ -87,6 +91,8 @@ export default {
   },
   methods: {
     handleKeydown(e) {
+      if (this.$route.name === 'karaoke' && this.$store.state.webKtvDisplayOnly)
+        return;
       if (e.code === 'Space') {
         if (e.target.tagName === 'INPUT') return false;
         if (['mv', 'karaokeRemote'].includes(this.$route.name)) return false;

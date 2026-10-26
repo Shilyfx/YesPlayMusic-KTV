@@ -44,6 +44,35 @@ const { TRANSIENT_PLAYER_KEYS } = require('../src/utils/Player');
 const { updatePlayer } = require('../src/utils/updateApp');
 
 async function run() {
+  global.document = { title: '' };
+  const muted = Object.create(Player.prototype);
+  let fadeListener;
+  let pauses = 0;
+  muted._volume = 0;
+  muted._playing = true;
+  muted._saveCurrentTrackTime = () => {};
+  muted._setPlaying = value => {
+    muted._playing = value;
+  };
+  muted._pauseDiscordPresence = () => {};
+  muted._howler = {
+    once(event, listener) {
+      if (event === 'fade') fadeListener = listener;
+    },
+    fade() {
+      if (fadeListener) fadeListener();
+    },
+    pause() {
+      pauses++;
+    },
+  };
+  muted.pause();
+  assert.equal(
+    pauses,
+    1,
+    'muted pause must handle a synchronous no-op fade completion'
+  );
+  assert.equal(muted.playing, false);
   assert.ok(TRANSIENT_PLAYER_KEYS.includes('_playbackOwner'));
   assert.ok(TRANSIENT_PLAYER_KEYS.includes('_karaokePlaybackPending'));
   let resolveSource;

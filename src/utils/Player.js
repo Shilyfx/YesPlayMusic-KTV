@@ -890,14 +890,15 @@ export default class {
 
   pause() {
     this._saveCurrentTrackTime();
-    this._howler?.fade(this.volume, 0, PLAY_PAUSE_FADE_DURATION);
-
+    // At zero volume Howler can complete the fade synchronously. Subscribe first
+    // so pause and the state broadcast cannot be lost on a muted master.
     this._howler?.once('fade', () => {
       this._howler?.pause();
       this._setPlaying(false);
       setTitle(null);
       this._pauseDiscordPresence(this._currentTrack);
     });
+    this._howler?.fade(this.volume, 0, PLAY_PAUSE_FADE_DURATION);
   }
   play() {
     if (this._howler?.playing()) return;

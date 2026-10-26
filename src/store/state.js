@@ -70,6 +70,8 @@ export default {
     historyItems: [],
     queueCount: 0,
   },
+  webKtvDisplayOnly:
+    !process.env.IS_ELECTRON && process.env.VUE_APP_DOCKER_KTV === 'true',
   // Merge persisted values with the current defaults so upgrades cannot
   // leave newly introduced settings undefined. Nested proxy settings are
   // merged independently for the same reason.

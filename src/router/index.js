@@ -122,7 +122,10 @@ const routes = [
   {
     path: '/karaoke',
     name: 'karaoke',
-    component: () => import('@/views/karaoke.vue'),
+    component: () =>
+      !process.env.IS_ELECTRON && process.env.VUE_APP_DOCKER_KTV === 'true'
+        ? import('@/views/karaokeWeb.vue')
+        : import('@/views/karaoke.vue'),
   },
   {
     path: '/daily/songs',

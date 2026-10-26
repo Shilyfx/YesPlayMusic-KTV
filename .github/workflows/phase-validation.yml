@@ -18,12 +18,15 @@ jobs:
           cache: yarn
       - run: yarn install --frozen-lockfile
       - name: Production web build
+        env:
+          VUE_APP_DOCKER_KTV: 'true'
         run: yarn build
       - name: KTV source formatting
         run: >-
           ./node_modules/.bin/prettier --check
           src/utils/lyricsSettings.js src/views/lyrics.vue src/views/settings.vue
           src/utils/lyricStageModes.js src/components/karaoke/KaraokeLyricScene.vue
+          src/views/karaokeWeb.vue
           src/views/karaoke.vue src/views/karaokeRemote.vue src/App.vue
           src/karaoke/*.js src/utils/Player.js src/store/index.js
           src/store/state.js src/store/mutations.js src/electron/ipcRenderer.js
@@ -39,6 +42,7 @@ jobs:
           ./node_modules/.bin/eslint
           src/utils/lyricsSettings.js src/views/lyrics.vue src/views/settings.vue
           src/utils/lyricStageModes.js src/components/karaoke/KaraokeLyricScene.vue
+          src/views/karaokeWeb.vue
           src/views/karaoke.vue src/views/karaokeRemote.vue src/App.vue
           src/karaoke/*.js src/utils/Player.js src/store/index.js
           src/store/state.js src/store/mutations.js src/electron/ipcRenderer.js
@@ -71,6 +75,9 @@ jobs:
         run: |
           node scripts/test-karaoke-web-host.js
           node scripts/test-karaoke-web-bridge.js
+          node scripts/test-karaoke-display.js
+          node scripts/test-karaoke-display-client.js
+          node scripts/test-karaoke-display-lifecycle.js
           node scripts/build-ktv-server.js
       - name: Full repository lint diagnostic (known upstream failures)
         continue-on-error: true
