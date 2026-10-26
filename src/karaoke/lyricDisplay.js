@@ -57,6 +57,15 @@ export function projectPresentation(presentation, elapsed = 0) {
     (presentation?.playing ? Math.max(0, Math.min(3, elapsed)) : 0);
   let index = -1;
   while (index + 1 < lines.length && lines[index + 1].time <= progress) index++;
+  const activeLine = lines[index];
+  // The rolling window changes local indexes after each host update. Identify
+  // a cue by song/time/text, never by that temporary index, to retain its DOM
+  // node and avoid restarting the entrance animation on the same lyric.
+  const cueKey = JSON.stringify(
+    activeLine
+      ? [presentation?.itemId || '', activeLine.time, activeLine.content]
+      : [presentation?.itemId || '', lines.length ? 'before-first' : 'waiting']
+  );
   return {
     state: lines.length ? (index < 0 ? 'before-first' : 'active') : 'waiting',
     before: lines[index - 1]?.content || '♪',
@@ -68,6 +77,6 @@ export function projectPresentation(presentation, elapsed = 0) {
     after: lines[index + 1]?.content || '♪',
     afterSecond: lines[index + 2]?.content || '♪',
     translation: '',
-    cueKey: `${presentation?.itemId || ''}:${index}:${lines[index]?.time || 0}`,
+    cueKey,
   };
 }

@@ -17,6 +17,17 @@ API 匿名 token 存储在部署目录的 `data/` 中。
 
 ## Docker 主电脑与多屏歌词
 
+副屏连续性修复（2026-10-26）：`src/karaoke/lyricDisplay.js` 的
+`projectPresentation` 原先把滚动窗口内序号放入 cueKey。主电脑发布新的窗口后，
+同一句歌词序号会变，引发 Vue 重建节点和重复入场动画。现使用歌曲标识、
+绝对歌词时间和内容作为稳定标识，不删除换句动画，也不改变同步/点歌逻辑。
+`test-karaoke-display-client.js` 覆盖窗口重排、真换句和换歌；ego-browser
+`verify-lyric-continuity-ego.mjs` 使用实际编译的投影与组件验证同句 DOM 保留。
+修复前失败、修复后本机及软路由通过；21 项源码回归、生产构建和 lint 通过
+（7 条既有 warning）。只更新静态资源，当前房间保持 active，容器未重启。
+备份：`/mnt/mmc1-4/lumasing-backups/20261026-before-lyric-continuity.tgz`。
+仅刷新副屏即可应用此修复；主电脑无需刷新。未进行实体多机或新打包验收。
+
 1. 所有旧 KTV 页面先刷新一次，以加载支持主/副屏的新版本。
 2. 在负责发声的电脑打开 `/karaoke`，填写主电脑名称，点击“将本机设为主电脑”。
 3. 其他电脑打开同一地址 `http://192.168.100.1:18080/karaoke`，直接显示静音歌词舞台。

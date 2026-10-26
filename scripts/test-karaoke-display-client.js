@@ -31,6 +31,31 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
     ],
   };
   assert.equal(projectPresentation(presentation, 1.1).active, '二');
+  const predicted = projectPresentation(
+    { ...presentation, position: 3.8 },
+    0.3
+  );
+  const refreshed = projectPresentation(
+    { ...presentation, position: 4.2, lines: presentation.lines.slice(1) },
+    0
+  );
+  assert.equal(predicted.active, '三');
+  assert.equal(refreshed.active, '三');
+  assert.equal(
+    predicted.cueKey,
+    refreshed.cueKey,
+    'rebasing a synchronized lyric window must not recreate the same active line or restart its animation'
+  );
+  assert.notEqual(
+    refreshed.cueKey,
+    projectPresentation({ ...presentation, itemId: 'other', position: 4.2 }, 0)
+      .cueKey
+  );
+  assert.notEqual(
+    refreshed.cueKey,
+    projectPresentation({ ...presentation, position: 8.2 }, 0).cueKey,
+    'real cue changes must retain entrance animation'
+  );
   assert.equal(
     projectPresentation({ ...presentation, playing: false }, 10).active,
     '一'
