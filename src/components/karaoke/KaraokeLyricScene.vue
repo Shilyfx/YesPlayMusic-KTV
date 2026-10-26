@@ -274,12 +274,22 @@ export default {
   min-height: 0;
   max-height: calc(100vh - 180px);
   max-height: calc(100dvh - 180px);
-  overflow: auto;
+  /* Rotated scenery must not create a sideways navigation track. Keep vertical
+     scrolling for long cues, without browser chrome over the lyric stage. */
+  overflow-x: hidden;
+  overflow-y: auto;
+  scrollbar-width: none;
+  -ms-overflow-style: none;
   padding-top: 18px;
   padding-bottom: 18px;
   box-sizing: border-box;
   flex-shrink: 1;
   align-items: safe center;
+}
+.lyric-scene[data-fullscreen='true']::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }
 @media (max-height: 500px) {
   [data-fullscreen='true'] .scene-past,
