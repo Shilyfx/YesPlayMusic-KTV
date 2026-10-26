@@ -535,7 +535,7 @@ import { normalizeStageMode, stageModeOptions } from '@/utils/lyricStageModes';
 import KaraokeLyricScene from '@/components/karaoke/KaraokeLyricScene.vue';
 import KaraokeThemeSwitcher from '@/components/karaoke/KaraokeThemeSwitcher.vue';
 import createWebRoomBridge from '@/karaoke/webRoomBridge';
-import { buildLyricWindow } from '@/karaoke/lyricDisplay';
+import { buildLyricContext } from '@/karaoke/lyricDisplay';
 import { executeKaraokeCommand } from '@/electron/ipcRenderer';
 import { Howl, Howler } from 'howler';
 
@@ -881,9 +881,9 @@ export default {
         effect: this.lyricEffect,
         theme: this.resolvedTheme,
         fontSize: this.lyricFontSize,
-        lines: item
-          ? buildLyricWindow(this.lyrics, position, this.lyricOffset)
-          : [],
+        ...(item
+          ? buildLyricContext(this.lyrics, position, this.lyricOffset)
+          : { lines: [], contextFrom: 0, contextUntil: null }),
       };
     },
     enableBrowserAudio() {

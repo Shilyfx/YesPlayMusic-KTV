@@ -27,8 +27,103 @@
         }}</strong>
         <small>{{ connectionLabel }} · 本屏静音</small></div
       >
-      <button type="button" @click="fullscreen">歌词全屏</button>
+      <div class="screen-actions">
+        <button
+          type="button"
+          :aria-expanded="showSettings"
+          @click="showSettings = !showSettings"
+          >本屏歌词设置</button
+        >
+        <button type="button" @click="fullscreen">歌词全屏</button>
+      </div>
     </header>
+    <section
+      v-if="showSettings"
+      class="display-preferences glass-panel"
+      aria-label="本屏歌词设置"
+    >
+      <fieldset>
+        <legend>舞台与字体</legend>
+        <label class="follow-toggle"
+          ><input
+            type="checkbox"
+            :checked="preferences.followStyle"
+            @change="updatePreference('followStyle', $event.target.checked)"
+          />跟随主屏样式</label
+        >
+        <div class="preference-fields">
+          <label
+            >舞台样式<select
+              aria-label="本屏舞台样式"
+              :disabled="preferences.followStyle"
+              :value="presentation.mode || 'classic'"
+              @change="updatePreference('mode', $event.target.value)"
+              ><option
+                v-for="mode in stageModeOptions"
+                :key="mode.value"
+                :value="mode.value"
+                >{{ mode.label }}</option
+              ></select
+            ></label
+          >
+          <label
+            >歌词字效<select
+              aria-label="本屏歌词字效"
+              :disabled="preferences.followStyle"
+              :value="presentation.effect || 'gradient'"
+              @change="updatePreference('effect', $event.target.value)"
+              ><option value="gradient">渐变</option
+              ><option value="neon">霓虹</option
+              ><option value="outline">描边</option
+              ><option value="solid">纯色</option></select
+            ></label
+          >
+          <label
+            >歌词字号<input
+              aria-label="本屏歌词字号"
+              type="number"
+              min="16"
+              max="64"
+              step="1"
+              :disabled="preferences.followStyle"
+              :value="presentation.fontSize || 45"
+              @change="updatePreference('fontSize', $event.target.value)"
+            />px</label
+          >
+        </div>
+      </fieldset>
+      <fieldset>
+        <legend>歌词同步</legend>
+        <label class="follow-toggle"
+          ><input
+            type="checkbox"
+            :checked="preferences.followTiming"
+            @change="updatePreference('followTiming', $event.target.checked)"
+          />跟随主屏提前 / 延后</label
+        >
+        <label
+          >本屏偏移<input
+            aria-label="本屏歌词偏移"
+            type="number"
+            min="-10"
+            max="10"
+            step="0.1"
+            :disabled="preferences.followTiming"
+            :value="presentation.offset || 0"
+            @change="updatePreference('offset', $event.target.value)"
+          />秒</label
+        >
+        <p>正数提前，负数延后；以歌曲原始时间为准，不叠加主屏偏移。</p>
+      </fieldset>
+      <div class="preference-footer"
+        ><span role="status">{{
+          preferenceMessage || '仅保存在本机浏览器，不影响主屏与其他副屏。'
+        }}</span
+        ><button type="button" @click="restoreFollow"
+          >全部恢复跟随主屏</button
+        ></div
+      >
+    </section>
     <div v-if="!state.active" class="master-choice glass-panel">
       <h1>让多台电脑，听同一首歌</h1>
       <p
@@ -76,6 +171,13 @@ import Karaoke from './karaoke.vue';
 import KaraokeLyricScene from '@/components/karaoke/KaraokeLyricScene.vue';
 import createDisplayPoller from '@/karaoke/displayPoller';
 import { projectPresentation } from '@/karaoke/lyricDisplay';
+import { stageModeOptions } from '@/utils/lyricStageModes';
+import {
+  readDisplayPreferences,
+  writeDisplayPreferences,
+  normalizeDisplayPreferences,
+  effectiveDisplayPresentation,
+} from '@/karaoke/displayPreferences';
 
 export default {
   components: { Karaoke, KaraokeLyricScene },
@@ -91,11 +193,20 @@ export default {
       clockNow: 0,
       clock: null,
       claimEpoch: 0,
+      showSettings: false,
+      preferences: readDisplayPreferences(),
+      preferenceMessage: '',
     };
   },
   computed: {
     presentation() {
-      return this.state.presentation || {};
+      return effectiveDisplayPresentation(
+        this.state.presentation || {},
+        this.preferences
+      );
+    },
+    stageModeOptions() {
+      return stageModeOptions;
     },
     stale() {
       return (
@@ -119,7 +230,7 @@ export default {
           (this.state.serverTime || 0) - (this.state.updatedAt || 0)
         ) / 1000;
       return projectPresentation(
-        this.state.presentation,
+        this.presentation,
         age + Math.max(0, this.clockNow - this.receivedAt) / 1000
       );
     },
@@ -172,6 +283,37 @@ export default {
     if (this.$route.name !== 'karaoke') this.$store.$initializePlayerOnce();
   },
   methods: {
+    updatePreference(key, value) {
+      if (
+        ![
+          'followStyle',
+          'followTiming',
+          'mode',
+          'effect',
+          'fontSize',
+          'offset',
+        ].includes(key)
+      )
+        return;
+      this.preferences = normalizeDisplayPreferences({
+        ...this.preferences,
+        [key]: value,
+      });
+      this.savePreferences();
+    },
+    savePreferences() {
+      this.preferenceMessage = writeDisplayPreferences(this.preferences)
+        ? '本屏设置已保存'
+        : '浏览器不允许保存；本次设置仍然生效';
+    },
+    restoreFollow() {
+      this.preferences = {
+        ...this.preferences,
+        followStyle: true,
+        followTiming: true,
+      };
+      this.savePreferences();
+    },
     silenceDisplay() {
       this.$store.state.webKtvDisplayOnly = true;
       Howler.mute(true);
@@ -286,13 +428,88 @@ footer,
   font-size: 12px;
 }
 button,
-input {
+input,
+select {
   padding: 10px 16px;
   border: 1px solid var(--ktv-glass-border);
   border-radius: 10px;
   background: var(--ktv-glass-soft);
   color: var(--ktv-text-primary);
   font: inherit;
+}
+.screen-actions {
+  flex-direction: row;
+  flex-wrap: wrap;
+  gap: 8px;
+}
+.display-preferences {
+  flex-shrink: 0;
+  padding: 16px 20px;
+  max-height: 40vh;
+  overflow-y: auto;
+  display: grid;
+  grid-template-columns: 1.2fr 1fr;
+  gap: 16px 24px;
+}
+.display-preferences fieldset {
+  border: 0;
+  padding: 0;
+  margin: 0;
+  min-width: 0;
+}
+.display-preferences legend {
+  font-weight: 700;
+  margin-bottom: 10px;
+}
+.display-preferences label {
+  display: inline-flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+  font-size: 13px;
+}
+.display-preferences input[type='checkbox'] {
+  accent-color: var(--ktv-accent);
+  width: 16px;
+  height: 16px;
+}
+.follow-toggle {
+  margin-bottom: 12px;
+  display: flex !important;
+}
+.preference-fields {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+.display-preferences input[type='number'] {
+  width: 68px;
+  padding: 8px;
+}
+.display-preferences select {
+  padding: 8px;
+  max-width: 100%;
+}
+.display-preferences p {
+  color: var(--ktv-text-muted);
+  font-size: 12px;
+  margin-bottom: 0;
+}
+.display-preferences :disabled {
+  opacity: 0.5;
+}
+.preference-footer {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--ktv-text-muted);
+  font-size: 12px;
+}
+.display-preferences :focus-visible {
+  outline: 2px solid var(--ktv-accent);
+  outline-offset: 3px;
 }
 .master-choice {
   margin: auto;
@@ -338,12 +555,24 @@ footer {
   flex-shrink: 0;
 }
 @media (max-width: 700px) {
+  .display-preferences {
+    grid-template-columns: 1fr;
+    padding: 12px;
+  }
+  .preference-footer {
+    flex-wrap: wrap;
+  }
   .display-screen {
     padding: 14px;
     gap: 12px;
   }
   header {
     gap: 8px;
+    flex-wrap: wrap;
+  }
+  .screen-actions {
+    width: 100%;
+    justify-content: flex-end;
   }
   header button {
     font-size: 12px;

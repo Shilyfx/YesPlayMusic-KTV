@@ -125,7 +125,7 @@ export default class KaraokeWebHost {
     let size = 0;
     for await (const chunk of request) {
       size += chunk.length;
-      if (size > 256 * 1024) throw new Error('BODY_TOO_LARGE');
+      if (size > 1024 * 1024) throw new Error('BODY_TOO_LARGE');
       chunks.push(chunk);
     }
     return JSON.parse(Buffer.concat(chunks).toString() || '{}');

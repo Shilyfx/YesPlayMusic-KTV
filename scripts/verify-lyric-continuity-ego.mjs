@@ -16,8 +16,15 @@ export async function verifyLyricContinuity(page) {
       { time: 4, content: '第三句' },
       { time: 8, content: '第四句' },
     ];
-    const state = (position, window, elapsed) =>
-      project.call({
+    const state = (position, window, elapsed) => {
+      const presentation = {
+        itemId: 'continuity-fixture',
+        position,
+        playing: true,
+        lines: window,
+      };
+      return project.call({
+        presentation,
         state: {
           presentation: {
             itemId: 'continuity-fixture',
@@ -31,6 +38,7 @@ export async function verifyLyricContinuity(page) {
         clockNow: elapsed * 1000,
         receivedAt: 0,
       });
+    };
     const before = state(3.8, lines, 0.3);
     const refreshed = state(4.2, lines.slice(1), 0);
     const next = state(8.2, lines, 0);

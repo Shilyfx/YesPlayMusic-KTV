@@ -15,7 +15,7 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
   }));
   assert.equal(
     buildLyricWindow(longLyrics, 3000, 0)[0].content,
-    '999',
+    '994',
     'hidden master window follows audio clock, not stale UI cursor'
   );
   assert.equal(buildLyricWindow(longLyrics, 3000, 0).length, 16);

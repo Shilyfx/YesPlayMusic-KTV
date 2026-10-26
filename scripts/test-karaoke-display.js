@@ -84,12 +84,31 @@ const KaraokeWebHost = require('../src/server/KaraokeWebHost').default;
     assert.equal((await read()).presentation.position, 5);
     assert.equal((await read()).presentation.playing, false);
     assert.equal((await read()).stale, false);
+    const denseLines = Array.from({ length: 300 }, (_, i) => ({
+      time: i / 10,
+      content: String(i),
+    }));
+    assert.equal(
+      (
+        await post(
+          'exchange',
+          { presentation: { ...presentation, lines: denseLines } },
+          token
+        )
+      ).status,
+      200
+    );
+    assert.equal(
+      (await read()).presentation.lines.length,
+      300,
+      'dense time context is not truncated to 128 cues'
+    );
     const invalid = await post(
       'exchange',
       {
         presentation: {
           ...presentation,
-          lines: Array(33).fill({ time: 0, content: 'x' }),
+          lines: Array(4097).fill({ time: 0, content: 'x' }),
         },
       },
       token
