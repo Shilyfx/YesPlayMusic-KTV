@@ -20,7 +20,7 @@ Gates:
 - [x] Add UI and effective-presentation projection, verify no cue flicker regression.
 - [x] Full source tests/build/lint, independent review, ego-browser local settings,
       reload persistence, fullscreen, real projection and two-view independence.
-- [ ] Back up/deploy with permission if room restart is needed; verify deployment.
+- [x] Back up/deploy with permission if room restart is needed; verify deployment.
 
 Keep Guest next, first song auto-start, local/incremental library and Electron
 behavior. No physical-device/remote-CI/package claims without actual runs.
@@ -38,8 +38,9 @@ master immutability, reload persistence, two-page live isolation, restore follow
 and 390×844 fullscreen controls passed. The dedicated preference key is restored
 after tests; no room claims, host commands or account-data changes in this test.
 
-Deployment is blocked only on explicit permission to restart the occupied KTV
-backend. Never interpret an unanswered async question as approval.
+User explicitly approved immediate update and ending the current room in their
+follow-up answer. Deployed only after that answer; the earlier unanswered async
+question was not treated as permission.
 
 Final local results: 22 source scripts passed; lint 0 errors / 7 existing warnings;
 production web + Node server build passed with 7 existing build warnings. After
@@ -54,3 +55,16 @@ and 192KiB payload cap; outside those bounds show an honest unavailable message.
 No new request owner, full-song scan, metadata fetch or audio path is introduced.
 Reviewer deferred no source findings after the one dense-window issue was fixed;
 its physical-device/real-world jitter/mixed-client concerns remain manual QA.
+
+## Deployment evidence
+
+Source SHA `6aae7c942490dded9dd35df51fef5912b5a92e8d` deployed to router.
+Backup `/mnt/mmc1-4/lumasing-backups/20261026-before-display-preferences.tgz`.
+Uploaded archive SHA256
+`bf210cb1579934a755118f98f367148183436c969123e5d71781540e8e22663c`
+matched remotely. KTV image rebuilt and container recreated, nginx reloaded for
+backend DNS; API/web uptime preserved. Deployed ego-browser settings fixture,
+DOM continuity regression and real host/two-display/Guest playback flows passed.
+No host lease left behind (`active:false`); KTV and API health good.
+Browser checks are not physical multi-computer or audible speaker acceptance;
+no package build or remote GitHub CI execution is claimed.
