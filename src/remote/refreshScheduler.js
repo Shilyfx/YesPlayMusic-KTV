@@ -10,15 +10,29 @@ export default function createRefreshScheduler(run, shouldRun = () => true) {
     }
 
     refreshPromise = Promise.resolve()
-      .then(run)
+      .then(async () => {
+        let firstError = null;
+        let queuedBeforeFirstRun = queuedRefresh;
+        do {
+          queuedRefresh = false;
+          try {
+            await run();
+          } catch (error) {
+            if (!firstError) firstError = error;
+          }
+          if (queuedBeforeFirstRun) queuedRefresh = true;
+          queuedBeforeFirstRun = false;
+        } while (queuedRefresh && shouldRun());
+        if (firstError) throw firstError;
+      })
       .finally(() => {
         refreshPromise = null;
-        if (!queuedRefresh || !shouldRun()) {
+        if (queuedRefresh && shouldRun()) {
           queuedRefresh = false;
-          return;
+          request().catch(() => {});
+        } else {
+          queuedRefresh = false;
         }
-        queuedRefresh = false;
-        request().catch(() => {});
       });
     return refreshPromise;
   };

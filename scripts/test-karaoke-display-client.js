@@ -290,6 +290,46 @@ async function testAppearanceFetchOwner() {
   poller.stop();
 }
 
+async function testDisplayRetryBackoff() {
+  let fail = true;
+  let errors = 0;
+  const scheduled = [];
+  const poller = createDisplayPoller({
+    request: () => {
+      if (fail) throw new Error('temporary network failure');
+      return { active: false };
+    },
+    onState: () => {},
+    onError: () => errors++,
+    schedule: (fn, delay) => {
+      scheduled.push({ fn, delay });
+      return scheduled.length;
+    },
+    cancel: () => {},
+  });
+
+  poller.start();
+  await flush();
+  for (let index = 0; index < 4; index += 1) {
+    scheduled[index].fn();
+    await flush();
+  }
+  fail = false;
+  scheduled[4].fn();
+  await flush();
+
+  console.log(
+    `Display retry delays: ${JSON.stringify(scheduled.map(item => item.delay))}`
+  );
+  assert.deepEqual(
+    scheduled.map(item => item.delay),
+    [1000, 2000, 4000, 8000, 8000, 500],
+    'failed status polling backs off to a cap and returns to 500ms after recovery'
+  );
+  assert.equal(errors, 5);
+  poller.stop();
+}
+
 (async () => {
   const longLyrics = Array.from({ length: 2000 }, (_, index) => ({
     time: index * 3,
@@ -445,6 +485,7 @@ async function testAppearanceFetchOwner() {
   failing.stop();
   await testLyricFetchOwner();
   await testAppearanceFetchOwner();
+  await testDisplayRetryBackoff();
   console.log(
     'Display projection/host piggyback/single-flight/cancellation tests passed'
   );

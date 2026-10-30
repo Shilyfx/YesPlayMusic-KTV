@@ -143,7 +143,7 @@
       v-if="state.active"
       :events="state.reactions || []"
       :generation="state.reactionEpoch || ''"
-      :server-time="state.serverTime || 0"
+      :server-time="clockServerTime"
       storage-key="display"
       :theme="presentation.theme || 'light'"
       :playing="!!presentation.playing"
@@ -219,6 +219,9 @@ export default {
       error: '',
       receivedAt: 0,
       clockNow: 0,
+      clockServerTime: 0,
+      presentationUpdatedAt: 0,
+      clockPosition: 0,
       clock: null,
       claimEpoch: 0,
       showSettings: false,
@@ -372,39 +375,30 @@ export default {
     },
     stage() {
       const age =
-        Math.max(
-          0,
-          (this.state.serverTime || 0) - (this.state.updatedAt || 0)
-        ) / 1000;
+        Math.max(0, this.clockServerTime - this.presentationUpdatedAt) / 1000;
       return projectPresentation(
-        this.presentation,
+        { ...this.presentation, position: this.clockPosition },
         age + Math.max(0, this.clockNow - this.receivedAt) / 1000
       );
     },
     pvPosition() {
       const age =
-        Math.max(
-          0,
-          (this.state.serverTime || 0) - (this.state.updatedAt || 0)
-        ) / 1000;
+        Math.max(0, this.clockServerTime - this.presentationUpdatedAt) / 1000;
       const elapsed = age + Math.max(0, this.clockNow - this.receivedAt) / 1000;
       return Math.max(
         0,
-        (this.presentation.position || 0) +
+        (this.clockPosition || 0) +
           (this.presentation.offset || 0) +
           (this.presentation.playing ? Math.min(3, elapsed) : 0)
       );
     },
     smartBeatRawPosition() {
       const age =
-        Math.max(
-          0,
-          (this.state.serverTime || 0) - (this.state.updatedAt || 0)
-        ) / 1000;
+        Math.max(0, this.clockServerTime - this.presentationUpdatedAt) / 1000;
       const elapsed = age + Math.max(0, this.clockNow - this.receivedAt) / 1000;
       return Math.max(
         0,
-        (this.presentation.position || 0) +
+        (this.clockPosition || 0) +
           (this.presentation.playing ? Math.min(3, elapsed) : 0)
       );
     },
@@ -466,11 +460,34 @@ export default {
     this.previousMuted = Howler._muted;
     this.silenceDisplay();
     this.poller = createDisplayPoller({
-      onState: state => {
-        this.state = state;
+      onState: nextState => {
+        const currentPresentation = this.state.presentation || {};
+        const nextPresentation = nextState.presentation || {};
+        const clockStateChanged =
+          this.state.active !== nextState.active ||
+          this.state.generation !== nextState.generation ||
+          this.state.stale !== nextState.stale ||
+          currentPresentation.itemId !== nextPresentation.itemId ||
+          currentPresentation.playing !== nextPresentation.playing;
+        Object.keys(this.state).forEach(key => {
+          if (!Object.prototype.hasOwnProperty.call(nextState, key))
+            this.$delete(this.state, key);
+        });
+        Object.keys(nextState).forEach(key => {
+          if (this.state[key] !== nextState[key])
+            this.$set(this.state, key, nextState[key]);
+        });
+        if (clockStateChanged) this.restartClock();
+      },
+      onClock: clock => {
+        const wasDisconnected = !this.connected;
         this.connected = true;
+        this.error = '';
         this.receivedAt = this.clockNow = performance.now();
-        this.restartClock();
+        this.clockServerTime = clock.serverTime || 0;
+        this.presentationUpdatedAt = clock.updatedAt || 0;
+        this.clockPosition = clock.position || 0;
+        if (wasDisconnected || !this.clock) this.restartClock();
       },
       onAppearance: snapshot => {
         if (!this.leaving)
@@ -483,6 +500,7 @@ export default {
     });
     this.visibilityHandler = () => {
       clearInterval(this.clock);
+      this.clock = null;
       if (document.hidden || this.isMaster) {
         this.poller.stop();
       } else {
@@ -513,6 +531,7 @@ export default {
     if (this.isMaster) this.$store.$karaokeManager.endSession();
     this.poller.stop();
     clearInterval(this.clock);
+    this.clock = null;
     clearTimeout(this.settingsCloseTimer);
     clearTimeout(this.controlsIdleTimer);
     document.removeEventListener('visibilitychange', this.visibilityHandler);
@@ -864,17 +883,23 @@ export default {
       this.$store.state.player.pause();
     },
     restartClock() {
-      clearInterval(this.clock);
-      if (
+      const shouldStop =
         document.hidden ||
         this.isMaster ||
         !this.state.active ||
-        !this.presentation.playing
-      )
+        !this.presentation.playing;
+      if (shouldStop) {
+        clearInterval(this.clock);
+        this.clock = null;
         return;
+      }
+      if (this.clock) return;
       this.clock = setInterval(() => {
         this.clockNow = performance.now();
-        if (this.clockNow - this.receivedAt > 5000) clearInterval(this.clock);
+        if (this.clockNow - this.receivedAt > 5000) {
+          clearInterval(this.clock);
+          this.clock = null;
+        }
       }, 100);
     },
     async chooseMaster() {
@@ -884,6 +909,7 @@ export default {
       this.error = '';
       this.poller.stop();
       clearInterval(this.clock);
+      this.clock = null;
       this.$store.state.webKtvDisplayOnly = false;
       Howler.mute(this.previousMuted);
       this.isMaster = true;

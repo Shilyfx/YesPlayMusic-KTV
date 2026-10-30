@@ -8,6 +8,62 @@ function createAnalysisTimeoutError() {
   return error;
 }
 
+function hasSameValue(previous, next, path = '') {
+  if (Object.is(previous, next)) return true;
+  if (
+    !previous ||
+    !next ||
+    typeof previous !== 'object' ||
+    typeof next !== 'object' ||
+    Array.isArray(previous) !== Array.isArray(next)
+  )
+    return false;
+
+  const previousKeys = Object.keys(previous).filter(
+    key => !(path === 'presentation' && key === 'position')
+  );
+  const nextKeys = Object.keys(next).filter(
+    key => !(path === 'presentation' && key === 'position')
+  );
+  if (previousKeys.length !== nextKeys.length) return false;
+  for (const key of nextKeys) {
+    if (!Object.prototype.hasOwnProperty.call(previous, key)) return false;
+    const nextPath = path ? `${path}.${key}` : key;
+    if (!hasSameValue(previous[key], next[key], nextPath)) return false;
+  }
+  for (const key of previousKeys) {
+    if (!Object.prototype.hasOwnProperty.call(next, key)) return false;
+  }
+  return true;
+}
+
+function reuseUnchanged(previous, next, path = '') {
+  if (hasSameValue(previous, next, path)) return previous;
+  if (
+    !previous ||
+    !next ||
+    typeof previous !== 'object' ||
+    typeof next !== 'object' ||
+    Array.isArray(previous) !== Array.isArray(next)
+  )
+    return next;
+
+  const result = Array.isArray(next) ? next.slice() : { ...next };
+  for (const key of Object.keys(next)) {
+    if (path === 'presentation' && key === 'position') continue;
+    if (Object.prototype.hasOwnProperty.call(previous, key)) {
+      const nextPath = path ? `${path}.${key}` : key;
+      result[key] = reuseUnchanged(previous[key], next[key], nextPath);
+    }
+  }
+  if (
+    path === 'presentation' &&
+    Object.prototype.hasOwnProperty.call(previous, 'position')
+  )
+    result.position = previous.position;
+  return result;
+}
+
 export default function createDisplayPoller({
   request = signal =>
     fetch('/ktv/display', { signal, cache: 'no-store' }).then(response => {
@@ -49,6 +105,7 @@ export default function createDisplayPoller({
       return response.json();
     }),
   onState,
+  onClock = () => {},
   onAppearance = () => {},
   onAppearanceError = () => {},
   onSmartBeatError = () => {},
@@ -64,6 +121,8 @@ export default function createDisplayPoller({
   let controller;
   let requestTimeout;
   let latestState = null;
+  let stableState = null;
+  let retryAttempt = 0;
   let lyricKey = null;
   let lyricDocument = null;
   let lyricFlight = null;
@@ -163,8 +222,29 @@ export default function createDisplayPoller({
       clearSmartBeat();
       smartBeatKey = nextSmartBeatKey;
     }
-    latestState = state;
-    publish();
+    const previousStableState = stableState;
+    const comparableState = { ...state };
+    delete comparableState.serverTime;
+    delete comparableState.updatedAt;
+    stableState = reuseUnchanged(stableState, comparableState);
+    const changed = !previousStableState || stableState !== previousStableState;
+    latestState = {
+      ...stableState,
+      ...(Object.prototype.hasOwnProperty.call(state, 'updatedAt')
+        ? { updatedAt: state.updatedAt }
+        : {}),
+      ...(Object.prototype.hasOwnProperty.call(state, 'serverTime')
+        ? { serverTime: state.serverTime }
+        : {}),
+    };
+    onClock({
+      serverTime: state.serverTime,
+      updatedAt: state.updatedAt,
+      position: state.presentation?.position,
+    });
+    // User callbacks may stop/restart the owner while publishing a state.
+    if (!active || version !== generation) return;
+    if (changed) publish();
     // User callbacks may stop/restart the owner while publishing a state.
     if (!active || version !== generation) return;
 
@@ -350,16 +430,25 @@ export default function createDisplayPoller({
     } catch (error) {
       pending = Promise.reject(error);
     }
+    let nextDelay = 500;
     const operation = (async () => {
       try {
         const state = await pending;
-        if (active && version === generation) receiveState(state, version);
+        if (active && version === generation) {
+          receiveState(state, version);
+          retryAttempt = 0;
+        }
       } catch (error) {
-        if (active && version === generation) onError(error);
+        if (active && version === generation) {
+          retryAttempt += 1;
+          nextDelay = Math.min(1000 * 2 ** (retryAttempt - 1), 8000);
+          onError(error);
+        }
       } finally {
         clearTimeout(timeout);
         if (inFlight === operation) inFlight = null;
-        if (active && version === generation) timer = schedule(refresh, 500);
+        if (active && version === generation)
+          timer = schedule(refresh, nextDelay);
       }
     })();
     inFlight = operation;
@@ -384,6 +473,8 @@ export default function createDisplayPoller({
       clearAppearance();
       clearSmartBeat();
       latestState = null;
+      stableState = null;
+      retryAttempt = 0;
     },
   };
 }
