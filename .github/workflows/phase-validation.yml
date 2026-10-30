@@ -86,6 +86,17 @@ jobs:
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: KTV catalog, render and persistence performance regressions
+        run: |
+          node scripts/test-karaoke-catalog-performance.js
+          node scripts/test-karaoke-catalog-prefetch.js
+          node scripts/test-karaoke-display-performance.js
+          node scripts/test-karaoke-remote-polling.js
+          node scripts/test-karaoke-remote-catalog-epoch.js
+          node scripts/test-karaoke-render-performance.js
+          node scripts/test-karaoke-local-library.js
+          node scripts/test-karaoke-persistence-flush.js
+          node scripts/test-store-persistence.js
       - name: Docker KTV host and browser transport
         run: |
           node scripts/test-karaoke-web-host.js
