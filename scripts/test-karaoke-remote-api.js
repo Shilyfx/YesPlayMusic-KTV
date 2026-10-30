@@ -425,10 +425,32 @@ async function run() {
   assert.ok(bridgeCalls.includes('toplistTracks'));
   assert.ok(bridgeCalls.includes('artistSearch'));
   assert.ok(bridgeCalls.includes('artistTracks'));
+  const legacyStateResponse = await request(port, 'GET', '/ktv/api/state', {
+    token: guestA.body.clientToken,
+  });
+  assert.equal(legacyStateResponse.status, 200);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(
+      legacyStateResponse.body,
+      'catalogEpoch'
+    ),
+    false,
+    'legacy room state omits catalogEpoch'
+  );
+  server.room.catalogEpoch = 12;
   const stateResponse = await request(port, 'GET', '/ktv/api/state', {
     token: guestA.body.clientToken,
   });
   assert.equal(stateResponse.status, 200);
+  assert.equal(stateResponse.body.catalogEpoch, 12);
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(stateResponse.body, 'uid'),
+    false
+  );
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(stateResponse.body, 'userId'),
+    false
+  );
   assert.equal(stateResponse.body.room.name, 'LumaSing KTV');
   assert.equal(stateResponse.body.history.length, 2);
   assert.equal(stateResponse.body.history[0].trackId, '99');

@@ -996,6 +996,11 @@ export default class KaraokeWebHost {
       if (route === '/ktv/host/open') {
         if (this.owner) return this.json(response, 409, { error: 'HOST_BUSY' });
         if (
+          Object.prototype.hasOwnProperty.call(body, 'catalogEpoch') &&
+          (!Number.isSafeInteger(body.catalogEpoch) || body.catalogEpoch < 0)
+        )
+          return this.json(response, 409, { error: 'INVALID_CATALOG_EPOCH' });
+        if (
           this.requiredUiRevision &&
           body.uiRevision !== this.requiredUiRevision
         )
@@ -1029,6 +1034,9 @@ export default class KaraokeWebHost {
           ...lyrics,
           ...appearance,
           ...smartBeat,
+          ...(Object.prototype.hasOwnProperty.call(body, 'catalogEpoch')
+            ? { catalogEpoch: body.catalogEpoch }
+            : {}),
         };
         this.roomServer.room = {
           code: crypto.randomBytes(3).toString('hex').toUpperCase(),
@@ -1036,6 +1044,9 @@ export default class KaraokeWebHost {
           token: secret(),
           generation: ++this.generation,
           sessionId: body.snapshot.session.sessionId,
+          ...(Number.isSafeInteger(this.owner.catalogEpoch)
+            ? { catalogEpoch: this.owner.catalogEpoch }
+            : {}),
         };
         this.service.onRoomStart(this.roomServer.room);
         this.reactionEpoch = crypto.randomBytes(12).toString('hex');
@@ -1055,6 +1066,31 @@ export default class KaraokeWebHost {
           room: await this.describe(),
         });
       if (route === '/ktv/host/exchange') {
+        if (Object.prototype.hasOwnProperty.call(body, 'catalogEpoch')) {
+          const epoch = body.catalogEpoch;
+          if (!Number.isSafeInteger(epoch) || epoch < 0)
+            return this.json(response, 409, {
+              error: 'INVALID_CATALOG_EPOCH',
+            });
+          if (
+            Number.isSafeInteger(this.owner.catalogEpoch) &&
+            epoch < this.owner.catalogEpoch
+          )
+            return this.json(response, 409, {
+              error: 'STALE_CATALOG_EPOCH',
+            });
+          if (this.owner.catalogEpoch !== epoch) {
+            this.service.catalog.resetRoomCatalog?.();
+            for (const [id, entry] of this.pending) {
+              if (entry.command.action !== 'catalog') continue;
+              clearTimeout(entry.timer);
+              this.pending.delete(id);
+              entry.reject(new Error('CATALOG_EPOCH_CHANGED'));
+            }
+            this.owner.catalogEpoch = epoch;
+            if (this.roomServer.room) this.roomServer.room.catalogEpoch = epoch;
+          }
+        }
         if (body.snapshot) this.validateSnapshot(body.snapshot);
         const presentation = body.presentation
           ? sanitizePresentation(body.presentation)

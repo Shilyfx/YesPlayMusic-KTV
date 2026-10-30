@@ -181,6 +181,12 @@ async function testRoomChangeInvalidatesAccountCatalog() {
     getRoom: () => null,
   });
   assert.strictEqual((await catalog.playlists())[0].id, 'first');
+  service.onRoomStart({ code: 'FIRST', sessionId: 'first-session' });
+  assert.strictEqual(
+    catalog.catalogCache.has('playlists'),
+    false,
+    'starting a new room clears account catalog data left by an earlier room'
+  );
   const old = catalog.cachedCatalog(
     'playlistTracks:old',
     () =>
@@ -200,6 +206,126 @@ async function testRoomChangeInvalidatesAccountCatalog() {
     ),
     'new account'
   );
+}
+
+async function testIdentityInvalidationGuardsLateAccountResults() {
+  let account = 'A';
+  let finishSearchA;
+  let finishDetailA;
+  let finishAvailabilityA;
+  let finishPlaylistsA;
+  let finishRecommendationsA;
+  let finishToplistsA;
+  const catalog = new KaraokeCatalogService({
+    hostCatalogBridge: async (action, args) => {
+      if (action === 'localPlaylists')
+        return [
+          {
+            id: 'local-library',
+            tracks: [
+              {
+                id: 'local-retained',
+                localId: 'local-retained',
+                source: 'local',
+                name: '本地保留',
+                ar: [],
+                al: {},
+                dt: 1,
+              },
+            ],
+          },
+        ];
+      if (action === 'search')
+        return account === 'A'
+          ? new Promise(resolve => {
+              finishSearchA = resolve;
+            })
+          : [{ id: 'shared-track', name: 'B 搜索结果', ar: [], al: {}, dt: 1 }];
+      if (action === 'trackDetail')
+        return account === 'A'
+          ? new Promise(resolve => {
+              finishDetailA = resolve;
+            })
+          : { id: args.trackId, name: 'B 详情', ar: [], al: {}, dt: 1 };
+      if (action === 'availability')
+        return account === 'A'
+          ? new Promise(resolve => {
+              finishAvailabilityA = resolve;
+            })
+          : 'playable';
+      if (action === 'playlists')
+        return account === 'A'
+          ? new Promise(resolve => {
+              finishPlaylistsA = resolve;
+            })
+          : [{ id: 'playlist-B' }];
+      if (action === 'recommendations')
+        return account === 'A'
+          ? new Promise(resolve => {
+              finishRecommendationsA = resolve;
+            })
+          : [{ id: 'recommendation-B' }];
+      if (action === 'toplists')
+        return account === 'A'
+          ? new Promise(resolve => {
+              finishToplistsA = resolve;
+            })
+          : [{ id: 'toplist-B' }];
+      throw new Error(`Unexpected action: ${action}`);
+    },
+  });
+  await catalog.localPlaylists();
+  const oldRequests = [
+    catalog.search('same query'),
+    catalog.getTrack('detail-track'),
+    catalog.availability('same-availability'),
+    catalog.playlists(),
+    catalog.recommendations(),
+    catalog.toplists(),
+  ];
+  catalog.resetRoomCatalog();
+  account = 'B';
+  await Promise.all([
+    catalog.search('same query'),
+    catalog.getTrack('detail-track'),
+    catalog.availability('same-availability'),
+    catalog.playlists(),
+    catalog.recommendations(),
+    catalog.toplists(),
+  ]);
+  finishSearchA([
+    { id: 'shared-track', name: 'A 旧搜索结果', ar: [], al: {}, dt: 1 },
+  ]);
+  finishDetailA({
+    id: 'detail-track',
+    name: 'A 旧详情',
+    ar: [],
+    al: {},
+    dt: 1,
+  });
+  finishAvailabilityA('unavailable');
+  finishPlaylistsA([{ id: 'playlist-A' }]);
+  finishRecommendationsA([{ id: 'recommendation-A' }]);
+  finishToplistsA([{ id: 'toplist-A' }]);
+  await Promise.all(oldRequests);
+
+  assert.strictEqual(
+    catalog.trackCache.get('shared-track').value.name,
+    'B 搜索结果'
+  );
+  assert.strictEqual((await catalog.getTrack('detail-track')).name, 'B 详情');
+  assert.strictEqual(catalog.peekAvailability('same-availability'), 'playable');
+  assert.strictEqual((await catalog.playlists())[0].id, 'playlist-B');
+  assert.deepStrictEqual(
+    [...catalog.recommendationPlaylistIds],
+    ['recommendation-B']
+  );
+  assert.deepStrictEqual([...catalog.toplistIds], ['toplist-B']);
+  assert.strictEqual(
+    (await catalog.getTrack('local-retained')).name,
+    '本地保留'
+  );
+  assert.strictEqual(catalog.localTrackCache.has('local-retained'), true);
 }
 
 async function testCatalogCachesStayBoundedAndCleanExpiredEntries() {
@@ -366,6 +492,7 @@ Promise.all([
   testPlaylistAllowlistSingleFlight(),
   testForcedRefreshDoesNotRestoreOldCache(),
   testRoomChangeInvalidatesAccountCatalog(),
+  testIdentityInvalidationGuardsLateAccountResults(),
   testCatalogCachesStayBoundedAndCleanExpiredEntries(),
   testAvailabilityErrorsAreNotCached(),
   testLocalTrackCacheRetainsIncrementalTracks(),

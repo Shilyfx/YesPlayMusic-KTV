@@ -1,6 +1,7 @@
 import './styles.css';
 import createRefreshScheduler from './refreshScheduler';
 import createCatalogPrefetchScheduler from './catalogPrefetchScheduler';
+import invalidateRemoteCatalogState from './catalogEpoch';
 import { loadEmotionBall, loadMoodMates } from '../karaoke/moodMates';
 import {
   ktvReactionChoices,
@@ -34,6 +35,7 @@ let searchAbort;
 let refreshTimer;
 let roomEnded = false;
 let lastStateRevision = null;
+let observedCatalogEpoch;
 let renderedNowPlayingKey = null;
 let retryDelay = 2000;
 let searchQuery = '';
@@ -42,6 +44,7 @@ let searchGeneration = 0;
 let playlists = [];
 let playlistsLoaded = false;
 let playlistsPromise;
+let playlistLoadGeneration = 0;
 let selectedPlaylistId = '';
 let playlistTracks = [];
 let playlistQuery = '';
@@ -53,6 +56,7 @@ let playedHistory = [];
 let recommendations = [];
 let recommendationsLoaded = false;
 let recommendationsPromise;
+let recommendationsGeneration = 0;
 let selectedRecommendationId = '';
 let recommendationTracks = [];
 let recommendationTrackGeneration = 0;
@@ -61,6 +65,7 @@ let selectedToplistId = '';
 let toplistTracks = [];
 let toplistTrackGeneration = 0;
 let toplistsLoaded = false;
+let toplistsGeneration = 0;
 let chartMode = 'recommendations';
 let chartView = 'lists';
 let playlistSource = 'user';
@@ -1439,9 +1444,11 @@ async function loadRecommendations({ force = false, silent = false } = {}) {
   if (!client?.clientToken) return;
   if (recommendationsPromise) return recommendationsPromise;
   if (recommendationsLoaded && !force) return;
+  const generation = ++recommendationsGeneration;
   recommendationsPromise = (async () => {
     try {
       const response = await api('/recommendations');
+      if (generation !== recommendationsGeneration) return;
       recommendations = response.playlists || [];
       recommendationsLoaded = recommendations.length > 0;
       const hasSelected = recommendations.some(
@@ -1455,6 +1462,7 @@ async function loadRecommendations({ force = false, silent = false } = {}) {
       renderRecommendations();
       renderRecommendationTracks();
     } catch (_) {
+      if (generation !== recommendationsGeneration) return;
       recommendations = [];
       selectedRecommendationId = '';
       renderRecommendations();
@@ -1463,15 +1471,18 @@ async function loadRecommendations({ force = false, silent = false } = {}) {
         setNotice('推荐歌单暂时无法加载，请稍后重试。', 'error');
       }
     } finally {
-      recommendationsPromise = null;
+      if (generation === recommendationsGeneration)
+        recommendationsPromise = null;
     }
   })();
   return recommendationsPromise;
 }
 
 async function loadToplists() {
+  const generation = ++toplistsGeneration;
   try {
     const response = await api('/toplists');
+    if (generation !== toplistsGeneration) return;
     toplists = (response.playlists || []).slice(0, 10);
     toplistsLoaded = true;
     const hasSelected = toplists.some(
@@ -1483,6 +1494,7 @@ async function loadToplists() {
     renderRecommendations();
     renderRecommendationTracks();
   } catch (_) {
+    if (generation !== toplistsGeneration) return;
     toplists = [];
     toplistsLoaded = true;
     selectedToplistId = '';
@@ -1611,11 +1623,13 @@ async function loadPlaylists({ force = false, silent = false } = {}) {
   if (!client?.clientToken) return;
   if (playlistsPromise) return playlistsPromise;
   if (playlistsLoaded && !force) return;
+  const generation = ++playlistLoadGeneration;
   const button = app.querySelector('[data-playlists-refresh]');
   if (button) button.disabled = true;
   playlistsPromise = (async () => {
     try {
       const response = await api(force ? '/playlists?force=1' : '/playlists');
+      if (generation !== playlistLoadGeneration) return;
       playlists = response.playlists || [];
       playlistsLoaded = playlists.length > 0;
       const hasSelected = playlists.some(
@@ -1634,6 +1648,7 @@ async function loadPlaylists({ force = false, silent = false } = {}) {
         }
       }
     } catch (error) {
+      if (generation !== playlistLoadGeneration) return;
       playlists = [];
       selectedPlaylistId = '';
       renderPlaylistPicker();
@@ -1648,36 +1663,43 @@ async function loadPlaylists({ force = false, silent = false } = {}) {
         );
       }
     } finally {
-      if (button) button.disabled = false;
-      playlistsPromise = null;
+      if (generation === playlistLoadGeneration) {
+        if (button) button.disabled = false;
+        playlistsPromise = null;
+      } else if (!playlistsPromise && !localPlaylistsPromise && button) {
+        button.disabled = false;
+      }
     }
   })();
   return playlistsPromise;
 }
 
-function scheduleSearch(query) {
+function scheduleSearch(query, { immediate = false } = {}) {
   searchQuery = query;
   const generation = ++searchGeneration;
   clearTimeout(searchTimer);
   if (searchAbort) searchAbort.abort();
   const clean = query.trim();
   if (!clean) return renderResults([]);
-  searchTimer = setTimeout(async () => {
-    searchAbort = new AbortController();
-    renderResults(searchResults, { searching: true });
-    try {
-      const response = await api(`/search?q=${encodeURIComponent(clean)}`, {
-        signal: searchAbort.signal,
-      });
-      if (generation === searchGeneration && clean === searchQuery.trim())
-        renderResults(response.results);
-    } catch (error) {
-      if (error.name !== 'AbortError' && generation === searchGeneration) {
-        renderResults(searchResults);
-        setNotice('搜索暂时不可用，请稍后重试。', 'error');
+  searchTimer = setTimeout(
+    async () => {
+      searchAbort = new AbortController();
+      renderResults(searchResults, { searching: true });
+      try {
+        const response = await api(`/search?q=${encodeURIComponent(clean)}`, {
+          signal: searchAbort.signal,
+        });
+        if (generation === searchGeneration && clean === searchQuery.trim())
+          renderResults(response.results);
+      } catch (error) {
+        if (error.name !== 'AbortError' && generation === searchGeneration) {
+          renderResults(searchResults);
+          setNotice('搜索暂时不可用，请稍后重试。', 'error');
+        }
       }
-    }
-  }, 350);
+    },
+    immediate ? 0 : 350
+  );
 }
 
 async function requestSong(trackId, priority, button) {
@@ -1752,9 +1774,74 @@ function scheduleRefresh(delay) {
   refreshTimer = setTimeout(() => requestRefresh(), delay);
 }
 
+function handleCatalogEpoch(nextEpoch) {
+  const invalidation = invalidateRemoteCatalogState(
+    {
+      catalogEpoch: observedCatalogEpoch,
+      generations: {
+        search: searchGeneration,
+        playlists: playlistLoadGeneration,
+        playlistTracks: playlistTrackGeneration,
+        recommendations: recommendationsGeneration,
+        recommendationTracks: recommendationTrackGeneration,
+        toplists: toplistsGeneration,
+        toplistTracks: toplistTrackGeneration,
+      },
+    },
+    nextEpoch
+  );
+  if (!invalidation) return;
+
+  observedCatalogEpoch = invalidation.catalogEpoch;
+  searchGeneration = invalidation.generations.search;
+  playlistLoadGeneration = invalidation.generations.playlists;
+  playlistTrackGeneration = invalidation.generations.playlistTracks;
+  recommendationsGeneration = invalidation.generations.recommendations;
+  recommendationTrackGeneration = invalidation.generations.recommendationTracks;
+  toplistsGeneration = invalidation.generations.toplists;
+  toplistTrackGeneration = invalidation.generations.toplistTracks;
+
+  clearTimeout(searchTimer);
+  searchAbort?.abort();
+  searchAbort = null;
+  playlistsPromise = null;
+  recommendationsPromise = null;
+
+  searchResults = invalidation.searchResults;
+  playlists = invalidation.playlists;
+  playlistsLoaded = invalidation.playlistsLoaded;
+  selectedPlaylistId = invalidation.selectedPlaylistId;
+  playlistTracks = invalidation.playlistTracks;
+  recommendations = invalidation.recommendations;
+  recommendationsLoaded = invalidation.recommendationsLoaded;
+  selectedRecommendationId = invalidation.selectedRecommendationId;
+  recommendationTracks = invalidation.recommendationTracks;
+  toplists = invalidation.toplists;
+  toplistsLoaded = invalidation.toplistsLoaded;
+  selectedToplistId = invalidation.selectedToplistId;
+  toplistTracks = invalidation.toplistTracks;
+  chartView = invalidation.chartView;
+
+  renderResults(searchResults);
+  renderPlaylistPicker();
+  renderPlaylistTracks();
+  renderRecommendations();
+  renderRecommendationTracks();
+
+  if (selectedModule === 'search') {
+    scheduleSearch(searchQuery, { immediate: true });
+  } else if (selectedModule === 'playlists' && playlistSource === 'user') {
+    loadPlaylists();
+  } else if (selectedModule === 'recommendations') {
+    if (chartMode === 'toplists') loadToplists();
+    else loadRecommendations();
+  }
+}
+
 async function performRefresh() {
   try {
     state = await api('/state');
+    handleCatalogEpoch(state?.catalogEpoch);
     retryDelay = 2000;
     const revision = state?.revision;
     const changed = revision == null || revision !== lastStateRevision;

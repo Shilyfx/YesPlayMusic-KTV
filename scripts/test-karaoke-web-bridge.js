@@ -16,6 +16,63 @@ const baseSnapshot = {
   historyItems: [],
 };
 
+async function testCatalogIdentityEpochTransport() {
+  let identity = 'account-A';
+  let finishOldExchange;
+  let executed = 0;
+  const bodies = [];
+  const bridge = createWebRoomBridge({
+    manager: { getSnapshot: () => baseSnapshot },
+    origin: 'http://router',
+    execute: async () => {
+      executed += 1;
+    },
+    getCatalogIdentity: () => identity,
+    request: async (action, body) => {
+      if (action === 'close') return { ok: true };
+      bodies.push({ action, body: JSON.parse(JSON.stringify(body)) });
+      if (action === 'open') return { hostToken: 'host-secret', room: {} };
+      if (bodies.filter(call => call.action === 'exchange').length === 1)
+        return new Promise(resolve => {
+          finishOldExchange = resolve;
+        });
+      return { commands: [] };
+    },
+    schedule: () => 1,
+    cancel: () => {},
+  });
+  try {
+    await bridge.invoke('karaoke:lan:start');
+    const oldExchange = bridge.exchange();
+    await flush();
+    identity = 'account-B';
+    finishOldExchange({
+      commands: [{ id: 'old-account-command', action: 'catalog' }],
+    });
+    await oldExchange;
+    assert.strictEqual(
+      executed,
+      0,
+      'commands returned by an exchange from the previous account are ignored'
+    );
+    await bridge.exchange();
+    identity = '';
+    await bridge.exchange();
+    await bridge.exchange();
+    const epochs = bodies.map(call => call.body.catalogEpoch);
+    assert.deepStrictEqual(epochs, [0, 0, 1, 2, 2]);
+    const serialized = JSON.stringify(bodies);
+    for (const privateValue of ['account-A', 'account-B', 'host-secret'])
+      assert.ok(!serialized.includes(privateValue));
+    for (const { body } of bodies) {
+      for (const key of ['uid', 'userId', 'cookie', 'token', 'hostToken'])
+        assert.ok(!Object.prototype.hasOwnProperty.call(body, key));
+    }
+  } finally {
+    await bridge.dispose();
+  }
+}
+
 async function testAppearanceSnapshotUpload() {
   let appearance = normalizeAppearanceConfig({
     version: 1,
@@ -651,6 +708,7 @@ async function testExpiredCommand() {
   assert.equal(exchanges[3].snapshot.revision, 2);
   await bridge.dispose();
   const regressions = await Promise.allSettled([
+    testCatalogIdentityEpochTransport(),
     testAppearanceSnapshotUpload(),
     testLyricDocumentTransport(),
     testInvalidOptionalLyrics(),
@@ -666,7 +724,7 @@ async function testExpiredCommand() {
   });
   assert.ok(regressions.every(result => result.status === 'fulfilled'));
   console.log(
-    'KTV browser bridge dedupe/retry/revision/lifecycle tests passed'
+    'KTV browser bridge identity epoch/dedupe/retry/revision/lifecycle tests passed'
   );
 })().catch(error => {
   console.error(error);

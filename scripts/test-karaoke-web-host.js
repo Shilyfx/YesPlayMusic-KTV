@@ -275,6 +275,11 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
     });
     assert.equal(opened.status, 200);
     const { hostToken, room } = opened.body;
+    assert.strictEqual(
+      Object.prototype.hasOwnProperty.call(host.owner, 'catalogEpoch'),
+      false,
+      'legacy hosts may open without a catalog epoch'
+    );
     assert.ok(room.qrDataUrl.startsWith('data:image/png;base64,'));
     assert.ok(room.url.startsWith(origin + '/room/'));
     const display = await fetch(base + '/ktv/display').then(response =>
@@ -476,6 +481,118 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
     );
     assert.equal(await pending, 'next-ok');
     assert.equal(ack.body.commands.length, 0);
+
+    const catalog = host.service.catalog;
+    assert.equal(
+      (await call('/ktv/host/exchange', { catalogEpoch: 0 }, hostToken)).status,
+      200,
+      'a legacy room can adopt the first epoch from an upgraded host'
+    );
+    catalog.catalogCache.set('playlists', {
+      value: [{ id: 'account-A' }],
+      expiresAt: Number.MAX_SAFE_INTEGER,
+    });
+    catalog.trackCache.set('account-track', {
+      value: { trackId: 'account-track' },
+      expiresAt: Number.MAX_SAFE_INTEGER,
+    });
+    catalog.availabilityCache.set('account-track', {
+      value: 'playable',
+      expiresAt: Number.MAX_SAFE_INTEGER,
+    });
+    catalog.recommendationPlaylistIds.add('account-playlist');
+    catalog.toplistIds.add('account-toplist');
+    catalog.localTrackCache.set('local-retained', {
+      trackId: 'local-retained',
+      source: 'local',
+    });
+    const staleCatalogPromise = host.command('catalog', {
+      action: 'playlists',
+    });
+    const issuedCatalog = await call(
+      '/ktv/host/exchange',
+      { catalogEpoch: 0 },
+      hostToken
+    );
+    assert.equal(issuedCatalog.body.commands.length, 1);
+    const staleCatalogRejected = assert.rejects(
+      staleCatalogPromise,
+      /CATALOG_EPOCH_CHANGED/
+    );
+    const accountSwitch = await call(
+      '/ktv/host/exchange',
+      {
+        catalogEpoch: 1,
+        results: [
+          {
+            id: issuedCatalog.body.commands[0].id,
+            ok: true,
+            result: [{ id: 'account-A' }],
+          },
+        ],
+      },
+      hostToken
+    );
+    assert.equal(accountSwitch.status, 200);
+    await staleCatalogRejected;
+    assert.equal(accountSwitch.body.commands.length, 0);
+    assert.equal(host.roomServer.room.catalogEpoch, 1);
+    const publicStateResponse = await fetch(base + '/ktv/api/state', {
+      headers: { Authorization: `Bearer ${guest.body.clientToken}` },
+    });
+    const publicState = await publicStateResponse.json();
+    assert.equal(publicStateResponse.status, 200);
+    assert.equal(publicState.catalogEpoch, 1);
+    assert.equal(
+      Object.prototype.hasOwnProperty.call(publicState, 'userId'),
+      false
+    );
+    assert.strictEqual(catalog.catalogCache.size, 0);
+    assert.strictEqual(catalog.trackCache.has('account-track'), false);
+    assert.strictEqual(catalog.availabilityCache.size, 0);
+    assert.strictEqual(catalog.recommendationPlaylistIds.size, 0);
+    assert.strictEqual(catalog.toplistIds.size, 0);
+    assert.strictEqual(catalog.localTrackCache.has('local-retained'), true);
+    const pendingAtCurrentEpoch = host.command('next', {
+      expected: { sessionId: 'test-session' },
+    });
+    const currentCommand = await call(
+      '/ktv/host/exchange',
+      { catalogEpoch: 1 },
+      hostToken
+    );
+    const delayedOldHost = await call(
+      '/ktv/host/exchange',
+      {
+        catalogEpoch: 0,
+        results: [
+          {
+            id: currentCommand.body.commands[0].id,
+            ok: true,
+            result: 'stale-result',
+          },
+        ],
+      },
+      hostToken
+    );
+    assert.equal(delayedOldHost.status, 409);
+    assert.equal(delayedOldHost.body.error, 'STALE_CATALOG_EPOCH');
+    const currentAck = await call(
+      '/ktv/host/exchange',
+      {
+        catalogEpoch: 1,
+        results: [
+          {
+            id: currentCommand.body.commands[0].id,
+            ok: true,
+            result: 'current-result',
+          },
+        ],
+      },
+      hostToken
+    );
+    assert.equal(await pendingAtCurrentEpoch, 'current-result');
+    assert.equal(currentAck.status, 200);
     const updatedQueue = {
       ...snapshot,
       revision: 2,

@@ -24,6 +24,7 @@ export default function createWebRoomBridge({
   getPvLyrics = null,
   getAppearance = null,
   getSmartBeatState = null,
+  getCatalogIdentity = null,
   onReactions = () => {},
   hostName = '主电脑',
 }) {
@@ -39,10 +40,31 @@ export default function createWebRoomBridge({
   let lastLyrics;
   let lastAppearanceKey = null;
   let lastSmartBeatRevision = -1;
+  let catalogIdentity;
+  let hasCatalogIdentity = false;
+  let catalogEpoch = 0;
   const completed = new Map();
   const outbox = new Map();
   const running = new Map();
   const visualAssetUploads = new Set();
+  const readCatalogEpoch = () => {
+    if (typeof getCatalogIdentity !== 'function') return null;
+    let identity;
+    try {
+      identity = getCatalogIdentity() || '';
+    } catch (_) {
+      // An unavailable local store must not block room startup or heartbeats.
+      return catalogEpoch;
+    }
+    if (!hasCatalogIdentity) {
+      catalogIdentity = identity;
+      hasCatalogIdentity = true;
+    } else if (!Object.is(catalogIdentity, identity)) {
+      catalogIdentity = identity;
+      catalogEpoch += 1;
+    }
+    return catalogEpoch;
+  };
   const snapshot = () => {
     const state = manager.getSnapshot();
     const item = value => {
@@ -138,6 +160,7 @@ export default function createWebRoomBridge({
   async function performExchange() {
     if (!hostToken) return;
     const version = generation;
+    const requestCatalogEpoch = readCatalogEpoch();
     const state = snapshot();
     const lyrics = getPvLyrics ? lyricsFor(state) : undefined;
     const appearance = getAppearance ? appearanceFor() : undefined;
@@ -153,9 +176,18 @@ export default function createWebRoomBridge({
         : {}),
       ...(getPvLyrics && lyrics !== lastLyrics ? { pvLyrics: lyrics } : {}),
       ...(state.revision !== lastRevision ? { snapshot: state } : {}),
+      ...(requestCatalogEpoch !== null
+        ? { catalogEpoch: requestCatalogEpoch }
+        : {}),
     });
     const data = await call('exchange', body);
-    if (version !== generation) return;
+    const currentCatalogEpoch = readCatalogEpoch();
+    if (
+      version !== generation ||
+      (requestCatalogEpoch !== null &&
+        requestCatalogEpoch !== currentCatalogEpoch)
+    )
+      return;
     onReactions(data.reactions || [], data.reactionEpoch, data.serverTime);
     lastRevision = state.revision;
     if (body.smartBeatTimeline)
@@ -350,6 +382,7 @@ export default function createWebRoomBridge({
     const version = generation;
     const operation = (async () => {
       const state = snapshot();
+      const requestCatalogEpoch = readCatalogEpoch();
       const lyrics = getPvLyrics ? lyricsFor(state) : undefined;
       const appearance = getAppearance ? appearanceFor() : undefined;
       const smartBeat = getSmartBeatState ? smartBeatForTransport() : null;
@@ -361,6 +394,9 @@ export default function createWebRoomBridge({
         ...(getAppearance ? { appearance } : {}),
         ...(smartBeat ? { smartBeatTimeline: smartBeat } : {}),
         ...(getPvLyrics ? { pvLyrics: lyrics } : {}),
+        ...(requestCatalogEpoch !== null
+          ? { catalogEpoch: requestCatalogEpoch }
+          : {}),
       });
       const opened = await call('open', body);
       if (version !== generation) {

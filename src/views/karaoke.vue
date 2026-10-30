@@ -1006,6 +1006,7 @@ export default {
         manager: this.karaokeManager,
         execute: command => executeKaraokeCommand(command, this.$store),
         hostName: this.webHostName,
+        getCatalogIdentity: () => this.$store.state.data.user.userId || '',
         getPresentation: () => this.getWebPresentation(),
         getPvLyrics: () => this.pvLyricDocument,
         getAppearance: () => this.getWebAppearance(),
