@@ -329,32 +329,35 @@
                 {{ option.label }}
               </button>
             </div>
-            <div class="ktv-custom-theme">
-              <div class="ktv-custom-theme-heading">
+            <details class="ktv-custom-theme">
+              <summary class="ktv-custom-theme-summary">
                 <span class="ktv-field-label">自定义舞台颜色</span>
+              </summary>
+              <div class="ktv-custom-theme-grid">
                 <button
+                  class="ktv-custom-theme-reset"
                   type="button"
                   :disabled="isFollowLocked('theme') || !config.customTheme"
                   @click="emitChange('customTheme', null)"
                 >
                   使用默认配色
                 </button>
+                <label
+                  v-for="color in customThemeColors"
+                  :key="color.key"
+                  class="ktv-custom-color"
+                >
+                  <span>{{ color.label }}</span>
+                  <input
+                    type="color"
+                    :value="customThemeValue(color.key)"
+                    :aria-label="color.label"
+                    :disabled="isFollowLocked('theme')"
+                    @input="onCustomThemeColor(color.key, $event.target.value)"
+                  />
+                </label>
               </div>
-              <label
-                v-for="color in customThemeColors"
-                :key="color.key"
-                class="ktv-custom-color"
-              >
-                <span>{{ color.label }}</span>
-                <input
-                  type="color"
-                  :value="customThemeValue(color.key)"
-                  :aria-label="color.label"
-                  :disabled="isFollowLocked('theme')"
-                  @input="onCustomThemeColor(color.key, $event.target.value)"
-                />
-              </label>
-            </div>
+            </details>
           </div>
           <div v-if="supportsIntensity" class="ktv-intensity-row">
             <span class="ktv-field-label">动态强度</span>
@@ -704,13 +707,13 @@ const DEFAULT_THEME_PALETTES = {
   light: {
     background: '#f5f5f4',
     text: '#1c1917',
-    accent: '#ea580c',
+    accent: '#4b79f1',
     accentStrong: '#44403c',
   },
   dark: {
     background: '#09090b',
     text: '#f4f4f5',
-    accent: '#f4f4f5',
+    accent: '#4b79f1',
     accentStrong: '#71717a',
   },
 };
@@ -1362,7 +1365,7 @@ export default {
       env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
   );
   flex-direction: column;
-  overflow: auto;
+  overflow: hidden;
   overscroll-behavior: contain;
   border: 1px solid var(--ktv-glass-border, rgba(255, 255, 255, 0.16));
   border-radius: 20px;
@@ -1383,7 +1386,7 @@ export default {
 
 .ktv-control-panel button,
 .ktv-control-panel input {
-  font: inherit;
+  font-family: inherit;
 }
 
 .ktv-control-panel input,
@@ -1396,6 +1399,7 @@ export default {
 
 .ktv-control-header {
   display: flex;
+  flex: 0 0 auto;
   min-height: 76px;
   align-items: center;
   gap: 12px;
@@ -1513,7 +1517,10 @@ export default {
 
 .ktv-control-content {
   min-height: 0;
-  padding: 0 16px 16px;
+  flex: 0 1 auto;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+  padding: 0 16px 24px;
 }
 
 .ktv-control-section {
@@ -1905,19 +1912,34 @@ export default {
 }
 
 .ktv-custom-theme {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 7px 12px;
   margin-top: 11px;
 }
-.ktv-custom-theme-heading {
-  grid-column: 1 / -1;
+.ktv-custom-theme-summary {
   display: flex;
-  align-items: center;
   justify-content: space-between;
-  gap: 10px;
+  align-items: center;
+  cursor: pointer;
+  list-style: none;
 }
-.ktv-custom-theme-heading button {
+.ktv-custom-theme-summary::-webkit-details-marker {
+  display: none;
+}
+.ktv-custom-theme-summary::after {
+  content: '⌄';
+  font-size: 18px;
+}
+.ktv-custom-theme[open] .ktv-custom-theme-summary::after {
+  transform: rotate(180deg);
+}
+.ktv-custom-theme-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 7px 8px;
+  margin-top: 8px;
+}
+.ktv-custom-theme-reset {
+  grid-column: 1 / -1;
+  justify-self: end;
   border: 0;
   background: transparent;
   color: var(--ktv-accent, #ab9cff);
@@ -1929,10 +1951,10 @@ export default {
   display: flex;
   min-width: 0;
   align-items: center;
-  justify-content: space-between;
+  justify-content: flex-start;
   gap: 7px;
   color: var(--ktv-text-secondary, rgba(255, 255, 255, 0.72));
-  font-size: 9.9px;
+  font-size: 12px;
 }
 .ktv-custom-color input {
   width: 34px;

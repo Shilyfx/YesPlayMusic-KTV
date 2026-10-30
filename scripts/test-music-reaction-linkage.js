@@ -11,9 +11,19 @@ const {
   createMusicReactionController,
   createPlayerMusicAnalyzer,
   sanitizeMusicReaction,
+  isAnalyzedMediaElement,
 } = require('../src/karaoke/musicReactionAnalyzer');
 const { createReactionScheduler } = require('../src/karaoke/reactionScheduler');
 const { sanitizePresentation } = require('../src/karaoke/lyricDisplay');
+
+{
+  const scheduler = createReactionScheduler({ now: () => 1000 });
+  scheduler.scheduleAutomatic('requested', 'bounce', {
+    itemId: 'x',
+    customText: '九万字点歌成功',
+  });
+  assert.equal(scheduler.recentPublic()[0].customText, '九万字点歌成功');
+}
 
 // 1. Gate A: Audio source safety & WeakMap single-tap verification
 {
@@ -52,6 +62,103 @@ const { sanitizePresentation } = require('../src/karaoke/lyricDisplay');
 }
 
 // 2. Audio feature extraction
+{
+  const previousWindow = global.window;
+  let sourceCreations = 0;
+  let analyzedAudioFeatures = null;
+  global.window = {
+    location: { origin: 'http://router.test' },
+    AudioContext: class {
+      constructor() {
+        this.state = 'running';
+        this.destination = {};
+      }
+      createMediaElementSource() {
+        sourceCreations++;
+        return { connect() {} };
+      }
+      createAnalyser() {
+        return {
+          fftSize: 256,
+          connect() {},
+          getFloatTimeDomainData(buffer) {
+            buffer[0] = 1;
+          },
+          getByteFrequencyData(buffer) {
+            buffer[1] = 255;
+          },
+        };
+      }
+    },
+  };
+  const localNode = {
+    src: 'http://router.test/ktv/local/audio/a',
+    paused: false,
+  };
+  const analyzer = createPlayerMusicAnalyzer({
+    getPlayer: () => ({
+      playing: true,
+      volume: 1,
+      currentTrack: { id: 1 },
+      _howler: { _sounds: [{ _node: localNode }] },
+    }),
+    getCurrentItem: () => ({ trackId: 1 }),
+    onAudioFeatures: features => {
+      analyzedAudioFeatures = features;
+    },
+    schedule: () => 1,
+    cancel: () => {},
+  });
+  analyzer.tick();
+  assert.equal(sourceCreations, 1, 'safe active audio is connected once');
+  assert.equal(analyzedAudioFeatures.available, true);
+  assert.ok(analyzedAudioFeatures.power > 0);
+  assert.equal(isAnalyzedMediaElement(localNode), true);
+  analyzer.tick();
+  assert.equal(sourceCreations, 1, 'a media element is tapped only once');
+  analyzer.dispose();
+  global.window = previousWindow;
+}
+{
+  let taps = 0;
+  const previousWindow = global.window;
+  global.window = {
+    location: { origin: 'http://router.test' },
+    AudioContext: class {
+      constructor() {
+        this.state = 'suspended';
+      }
+      resume() {
+        return Promise.reject(new Error('gesture required'));
+      }
+      createMediaElementSource() {
+        taps++;
+        return {};
+      }
+    },
+  };
+  const node = { src: 'blob:http://router.test/song', paused: false };
+  const analyzer = createPlayerMusicAnalyzer({
+    getPlayer: () => ({
+      playing: true,
+      volume: 1,
+      currentTrack: { id: 1 },
+      _howler: { _sounds: [{ _node: node }] },
+    }),
+    getCurrentItem: () => ({ trackId: 1 }),
+    schedule: () => 1,
+    cancel: () => {},
+  });
+  analyzer.tick();
+  assert.equal(
+    taps,
+    0,
+    'a suspended audio context must not take over playback'
+  );
+  analyzer.dispose();
+  global.window = previousWindow;
+}
+
 {
   const silentTd = new Float32Array(256);
   const silentFreq = new Uint8Array(128);

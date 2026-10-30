@@ -3,6 +3,47 @@ import http from 'http';
 
 const CLIENT_TTL = 5 * 60 * 60 * 1000;
 const CACHE_TTL = 5 * 60 * 1000;
+// Retain 128 catalog result sets and 4096 individual tracks/availability
+// results. 4096 covers over 200 pages of 20 tracks while bounding each map.
+const MAX_CATALOG_CACHE_ENTRIES = 128;
+const MAX_TRACK_CACHE_ENTRIES = 4096;
+const MAX_AVAILABILITY_CACHE_ENTRIES = 4096;
+const CACHE_EXPIRY_SWEEP_INTERVAL = 30 * 1000;
+const cacheSweepTimes = new WeakMap();
+
+function pruneExpiredCache(cache, now, force = false) {
+  const lastSweep = cacheSweepTimes.get(cache);
+  if (
+    !force &&
+    lastSweep != null &&
+    now - lastSweep < CACHE_EXPIRY_SWEEP_INTERVAL
+  )
+    return;
+  for (const [key, entry] of cache) {
+    if (entry.expiresAt <= now) cache.delete(key);
+  }
+  cacheSweepTimes.set(cache, now);
+}
+
+function readCacheEntry(cache, key, now = Date.now()) {
+  const entry = cache.get(key);
+  const expired = entry && entry.expiresAt <= now;
+  if (expired) cache.delete(key);
+  pruneExpiredCache(cache, now, Boolean(expired));
+  const current = cache.get(key);
+  if (!current) return null;
+  // Map insertion order supplies a small LRU policy for capacity eviction.
+  cache.delete(key);
+  cache.set(key, current);
+  return current;
+}
+
+function writeCacheEntry(cache, key, value, ttl, maxEntries, now = Date.now()) {
+  pruneExpiredCache(cache, now);
+  cache.delete(key);
+  cache.set(key, { value, expiresAt: now + ttl });
+  while (cache.size > maxEntries) cache.delete(cache.keys().next().value);
+}
 
 // Keep client tokens compatible with the Node.js runtime bundled by Electron
 // 13, where Buffer.toString('base64url') is not available.
@@ -130,10 +171,19 @@ export class KaraokeCatalogService {
     this.availabilityCache = new Map();
     this.catalogCache = new Map();
     this.catalogPromises = new Map();
+    this.catalogGeneration = 0;
     this.trackDetailPromises = new Map();
     this.availabilityPromises = new Map();
     this.recommendationPlaylistIds = new Set();
     this.toplistIds = new Set();
+  }
+
+  resetRoomCatalog() {
+    this.catalogGeneration++;
+    this.catalogCache.clear();
+    this.catalogPromises.clear();
+    this.recommendationPlaylistIds.clear();
+    this.toplistIds.clear();
   }
 
   cacheTracks(tracks) {
@@ -141,27 +191,36 @@ export class KaraokeCatalogService {
     const now = Date.now();
     return source.map(item => {
       const track = item && item.trackId ? item : sanitizeTrack(item);
-      this.trackCache.set(track.trackId, {
-        value: track,
-        expiresAt: now + CACHE_TTL,
-      });
+      writeCacheEntry(
+        this.trackCache,
+        track.trackId,
+        track,
+        CACHE_TTL,
+        MAX_TRACK_CACHE_ENTRIES,
+        now
+      );
       return track;
     });
   }
 
   async cachedCatalog(key, fetcher, { force = false, ttl = CACHE_TTL } = {}) {
+    const cached = readCacheEntry(this.catalogCache, key);
     if (!force) {
-      const cached = this.catalogCache.get(key);
-      if (cached && cached.expiresAt > Date.now()) return cached.value;
+      if (cached) return cached.value;
     }
     const pending = this.catalogPromises.get(key);
     if (pending && !force) return pending;
     const request = (async () => {
       const value = await fetcher();
-      this.catalogCache.set(key, {
-        value,
-        expiresAt: Date.now() + ttl,
-      });
+      if (this.catalogPromises.get(key) === request) {
+        writeCacheEntry(
+          this.catalogCache,
+          key,
+          value,
+          ttl,
+          MAX_CATALOG_CACHE_ENTRIES
+        );
+      }
       return value;
     })();
     this.catalogPromises.set(key, request);
@@ -172,15 +231,27 @@ export class KaraokeCatalogService {
   }
 
   async search(query) {
-    if (this.hostCatalogBridge) {
-      const songs = await this.hostCatalogBridge('search', { query });
-      return this.cacheTracks(songs);
+    const clean = String(query || '').trim();
+    const key = `search:${clean}`;
+    const pending = this.catalogPromises.get(key);
+    if (pending) return pending;
+    const request = (async () => {
+      if (this.hostCatalogBridge) {
+        const songs = await this.hostCatalogBridge('search', { query: clean });
+        return this.cacheTracks(songs);
+      }
+      const data = await this.upstream(
+        `/search?keywords=${encodeURIComponent(clean)}&limit=15&type=1`
+      );
+      return this.cacheTracks((data.result && data.result.songs) || []);
+    })();
+    this.catalogPromises.set(key, request);
+    try {
+      return await request;
+    } finally {
+      if (this.catalogPromises.get(key) === request)
+        this.catalogPromises.delete(key);
     }
-    const data = await this.upstream(
-      `/search?keywords=${encodeURIComponent(query)}&limit=15&type=1`
-    );
-    const songs = (data.result && data.result.songs) || [];
-    return this.cacheTracks(songs);
   }
 
   async artistSearch(query) {
@@ -209,8 +280,8 @@ export class KaraokeCatalogService {
     const key = String(trackId);
     const local = this.localTrackCache.get(key);
     if (local) return local;
-    const cached = this.trackCache.get(key);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const cached = readCacheEntry(this.trackCache, key);
+    if (cached) return cached.value;
     const pending = this.trackDetailPromises.get(key);
     if (pending) return pending;
     const request = (async () => {
@@ -220,10 +291,13 @@ export class KaraokeCatalogService {
       const song = this.hostCatalogBridge ? data : data.songs && data.songs[0];
       if (!song) throw new Error('TRACK_NOT_FOUND');
       const track = sanitizeTrack(song);
-      this.trackCache.set(track.trackId, {
-        value: track,
-        expiresAt: Date.now() + CACHE_TTL,
-      });
+      writeCacheEntry(
+        this.trackCache,
+        track.trackId,
+        track,
+        CACHE_TTL,
+        MAX_TRACK_CACHE_ENTRIES
+      );
       return track;
     })();
     this.trackDetailPromises.set(key, request);
@@ -252,6 +326,20 @@ export class KaraokeCatalogService {
 
   async localPlaylists() {
     if (!this.hostCatalogBridge) return [];
+    const key = 'localPlaylists:inflight';
+    const pending = this.catalogPromises.get(key);
+    if (pending) return pending;
+    const request = this.loadLocalPlaylists();
+    this.catalogPromises.set(key, request);
+    try {
+      return await request;
+    } finally {
+      if (this.catalogPromises.get(key) === request)
+        this.catalogPromises.delete(key);
+    }
+  }
+
+  async loadLocalPlaylists() {
     const source = await this.hostCatalogBridge('localPlaylists');
     const playlists = Array.isArray(source) ? source : [];
     this.localTrackCache.clear();
@@ -262,10 +350,13 @@ export class KaraokeCatalogService {
           ...safe,
           lyrics: Array.isArray(track.lyrics) ? track.lyrics : [],
         });
-        this.trackCache.set(safe.trackId, {
-          value: safe,
-          expiresAt: Date.now() + CACHE_TTL,
-        });
+        writeCacheEntry(
+          this.trackCache,
+          safe.trackId,
+          safe,
+          CACHE_TTL,
+          MAX_TRACK_CACHE_ENTRIES
+        );
       });
     });
     return playlists.map(playlist => ({
@@ -282,11 +373,13 @@ export class KaraokeCatalogService {
   async recommendations() {
     if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
     return this.cachedCatalog('recommendations', async () => {
+      const generation = this.catalogGeneration;
       const playlists = await this.hostCatalogBridge('recommendations');
       const safePlaylists = Array.isArray(playlists) ? playlists : [];
-      this.recommendationPlaylistIds = new Set(
-        safePlaylists.map(playlist => String(playlist.id))
-      );
+      if (generation === this.catalogGeneration)
+        this.recommendationPlaylistIds = new Set(
+          safePlaylists.map(playlist => String(playlist.id))
+        );
       return safePlaylists;
     });
   }
@@ -294,9 +387,13 @@ export class KaraokeCatalogService {
   async toplists() {
     if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
     return this.cachedCatalog('toplists', async () => {
+      const generation = this.catalogGeneration;
       const source = await this.hostCatalogBridge('toplists');
       const playlists = Array.isArray(source) ? source : [];
-      this.toplistIds = new Set(playlists.map(playlist => String(playlist.id)));
+      if (generation === this.catalogGeneration)
+        this.toplistIds = new Set(
+          playlists.map(playlist => String(playlist.id))
+        );
       return playlists;
     });
   }
@@ -345,16 +442,19 @@ export class KaraokeCatalogService {
   async availability(trackId, { fresh = false } = {}) {
     const key = String(trackId);
     if (key.startsWith('local-') && this.localTrackCache.has(key)) {
-      this.availabilityCache.set(key, {
-        value: 'playable',
-        expiresAt: Date.now() + CACHE_TTL,
-      });
+      writeCacheEntry(
+        this.availabilityCache,
+        key,
+        'playable',
+        CACHE_TTL,
+        MAX_AVAILABILITY_CACHE_ENTRIES
+      );
       return 'playable';
     }
     const pending = this.availabilityPromises.get(key);
     if (pending) return pending;
-    const cached = this.availabilityCache.get(key);
-    if (!fresh && cached && cached.expiresAt > Date.now()) return cached.value;
+    const cached = readCacheEntry(this.availabilityCache, key);
+    if (!fresh && cached) return cached.value;
     const request = (async () => {
       try {
         if (this.hostCatalogBridge) {
@@ -365,10 +465,14 @@ export class KaraokeCatalogService {
             !['playable', 'trial-only', 'unavailable', 'error'].includes(value)
           )
             throw new Error('UPSTREAM');
-          this.availabilityCache.set(key, {
-            value,
-            expiresAt: Date.now() + CACHE_TTL,
-          });
+          if (value !== 'error')
+            writeCacheEntry(
+              this.availabilityCache,
+              key,
+              value,
+              CACHE_TTL,
+              MAX_AVAILABILITY_CACHE_ENTRIES
+            );
           return value;
         }
         const data = await this.upstream(
@@ -381,10 +485,13 @@ export class KaraokeCatalogService {
             : source.freeTrialInfo
             ? 'trial-only'
             : 'playable';
-        this.availabilityCache.set(key, {
+        writeCacheEntry(
+          this.availabilityCache,
+          key,
           value,
-          expiresAt: Date.now() + CACHE_TTL,
-        });
+          CACHE_TTL,
+          MAX_AVAILABILITY_CACHE_ENTRIES
+        );
         return value;
       } catch (_) {
         return 'error';
@@ -401,8 +508,8 @@ export class KaraokeCatalogService {
     const key = String(trackId);
     if (key.startsWith('local-') && this.localTrackCache.has(key))
       return 'playable';
-    const cached = this.availabilityCache.get(key);
-    if (cached && cached.expiresAt > Date.now()) return cached.value;
+    const cached = readCacheEntry(this.availabilityCache, key);
+    if (cached) return cached.value;
     return 'unknown';
   }
 
@@ -527,6 +634,7 @@ export class KaraokeRemoteService {
   onRoomStop() {
     this.sessions.stop();
     this.limiter.clear();
+    this.catalog.resetRoomCatalog?.();
   }
 
   ensureActive() {
@@ -557,7 +665,9 @@ export class KaraokeRemoteService {
   async state(client) {
     if (!this.limiter.check(`state:${client.clientId}`, 40))
       throw new Error('RATE_LIMIT');
-    if (!this.limiter.check('state:room', 240)) throw new Error('RATE_LIMIT');
+    // 19 guests alongside the master polling every 500 ms need about 380
+    // requests per 10-second window, leaving room for immediate refreshes.
+    if (!this.limiter.check('state:room', 480)) throw new Error('RATE_LIMIT');
     const snapshot = await this.managerBridge.snapshot();
     return {
       revision: snapshot.revision == null ? 0 : snapshot.revision,

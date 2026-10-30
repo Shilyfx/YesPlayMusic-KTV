@@ -10,7 +10,11 @@
       </span>
     </div>
 
-    <p v-if="status.detail" class="smart-beat-detail">{{ status.detail }}</p>
+    <p v-if="readOnly" class="smart-beat-detail">节拍效果跟随主屏设置。</p>
+
+    <p v-if="status.detail && !unsupportedStyle" class="smart-beat-detail">{{
+      status.detail
+    }}</p>
     <progress
       v-if="Number.isFinite(status.progress)"
       class="smart-beat-progress"
@@ -102,7 +106,9 @@
           }}</output>
         </label>
       </div>
-      <p v-else class="smart-beat-detail">当前歌词样式没有对应的节拍效果。</p>
+      <p v-else class="smart-beat-detail"
+        >当前样式暂不支持节拍效果；可切换至商籁、凝彩、花火、时计或镜台。</p
+      >
     </template>
   </section>
 </template>
@@ -135,6 +141,13 @@ export default {
     readOnly: { type: Boolean, default: false },
   },
   computed: {
+    modeOptions() {
+      return [
+        { value: 'off', label: '关闭' },
+        { value: 'on', label: '启用' },
+        { value: 'cached', label: '仅用缓存' },
+      ];
+    },
     normalizedSettings() {
       return normalizeSmartBeatPreferences(this.settings);
     },
@@ -143,7 +156,18 @@ export default {
         .filter(([, definition]) => definition.mode === this.rendererMode)
         .map(([id, definition]) => ({ id, ...definition }));
     },
+    unsupportedStyle() {
+      return (
+        this.normalizedSettings.mode !== 'off' && !this.applicableEffects.length
+      );
+    },
     statusText() {
+      if (this.unsupportedStyle) return '当前样式不支持';
+      if (
+        this.normalizedSettings.mode !== 'off' &&
+        this.status.state === 'idle'
+      )
+        return '等待分析';
       if (this.status.state === 'cached' && this.status.cacheHit === false)
         return '本机没有可用缓存';
       return STATUS_TEXT[this.status.state] || '等待分析';
@@ -219,15 +243,31 @@ export default {
   line-height: 1.5;
 }
 .smart-beat-modes {
-  display: flex;
-  gap: 8px;
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 4px;
+  padding: 3px;
+  border: 1px solid var(--ktv-glass-border, rgba(120, 120, 150, 0.2));
+  border-radius: 12px;
+  background: var(--ktv-glass-soft, rgba(120, 120, 150, 0.08));
 }
 .smart-beat-modes button {
-  flex: 1;
+  min-width: 0;
+  min-height: 33px;
+  padding: 0 5px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  background: transparent;
+  color: var(--ktv-text-secondary, #55556b);
+  font-size: 12px;
+  font-weight: 600;
+  white-space: nowrap;
 }
 .smart-beat-modes .selected {
-  border-color: #7969dc;
-  color: #5544ba;
+  border-color: var(--ktv-glass-border, rgba(120, 120, 150, 0.2));
+  background: var(--ktv-glass-strong, rgba(120, 120, 150, 0.14));
+  box-shadow: 0 2px 10px rgba(0, 0, 0, 0.12);
+  color: var(--ktv-text-primary, #202030);
 }
 .smart-beat-strengths {
   display: grid;

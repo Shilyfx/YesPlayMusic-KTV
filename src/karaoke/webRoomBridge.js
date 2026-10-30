@@ -230,7 +230,7 @@ export default function createWebRoomBridge({
       }
     }
     if (hostToken && version === generation)
-      timer = schedule(loop, outbox.size || running.size ? 80 : 350);
+      timer = schedule(loop, outbox.size || running.size ? 80 : 200);
   }
   function reset() {
     hostToken = '';

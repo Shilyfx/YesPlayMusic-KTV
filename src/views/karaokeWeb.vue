@@ -60,7 +60,7 @@
           :settings="smartBeatControlSettings"
           :renderer-mode="presentation.mode || ''"
           :status="smartBeatControlStatus"
-          read-only
+          @change="onLocalSmartBeatChange"
         />
         <div class="display-preference-footer">
           <p>本屏偏移按歌曲原始时间计算，不叠加主屏偏移。</p>
@@ -165,7 +165,13 @@ import ReactionOverlay from '@/components/karaoke/ReactionOverlay.vue';
 import SongRequestButton from '@/components/karaoke/SongRequestButton.vue';
 import createDisplayPoller from '@/karaoke/displayPoller';
 import { projectPresentation } from '@/karaoke/lyricDisplay';
-import { normalizeSmartBeatPreferences } from '@/karaoke/smartBeatPreferences';
+import {
+  normalizeSmartBeatPreferences,
+  readSmartBeatPreferences,
+  writeSmartBeatPreferences,
+  getSmartBeatSourceRequirements,
+} from '@/karaoke/smartBeatPreferences';
+
 import {
   stageModeOptions,
   isPvStageMode,
@@ -189,6 +195,8 @@ import {
   normalizeDisplayPreferences,
   effectiveDisplayPresentation,
 } from '@/karaoke/displayPreferences';
+
+const DISPLAY_SMART_BEAT_KEY = 'lumasing.ktv.smartbeat.display.v1';
 
 export default {
   components: {
@@ -233,6 +241,10 @@ export default {
       remoteAppearance: null,
       localVisualAssetSet: null,
       localAssetResolveGeneration: 0,
+      localSmartBeatSettings: readSmartBeatPreferences(
+        undefined,
+        DISPLAY_SMART_BEAT_KEY
+      ),
     };
   },
   computed: {
@@ -397,22 +409,29 @@ export default {
       );
     },
     smartBeatControlSettings() {
-      return normalizeSmartBeatPreferences(
-        this.presentation.smartBeat?.settings
-      );
+      return this.localSmartBeatSettings;
     },
     smartBeatControlStatus() {
-      const value = this.presentation.smartBeat || {};
-      return {
-        state: value.status || 'idle',
-        detail: value.detail || '',
-        ...(Number.isFinite(value.progress)
-          ? { progress: value.progress }
-          : {}),
-        ...(typeof value.cacheHit === 'boolean'
-          ? { cacheHit: value.cacheHit }
-          : {}),
-      };
+      if (this.localSmartBeatSettings.mode === 'off')
+        return { state: 'idle', detail: '' };
+      const required = getSmartBeatSourceRequirements(
+        this.localSmartBeatSettings,
+        this.presentation.mode
+      );
+      if (!required.beats && !required.drums)
+        return { state: 'idle', detail: '' };
+      const timeline = this.followerSmartBeatTimeline;
+      if (
+        !timeline ||
+        (required.beats && !timeline.beats) ||
+        (required.drums && !timeline.drums)
+      )
+        return {
+          state: 'waiting',
+          detail:
+            '等待主屏提供该效果所需的节拍分析数据；主屏未分析时副屏暂无法独立生成。',
+        };
+      return { state: 'ready', detail: '正在使用主屏同步的分析数据。' };
     },
     followerSmartBeatTimeline() {
       const timeline = this.state.smartBeatTimeline;
@@ -507,6 +526,14 @@ export default {
     if (this.$route.name !== 'karaoke') this.$store.$initializePlayerOnce();
   },
   methods: {
+    onLocalSmartBeatChange(value) {
+      this.localSmartBeatSettings = normalizeSmartBeatPreferences(value);
+      writeSmartBeatPreferences(
+        this.localSmartBeatSettings,
+        undefined,
+        DISPLAY_SMART_BEAT_KEY
+      );
+    },
     setControlPanelOpen(open) {
       this.showSettings = Boolean(open);
       clearTimeout(this.settingsCloseTimer);
@@ -831,6 +858,7 @@ export default {
       this.savePreferences();
     },
     silenceDisplay() {
+      if (this.isMaster) return;
       this.$store.state.webKtvDisplayOnly = true;
       Howler.mute(true);
       this.$store.state.player.pause();

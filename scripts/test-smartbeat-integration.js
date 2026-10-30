@@ -167,6 +167,20 @@ function testPreferenceBoundsAndSources() {
   const persisted = [...values.keys()][0];
   assert.match(persisted, /smartbeat/i);
   assert.deepEqual(readSmartBeatPreferences(storage), preferences);
+  const displayKey = 'lumasing.ktv.smartbeat.display.v1';
+  const displayPreferences = normalizeSmartBeatPreferences({
+    mode: 'on',
+    beatStrength: 1.7,
+  });
+  assert.equal(
+    writeSmartBeatPreferences(displayPreferences, storage, displayKey),
+    true
+  );
+  assert.deepEqual(
+    readSmartBeatPreferences(storage, displayKey),
+    displayPreferences
+  );
+  assert.deepEqual(readSmartBeatPreferences(storage), preferences);
 }
 
 function testCanonicalTimelineBounds() {

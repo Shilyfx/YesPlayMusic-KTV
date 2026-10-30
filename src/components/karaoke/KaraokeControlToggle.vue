@@ -46,10 +46,12 @@ export default {
   cursor: pointer;
   transition: transform 180ms ease, background-color 180ms ease;
 }
-.ktv-control-toggle.ktv-control-toggle--bar {
+.ktv-control-toggle.karaoke-control-toggle--bar {
   position: absolute;
   right: 16px;
-  bottom: 8px;
+  top: 0;
+  bottom: 0;
+  margin: auto 0;
 }
 
 .ktv-control-toggle svg {

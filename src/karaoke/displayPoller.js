@@ -359,7 +359,7 @@ export default function createDisplayPoller({
       } finally {
         clearTimeout(timeout);
         if (inFlight === operation) inFlight = null;
-        if (active && version === generation) timer = schedule(refresh, 1000);
+        if (active && version === generation) timer = schedule(refresh, 500);
       }
     })();
     inFlight = operation;

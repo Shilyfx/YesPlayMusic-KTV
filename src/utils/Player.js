@@ -11,6 +11,7 @@ import { Howl, Howler } from 'howler';
 import shuffle from 'lodash/shuffle';
 import { decode as base642Buffer } from '@/utils/base64';
 import { safeJsonRead, isPlayer } from '@/utils/safeStorage';
+import { isAnalyzedMediaElement } from '@/karaoke/musicReactionAnalyzer';
 
 const PLAY_PAUSE_FADE_DURATION = 200;
 
@@ -367,6 +368,12 @@ export default class {
   }
   _playAudioSource(source, autoplay = true) {
     Howler.unload();
+    // MediaElementSource bindings survive unload; never reuse those elements
+    // for another source, which may be cross-origin and consequently silent.
+    if (Array.isArray(Howler._html5AudioPool))
+      Howler._html5AudioPool = Howler._html5AudioPool.filter(
+        node => !isAnalyzedMediaElement(node)
+      );
     this._howler = new Howl({
       src: [source],
       html5: true,
@@ -915,9 +922,10 @@ export default class {
     this._howler?.fade(this.volume, 0, PLAY_PAUSE_FADE_DURATION);
   }
   play() {
-    if (this._howler?.playing()) return;
-
-    this._howler?.play();
+    if (this._howler?.playing()) {
+      this._setPlaying(true);
+      return;
+    }
 
     this._howler?.once('play', () => {
       this._howler?.fade(0, this.volume, PLAY_PAUSE_FADE_DURATION);
@@ -943,6 +951,8 @@ export default class {
         });
       }
     });
+
+    this._howler?.play();
   }
   playOrPause() {
     if (this._howler?.playing()) {
@@ -1055,7 +1065,7 @@ export default class {
     const generation = (this._karaokePlaybackGeneration += 1);
     this._playbackOwner = 'karaoke';
     this._karaokePlaybackPending = true;
-    // A KTV attempt owns the output from its first moment.  Stopping ordinary
+    // A KTV attempt owns the output from its first moment. Stopping ordinary
     // audio before fetching avoids two songs sounding together; metadata is not
     // changed until a usable source has arrived and the attempt is still valid.
     this._saveCurrentTrackTime();

@@ -25,20 +25,10 @@
           :character="settings.character"
           :emotion="dockEmotion"
           :body-color="
-            settings.bodyColor ||
-            (settings.character === 'ball'
-              ? theme === 'dark'
-                ? '#000000'
-                : '#ffffff'
-              : '')
+            settings.character === 'ball' ? ballBodyColor : settings.bodyColor
           "
           :eye-color="
-            settings.eyeColor ||
-            (settings.character === 'ball'
-              ? theme === 'dark'
-                ? '#ffffff'
-                : '#000000'
-              : '')
+            settings.character === 'ball' ? ballEyeColor : settings.eyeColor
           "
           :active="settings.enabled && pageVisible && !activeEvent"
         />
@@ -79,6 +69,13 @@
             ><option value="twinkle">亮亮</option></select
           ></label
         >
+        <label v-if="settings.character === 'ball'">
+          <input
+            v-model="settings.followTheme"
+            type="checkbox"
+            @change="save"
+          />跟随深浅模式
+        </label>
         <label class="color-picker-row">
           <span>整体颜色</span>
           <span class="color-picker-controls">
@@ -158,6 +155,7 @@
       class="reaction-shot"
       :class="[
         'shot-' + activeEvent.effect,
+        { 'shot-automatic': activeEvent.automatic },
         { ready: shotReady, leaving: shotLeaving },
       ]"
       :data-reaction="activeEvent.kind"
@@ -172,18 +170,8 @@
           ><ReactionActor
             ref="shot"
             :character="activeEvent.character"
-            :body-color="
-              activeEvent.character === 'ball'
-                ? settings.bodyColor ||
-                  (theme === 'dark' ? '#000000' : '#ffffff')
-                : ''
-            "
-            :eye-color="
-              activeEvent.character === 'ball'
-                ? settings.eyeColor ||
-                  (theme === 'dark' ? '#ffffff' : '#000000')
-                : ''
-            "
+            :body-color="activeEvent.character === 'ball' ? ballBodyColor : ''"
+            :eye-color="activeEvent.character === 'ball' ? ballEyeColor : ''"
             :emotion="activeEvent.animation.emotion"
             :active="pageVisible"
             @ready="startShot"
@@ -226,6 +214,7 @@ const defaults = {
   character: 'ball',
   bodyColor: '',
   eyeColor: '',
+  followTheme: true,
   sizePx: 160,
   position: 'bottom-left',
   sensitivity: 'standard',
@@ -257,6 +246,7 @@ function readSettings(key) {
         : defaults.character,
       bodyColor: normalizeHexColor(value.bodyColor),
       eyeColor: normalizeHexColor(value.eyeColor),
+      followTheme: value.followTheme !== false,
       sizePx: normalizeSizePx(value.sizePx, value.size),
       position: [
         'bottom-left',
@@ -300,17 +290,35 @@ export default {
     };
   },
   computed: {
+    ballBodyColor() {
+      return (
+        (!this.settings.followTheme &&
+          normalizeHexColor(this.settings.bodyColor)) ||
+        (this.theme === 'dark' ? '#000000' : '#ffffff')
+      );
+    },
+    ballEyeColor() {
+      return (
+        (!this.settings.followTheme &&
+          normalizeHexColor(this.settings.eyeColor)) ||
+        (this.theme === 'dark' ? '#ffffff' : '#000000')
+      );
+    },
     effectiveBodyColor() {
       const palette =
         CHARACTER_DEFAULT_COLORS[this.settings.character] ||
         CHARACTER_DEFAULT_COLORS.ball;
-      return normalizeHexColor(this.settings.bodyColor) || palette.body;
+      return this.settings.character === 'ball'
+        ? this.ballBodyColor
+        : normalizeHexColor(this.settings.bodyColor) || palette.body;
     },
     effectiveEyeColor() {
       const palette =
         CHARACTER_DEFAULT_COLORS[this.settings.character] ||
         CHARACTER_DEFAULT_COLORS.ball;
-      return normalizeHexColor(this.settings.eyeColor) || palette.eyes;
+      return this.settings.character === 'ball'
+        ? this.ballEyeColor
+        : normalizeHexColor(this.settings.eyeColor) || palette.eyes;
     },
     layerSizeStyle() {
       const size = normalizeSizePx(this.settings.sizePx);
@@ -489,10 +497,12 @@ export default {
     },
     onBodyColorInput(value) {
       this.settings.bodyColor = normalizeHexColor(value);
+      this.settings.followTheme = false;
       this.save();
     },
     onEyeColorInput(value) {
       this.settings.eyeColor = normalizeHexColor(value);
+      this.settings.followTheme = false;
       this.save();
     },
     resetBodyColor() {
@@ -827,6 +837,10 @@ export default {
 }
 .reaction-shot.ready {
   visibility: visible;
+}
+.reaction-shot.shot-automatic {
+  align-items: flex-start;
+  top: 10%;
 }
 .reaction-shot.leaving {
   opacity: 0;

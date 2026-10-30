@@ -120,6 +120,9 @@ export function createReactionScheduler({
         status: 'active',
         ...(detail.character ? { character: detail.character } : {}),
         ...(detail.itemId ? { itemId: detail.itemId } : {}),
+        ...(detail.customText
+          ? { customText: String(detail.customText).slice(0, 160) }
+          : {}),
         createdAt: timestamp,
         startAt: timestamp,
         endsAt: timestamp + displayDurationMs,

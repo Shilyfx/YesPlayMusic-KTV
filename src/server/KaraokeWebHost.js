@@ -230,8 +230,15 @@ export default class KaraokeWebHost {
     );
     if (this.reactionKnownItems) {
       for (const id of currentIds) {
-        if (!this.reactionKnownItems.has(id))
-          this.addReaction('requested', 'bounce', { itemId: id });
+        if (!this.reactionKnownItems.has(id)) {
+          const item = [snapshot.currentItem, ...snapshot.waitingItems].find(
+            value => value?.queueItemId === id
+          );
+          this.addReaction('requested', 'bounce', {
+            itemId: id,
+            customText: `${item?.trackName || '歌曲'}点歌成功`,
+          });
+        }
       }
     }
     this.reactionKnownItems = currentIds;

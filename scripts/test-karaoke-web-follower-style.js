@@ -156,7 +156,7 @@ function testFullscreenStageAndControlPlacementContracts() {
   );
   assert.match(
     toggleStyle,
-    /\.ktv-control-toggle--bar\s*\{[^}]*position:\s*absolute;[^}]*right:\s*16px;/,
+    /\.ktv-control-toggle\.karaoke-control-toggle--bar\s*\{[^}]*position:\s*absolute;[^}]*right:\s*16px;[^}]*top:\s*0;[^}]*bottom:\s*0;[^}]*margin:\s*auto 0;/,
     'the master settings toggle is inset from the control bar edges'
   );
 }

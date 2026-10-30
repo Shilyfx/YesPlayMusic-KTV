@@ -378,9 +378,6 @@
           {{ stageLyrics.translation }}
         </p>
         <div class="stage-footer">
-          <span>{{
-            isSessionActive ? '本机队列由主机控制' : '开始本机 KTV 以管理待唱'
-          }}</span>
           <span>{{ lyricOffsetLabel }} · {{ lyricFontSize }}px</span>
         </div>
         <div v-if="!isLyricFullscreen" class="fullscreen-actions">
@@ -524,7 +521,7 @@
           <strong>{{
             isSessionActive ? '还没有待唱歌曲' : 'KTV 尚未开始'
           }}</strong>
-          <span>使用左侧按钮把当前真实歌曲加入本机待唱。</span>
+          <span>使用上方按钮把当前播放歌曲加入本机待唱。</span>
         </div>
         <button
           v-if="waitingItems.length"
@@ -1661,8 +1658,9 @@ export default {
       return this.appearanceConfig;
     },
     enableBrowserAudio() {
+      Howler.mute(false);
       if (Howler.ctx && Howler.ctx.state === 'suspended') Howler.ctx.resume();
-      // Initialize Howler's HTML5 audio unlock pool inside a user gesture.
+      // Request browser audio unlock with a silent sound in the user's gesture.
       if (!this.browserUnlockSound) {
         this.browserUnlockSound = new Howl({
           src: [
@@ -1671,6 +1669,10 @@ export default {
           format: ['wav'],
           html5: true,
           volume: 0,
+          onend: () => {
+            this.browserUnlockSound?.unload();
+            this.browserUnlockSound = null;
+          },
         });
       }
       this.browserUnlockSound.play();
@@ -2808,12 +2810,41 @@ export default {
 .karaoke-layout {
   flex: 1;
   display: grid;
-  grid-template-columns: minmax(180px, 0.7fr) minmax(460px, 3.8fr) minmax(
-      180px,
-      0.8fr
-    );
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 0.22fr);
+  grid-template-rows: auto minmax(0, 1fr);
   gap: 18px;
   min-height: 480px;
+}
+.karaoke-layout > .stage {
+  grid-column: 1;
+  grid-row: 1 / 3;
+}
+.karaoke-layout > .track-identity {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  grid-template-columns: 72px minmax(0, 1fr);
+  column-gap: 12px;
+  align-content: start;
+}
+.track-identity .cover-wrap {
+  grid-row: span 4;
+}
+.track-identity .eyebrow {
+  margin-top: 0;
+}
+.track-identity h1 {
+  font-size: clamp(20px, 1.5vw, 28px);
+  overflow-wrap: anywhere;
+}
+.track-identity .enqueue-current,
+.track-identity .local-note {
+  grid-column: 1 / -1;
+}
+.karaoke-layout > .queue-panel {
+  grid-column: 2;
+  grid-row: 2;
+  overflow-y: auto;
 }
 .track-identity,
 .queue-panel {
@@ -3060,7 +3091,7 @@ button:disabled {
   left: 28px;
   z-index: 1;
   display: flex;
-  justify-content: space-between;
+  justify-content: flex-end;
   gap: 12px;
   color: var(--ktv-text-muted);
   font-size: 12px;
@@ -3393,12 +3424,15 @@ button:disabled {
   color: var(--ktv-danger);
 }
 .karaoke-controls {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
   gap: 18px;
-  min-height: 68px;
-  padding: 10px 18px;
+  box-sizing: border-box;
+  flex: 0 0 calc(var(--ktv-control-toggle-size, 52px) * 1.2);
+  min-height: calc(var(--ktv-control-toggle-size, 52px) * 1.2);
+  padding: 4px 18px;
 }
 .karaoke-desktop ::v-deep .karaoke-control-panel--bar {
   right: 40px;
@@ -3487,6 +3521,11 @@ button:disabled {
   display: flex;
   gap: 8px;
 }
+.player-actions button {
+  min-height: 35.2px;
+  padding: 0 16px;
+  font-size: 12px;
+}
 .player-actions .primary {
   border-color: transparent;
   background: var(--ktv-accent);
@@ -3494,10 +3533,7 @@ button:disabled {
 }
 @media (max-width: 1100px) {
   .karaoke-layout {
-    grid-template-columns: minmax(190px, 0.8fr) 1.6fr;
-  }
-  .queue-panel {
-    grid-column: 1 / -1;
+    grid-template-columns: minmax(0, 1fr) minmax(190px, 0.3fr);
   }
   .waiting-list {
     max-height: 260px;
@@ -3558,6 +3594,7 @@ button:disabled {
     flex: none;
   }
   .track-identity {
+    order: 0;
     display: grid;
     grid-template-columns: 88px 1fr;
     gap: 0 16px;
@@ -3573,7 +3610,11 @@ button:disabled {
     grid-column: 1 / -1;
   }
   .stage {
+    order: 1;
     min-height: 380px;
+  }
+  .queue-panel {
+    order: 2;
   }
   .karaoke-controls {
     grid-template-columns: 1fr;

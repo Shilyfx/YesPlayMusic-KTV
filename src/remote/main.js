@@ -1,5 +1,6 @@
 import './styles.css';
 import createRefreshScheduler from './refreshScheduler';
+import createCatalogPrefetchScheduler from './catalogPrefetchScheduler';
 import { loadEmotionBall, loadMoodMates } from '../karaoke/moodMates';
 import {
   ktvReactionChoices,
@@ -109,8 +110,6 @@ const featuredArtistDefaults = [
   },
 ];
 let featuredArtists = featuredArtistDefaults.map(artist => ({ ...artist }));
-let featuredArtistsLoaded = false;
-let featuredArtistsPromise;
 let selectedArtistId = '';
 let artistTracks = [];
 let artistTrackGeneration = 0;
@@ -123,6 +122,10 @@ const refreshScheduler = createRefreshScheduler(
   () => performRefresh(),
   () => !roomEnded
 );
+const catalogPrefetchScheduler = createCatalogPrefetchScheduler({
+  isHidden: () => document.hidden,
+  shouldRun: () => !roomEnded && Boolean(client?.clientToken),
+});
 
 function escape(value = '') {
   return String(value).replace(
@@ -248,7 +251,7 @@ function initializeModuleTabs() {
 function initializeShell() {
   const theme = localStorage.getItem('yesplaymusic-ktv-theme') || 'auto';
   document.documentElement.dataset.theme = theme;
-  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">LUMASING · LAN KTV</p><h1 data-room-name>LumaSing KTV</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div><div class="local-playlist-block"><div class="section-heading"><div><p class="section-label">主机本地目录</p><h3>本地歌单</h3></div><button class="quiet" type="button" data-local-playlists-refresh>刷新本地歌单</button></div><label>选择本地歌单<select data-local-playlist><option value="">正在加载本地歌单…</option></select></label><div class="playlist-track-list" data-local-playlist-tracks><div class="hint">主机尚未配置本地音乐目录。</div></div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section></section></main>`;
+  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">LUMASING · LAN KTV</p><h1 data-room-name>LumaSing KTV</h1></div><div class="theme-picker" data-theme-picker role="group" aria-label="KTV 主题"><button type="button" data-theme-option="auto">自动</button><button type="button" data-theme-option="light"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>浅色</button><button type="button" data-theme-option="dark"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.807a6.5 6.5 0 0 0 8.268 8.268c.347-.215.829-.003.803.397"/></svg>深色</button></div></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div><div class="local-playlist-block"><div class="section-heading"><div><p class="section-label">主机本地目录</p><h3>本地歌单</h3></div><button class="quiet" type="button" data-local-playlists-refresh>刷新本地歌单</button></div><label>选择本地歌单<select data-local-playlist><option value="">正在加载本地歌单…</option></select></label><div class="playlist-track-list" data-local-playlist-tracks><div class="hint">主机尚未配置本地音乐目录。</div></div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section></section></main>`;
   app.insertAdjacentHTML(
     'beforeend',
     '<div class="request-toast" data-request-toast role="status" aria-live="polite" hidden>点歌成功</div><div class="preview-float" data-preview-float hidden><button type="button" class="preview-float-toggle" data-preview-toggle="true" aria-label="播放试听" title="播放或暂停试听">▶</button><strong data-preview-title>试听</strong><button type="button" class="preview-float-close" data-preview-stop="true" aria-label="关闭试听" title="关闭试听">×</button><audio data-preview-audio preload="none"></audio></div>'
@@ -374,10 +377,24 @@ function initializeShell() {
         'beforeend',
         '<button type="button" role="tab" data-module-tab="reactions">互动应援</button>'
       );
-  app.querySelector('[data-theme]').value = theme;
-  app.querySelector('[data-theme]').addEventListener('change', event => {
-    localStorage.setItem('yesplaymusic-ktv-theme', event.target.value);
-    document.documentElement.dataset.theme = event.target.value;
+  const themePicker = app.querySelector('[data-theme-picker]');
+  const selectTheme = value => {
+    const selected = ['auto', 'light', 'dark'].includes(value) ? value : 'auto';
+    themePicker.dataset.value = selected;
+    document.documentElement.dataset.theme = selected;
+    themePicker.querySelectorAll('[data-theme-option]').forEach(button => {
+      const active = button.dataset.themeOption === selected;
+      button.classList.toggle('active', active);
+      button.setAttribute('aria-pressed', String(active));
+    });
+  };
+  selectTheme(theme);
+  themePicker.addEventListener('click', event => {
+    const button = event.target.closest('[data-theme-option]');
+    if (!button || !themePicker.contains(button)) return;
+    const value = button.dataset.themeOption;
+    localStorage.setItem('yesplaymusic-ktv-theme', value);
+    selectTheme(value);
   });
   app
     .querySelector('[data-search]')
@@ -533,12 +550,16 @@ function renderNowPlaying() {
     roomTitle.textContent = state?.room?.name || 'LumaSing KTV';
   }
   const currentKey = current
-    ? [
+    ? JSON.stringify([
         current.queueItemId,
         current.trackId,
         current.status,
         current.requesterId,
-      ].join('|')
+        current.name,
+        current.artists,
+        current.coverUrl,
+        current.requesterName,
+      ])
     : 'empty';
   if (currentKey === renderedNowPlayingKey) return;
   renderedNowPlayingKey = currentKey;
@@ -974,56 +995,10 @@ function renderFeaturedArtists({ loading = false } = {}) {
     .join('');
 }
 
-async function loadFeaturedArtists({ force = false } = {}) {
-  if (!client?.clientToken) {
-    renderFeaturedArtists();
-    return;
-  }
-  if (featuredArtistsPromise) return featuredArtistsPromise;
-  if (featuredArtistsLoaded && !force) return;
-  if (!featuredArtists.length) {
-    featuredArtists = featuredArtistDefaults.map(artist => ({ ...artist }));
-  }
+function loadFeaturedArtists() {
+  // The featured cards already have verified local IDs, names and portraits.
+  // Fetch the selected artist's songs only when the user selects that artist.
   renderFeaturedArtists();
-  featuredArtistsPromise = (async () => {
-    try {
-      const results = await Promise.all(
-        featuredArtistDefaults.map(async fallback => {
-          try {
-            const response = await api(
-              `/artists/search?q=${encodeURIComponent(fallback.name)}`
-            );
-            const matched =
-              (response.artists || []).find(
-                item =>
-                  String(item.id) === fallback.id || item.name === fallback.name
-              ) || response.artists?.[0];
-            return matched
-              ? { ...fallback, ...matched, coverUrl: fallback.coverUrl }
-              : { ...fallback };
-          } catch (_) {
-            return { ...fallback };
-          }
-        })
-      );
-      featuredArtists = results
-        .filter(Boolean)
-        .filter(
-          (artist, index, list) =>
-            list.findIndex(item => item.id === artist.id) === index
-        );
-      featuredArtistsLoaded = featuredArtists.length > 0;
-      renderFeaturedArtists();
-    } catch (_) {
-      if (!featuredArtists.length) {
-        featuredArtists = featuredArtistDefaults.map(artist => ({ ...artist }));
-      }
-      renderFeaturedArtists();
-    } finally {
-      featuredArtistsPromise = null;
-    }
-  })();
-  return featuredArtistsPromise;
 }
 
 function renderSelectedArtists() {
@@ -1124,9 +1099,12 @@ function togglePlaylistSource() {
 }
 
 function refreshPlaylistSource() {
-  return playlistSource === 'local'
-    ? loadLocalPlaylists({ force: true })
-    : loadPlaylists({ force: true });
+  const key = playlistSource === 'local' ? 'local-playlists' : 'user-playlists';
+  return catalogPrefetchScheduler.runPriority(key, () =>
+    playlistSource === 'local'
+      ? loadLocalPlaylists({ force: true })
+      : loadPlaylists({ force: true })
+  );
 }
 
 function ensureModuleLoaded(module) {
@@ -1135,20 +1113,39 @@ function ensureModuleLoaded(module) {
     if (module === 'artists') renderFeaturedArtists();
     return Promise.resolve();
   }
-  if (module === 'recommendations') return loadRecommendations();
+  if (module === 'recommendations')
+    return catalogPrefetchScheduler.runPriority('recommendations', () =>
+      loadRecommendations()
+    );
   if (module === 'artists') return loadFeaturedArtists();
   if (module === 'playlists') {
-    return playlistSource === 'local' ? loadLocalPlaylists() : loadPlaylists();
+    const key =
+      playlistSource === 'local' ? 'local-playlists' : 'user-playlists';
+    return catalogPrefetchScheduler.runPriority(key, () =>
+      playlistSource === 'local' ? loadLocalPlaylists() : loadPlaylists()
+    );
   }
   return Promise.resolve();
 }
 
 function prefetchCatalogModules() {
   if (!client?.clientToken) return;
-  loadRecommendations();
   loadFeaturedArtists();
-  loadLocalPlaylists();
-  loadPlaylists({ silent: true });
+  const currentCatalog =
+    selectedModule === 'recommendations'
+      ? 'recommendations'
+      : selectedModule === 'playlists'
+      ? playlistSource === 'local'
+        ? 'local-playlists'
+        : 'user-playlists'
+      : '';
+  catalogPrefetchScheduler.enqueue(
+    [
+      { key: 'recommendations', run: () => loadRecommendations() },
+      { key: 'local-playlists', run: () => loadLocalPlaylists() },
+      { key: 'user-playlists', run: () => loadPlaylists() },
+    ].filter(task => task.key !== currentCatalog)
+  );
 }
 
 function reactionCardsMarkup() {
@@ -1369,12 +1366,11 @@ async function loadLocalPlaylists({ force = false } = {}) {
         renderArtistTracks();
       }
     } catch (_) {
-      localPlaylistsLoaded = true;
-      localPlaylists = [];
-      selectedLocalPlaylistId = '';
-      localPlaylistTracks = [];
+      localPlaylistsLoaded = false;
       renderLocalPlaylistPicker();
       renderLocalPlaylistTracks();
+      if (selectedModule === 'playlists' && playlistSource === 'local')
+        setNotice('本地歌单暂时无法加载，请稍后重试。', 'error');
     } finally {
       renderPlaylistSource();
       if (button) button.disabled = false;
@@ -1769,7 +1765,7 @@ async function performRefresh() {
       renderHistory();
       renderQueue();
     }
-    scheduleRefresh(document.hidden ? 5000 : 1500);
+    scheduleRefresh(document.hidden ? 5000 : 500);
   } catch (error) {
     if (error.code === 'ROOM_ENDED') return showEnded();
     if (error.code === 'INVALID_CLIENT_TOKEN') {
@@ -1794,6 +1790,7 @@ function requestRefresh() {
 
 function showEnded() {
   roomEnded = true;
+  catalogPrefetchScheduler.stop();
   clearTimeout(refreshTimer);
   sessionStorage.removeItem(storageKey);
   app.innerHTML =
@@ -1843,6 +1840,9 @@ async function bootstrap() {
 }
 
 document.addEventListener('visibilitychange', () => {
-  if (!document.hidden && client) requestRefresh();
+  if (!document.hidden) {
+    catalogPrefetchScheduler.resume();
+    if (client) requestRefresh();
+  }
 });
 bootstrap();

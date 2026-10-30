@@ -64,23 +64,27 @@ export function getSmartBeatSourceRequirements(preferences, rendererMode) {
   return required;
 }
 
-export function readSmartBeatPreferences(storage) {
+export function readSmartBeatPreferences(storage, key = STORAGE_KEY) {
   try {
     const target = storage || localStorage;
     return normalizeSmartBeatPreferences(
-      JSON.parse(target.getItem(STORAGE_KEY) || 'null')
+      JSON.parse(target.getItem(key) || 'null')
     );
   } catch (_) {
     return normalizeSmartBeatPreferences();
   }
 }
 
-export function writeSmartBeatPreferences(preferences, storage) {
+export function writeSmartBeatPreferences(
+  preferences,
+  storage,
+  key = STORAGE_KEY
+) {
   try {
     const target = storage || localStorage;
     return writePreferenceIfChanged(
       target,
-      STORAGE_KEY,
+      key,
       JSON.stringify(normalizeSmartBeatPreferences(preferences))
     );
   } catch (_) {

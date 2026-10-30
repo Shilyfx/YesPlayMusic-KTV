@@ -20,9 +20,12 @@ export default function createUserPlaylistCache(ttl = DEFAULT_TTL) {
     expiresAt = 0;
     const request = (async () => {
       const nextPlaylists = await fetchPlaylists();
-      playlists = Array.isArray(nextPlaylists) ? nextPlaylists : [];
-      expiresAt = Date.now() + ttl;
-      return playlists;
+      const result = Array.isArray(nextPlaylists) ? nextPlaylists : [];
+      if (uid === key && promise === request) {
+        playlists = result;
+        expiresAt = Date.now() + ttl;
+      }
+      return result;
     })();
     promise = request;
     return request.finally(() => {

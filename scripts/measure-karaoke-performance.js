@@ -30,7 +30,7 @@ function makeTrack(id) {
 
 async function measureAvailability() {
   const counters = { search: 0, playlistTracks: 0, availability: 0 };
-  const bridge = async (action, payload) => {
+  const bridge = async action => {
     if (action === 'search') {
       counters.search += 1;
       return Array.from({ length: 15 }, (_, index) => makeTrack(index + 1));
@@ -71,10 +71,14 @@ function countFeaturedArtistQueries() {
     path.resolve(__dirname, '../src/remote/main.js'),
     'utf8'
   );
-  const match = source.match(
-    /const featuredArtistQueries = \[([\s\S]*?)\n\s*\];/
+  const loader = source.match(
+    /function loadFeaturedArtists\([^)]*\)\s*\{([\s\S]*?)\n\}/
   );
-  return match ? (match[1].match(/['"][^'"]+['"]/g) || []).length : null;
+  if (loader && !/artists\/search/.test(loader[1])) return 0;
+  const match = source.match(
+    /const featuredArtistDefaults = \[([\s\S]*?)\n\s*\];/
+  );
+  return match ? (match[1].match(/\bid\s*:/g) || []).length : null;
 }
 
 async function measureLocalScan() {
@@ -213,10 +217,18 @@ async function run() {
     generatedAt: new Date().toISOString(),
     node: process.version,
     remote: {
-      bootstrapFixedModuleRequests: 2,
+      bootstrapCatalogPrefetchCalls: (
+        fs
+          .readFileSync(
+            path.resolve(__dirname, '../src/remote/main.js'),
+            'utf8'
+          )
+          .match(/function prefetchCatalogModules\(\)\s*\{([\s\S]*?)\n\}/)?.[1]
+          .match(/\bload\w+\(/g) || []
+      ).length,
       featuredArtistRequests: countFeaturedArtistQueries(),
-      stateRequestsPer30sAt1500ms: Math.floor(30000 / 1500) + 1,
-      syntheticMaxConcurrentStateAt2000msResponse: 1,
+      theoreticalStateRequestsPer30s:
+        Math.floor(30000 / source.visibleRefreshMs) + 1,
       ...availability,
     },
     localScan,

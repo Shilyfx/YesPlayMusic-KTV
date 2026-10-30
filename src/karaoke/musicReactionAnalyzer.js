@@ -849,6 +849,9 @@ export function createMusicReactionController({
 }
 
 const mediaElementTaps = new WeakMap();
+export function isAnalyzedMediaElement(node) {
+  return Boolean(node && mediaElementTaps.has(node));
+}
 
 export function createPlayerMusicAnalyzer({
   getPlayer,
@@ -905,10 +908,11 @@ export function createPlayerMusicAnalyzer({
     }
     const context = getAudioContext();
     if (!context) return null;
+    if (context.state !== 'running') {
+      if (context.state === 'suspended') context.resume?.().catch?.(() => {});
+      return null;
+    }
     try {
-      if (context.state === 'suspended') {
-        context.resume?.().catch?.(() => {});
-      }
       const sourceNode = context.createMediaElementSource(node);
       const analyser = context.createAnalyser();
       analyser.fftSize = 256;
