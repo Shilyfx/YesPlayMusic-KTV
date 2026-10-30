@@ -430,8 +430,9 @@ async function run() {
   });
   assert.equal(stateResponse.status, 200);
   assert.equal(stateResponse.body.room.name, 'LumaSing KTV');
-  assert.equal(stateResponse.body.history.length, 1);
+  assert.equal(stateResponse.body.history.length, 2);
   assert.equal(stateResponse.body.history[0].trackId, '99');
+  assert.equal(stateResponse.body.history[1].trackId, '98');
   service.sessions.clients.clear();
   for (let index = 0; index < 32; index += 1) {
     service.sessions.clients.set(`expired-${index}`, {

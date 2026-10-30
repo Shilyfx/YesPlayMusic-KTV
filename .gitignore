@@ -44,3 +44,9 @@ devenv.local.nix
 
 # Generated lyric-stage browser QA captures
 /artifacts/lyric-stages/
+
+# Original Folia runtime bundles are rebuilt from the vendored source.
+/public/pv/
+
+# Local preview library index and machine-specific directories.
+/.local-ktv/

@@ -26,6 +26,7 @@ services:
       KTV_PUBLIC_ORIGIN: http://192.168.100.1:18080
     volumes:
       - ./dist/remote:/app/remote:ro
+      - ./data/ktv:/data
     mem_limit: 192m
     cpus: 1.0
     healthcheck:

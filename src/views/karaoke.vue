@@ -48,7 +48,6 @@
           >{{ showRoomCode ? '收起二维码' : '显示二维码' }}</button
         >
         <button
-          v-if="isElectron"
           type="button"
           class="session-button"
           :aria-expanded="showLocalLibraryPanel"
@@ -175,7 +174,7 @@
     </section>
 
     <section
-      v-if="isElectron && showLocalLibraryPanel"
+      v-if="showLocalLibraryPanel"
       ref="localLibraryPanel"
       class="local-library local-library-overlay glass-panel"
     >
@@ -184,11 +183,12 @@
           <p class="eyebrow">LOCAL LIBRARY</p>
           <h2>本地歌单</h2>
           <p class="local-library-note">
-            支持递归扫描音频目录；同名 .lrc 会自动作为同步歌词。
+            支持递归扫描音频目录；同名 .lrc 与封面图片会自动加载。
           </p>
         </div>
         <div class="local-library-actions">
           <button
+            v-if="isElectron"
             type="button"
             class="room-tool"
             @click="chooseLocalDirectories"
@@ -204,6 +204,23 @@
             {{ localLoading ? '扫描中…' : '重新扫描' }}
           </button>
         </div>
+      </div>
+      <div v-if="!isElectron" class="local-directory-add">
+        <input
+          v-model="localDirectoryInput"
+          type="text"
+          class="setting-input local-directory-input"
+          placeholder="输入服务器本地歌单目录，如 /music/周杰伦"
+          @keydown.enter.prevent="addLocalDirectoryByPath"
+        />
+        <button
+          type="button"
+          class="room-tool"
+          :disabled="localLoading || !localDirectoryInput.trim()"
+          @click="addLocalDirectoryByPath"
+        >
+          添加目录
+        </button>
       </div>
       <div v-if="localDirectories.length" class="local-directory-list">
         <span
@@ -233,10 +250,63 @@
       <p v-else class="local-library-status">
         {{
           localTrackCount
-            ? `已发现 ${localTrackCount} 首本地歌曲，可在手机点歌页的“本地歌单”中选择。`
+            ? `已发现 ${localTrackCount} 首本地歌曲，可在下方直接点歌，也可在手机点歌页的“我的歌单 -> 本地歌单”中选择。`
             : '尚未配置本地音乐目录。'
         }}
       </p>
+      <div v-if="localPlaylists.length" class="local-playlist-browser">
+        <div
+          v-for="playlist in localPlaylists"
+          :key="playlist.id"
+          class="local-playlist-section"
+        >
+          <div class="local-playlist-header">
+            <strong>{{ playlist.name }}</strong>
+            <span>{{ playlist.trackCount || playlist.tracks.length }} 首</span>
+          </div>
+          <div class="local-track-grid">
+            <article
+              v-for="item in playlist.tracks"
+              :key="item.localId || item.id"
+              class="local-track-item"
+            >
+              <img
+                v-if="item.coverUrl"
+                :src="item.coverUrl"
+                :alt="item.name"
+                class="local-track-cover"
+                loading="lazy"
+              />
+              <div v-else class="local-track-cover local-track-cover-fallback">
+                ♪
+              </div>
+              <div class="local-track-meta">
+                <strong :title="item.name">{{ item.name }}</strong>
+                <small>{{
+                  (item.artists || []).map(a => a.name || a).join(' / ') ||
+                  '未知歌手'
+                }}</small>
+              </div>
+              <div class="local-track-buttons">
+                <button
+                  type="button"
+                  class="room-tool"
+                  @click="enqueueLocalTrack(item, false)"
+                >
+                  点歌
+                </button>
+                <button
+                  type="button"
+                  class="room-tool"
+                  @click="enqueueLocalTrack(item, true)"
+                >
+                  优先
+                </button>
+              </div>
+            </article>
+          </div>
+        </div>
+      </div>
     </section>
 
     <div class="karaoke-layout" role="main">
@@ -265,6 +335,7 @@
       <section
         ref="lyricStage"
         class="stage glass-panel"
+        :class="{ 'pv-stage': isPvStage }"
         :data-lyric-state="stageLyrics.state"
         :data-lyric-effect="lyricEffect"
         :data-stage-mode="lyricStageMode"
@@ -273,32 +344,36 @@
         @touchstart="showLyricControls"
       >
         <p class="stage-kicker">LYRIC STAGE</p>
+        <ReactionOverlay
+          v-if="reactionFeatureEnabled && !isElectron && lanRoom"
+          :events="reactionEvents"
+          :generation="reactionGeneration"
+          :server-time="reactionServerTime"
+          storage-key="master"
+          :theme="resolvedTheme"
+          :playing="Boolean(currentItem && player.playing)"
+          :has-track="!!currentItem"
+          :music-reaction="musicReaction"
+          @sensitivity-change="onMusicSensitivityChange"
+        />
         <KaraokeLyricScene
-          v-if="lyricStageMode !== 'classic'"
+          ref="lyricScene"
           :mode="lyricStageMode"
           :lines="stageLyrics"
           :cue-key="lyricRequestKey + ':' + activeLyricIndex"
           :playing="player.playing"
           :effect="lyricEffect"
           :fullscreen="isLyricFullscreen"
+          :lyric-document="pvLyricDocument"
+          :position="Math.max(0, now + lyricOffset)"
+          :raw-position="Math.max(0, now)"
+          :smart-beat-settings="smartBeatSettings"
+          :smart-beat-track-key="smartBeatTrackKey"
+          :smart-beat-timeline="smartBeatTimeline"
+          :theme="resolvedTheme"
+          :font-size="lyricFontSize"
+          v-bind="sceneAppearanceProps"
         />
-        <div v-else class="stage-lines">
-          <p :key="'before-' + stageLyrics.before" class="before-line">
-            {{ stageLyrics.before }}
-          </p>
-          <p :key="'active-' + stageLyrics.active" class="active-line">
-            {{ stageLyrics.active }}
-          </p>
-          <p :key="'after-' + stageLyrics.after" class="after-line">
-            {{ stageLyrics.after }}
-          </p>
-          <p
-            :key="'after-second-' + stageLyrics.afterSecond"
-            class="after-second-line"
-          >
-            {{ stageLyrics.afterSecond }}
-          </p>
-        </div>
         <p v-if="stageLyrics.translation" class="translation">
           {{ stageLyrics.translation }}
         </p>
@@ -322,6 +397,12 @@
             {{ player.playing ? '暂停' : '播放' }}
           </button>
           <button type="button" @click="nextTrack">切歌</button>
+          <SongRequestButton
+            v-if="!isElectron && lanRoom"
+            :url="lanRoom.joinUrl || lanRoom.url || ''"
+            :qr-data-url="lanRoom.qrDataUrl || ''"
+            placement="above"
+          />
           <button
             type="button"
             class="volume-toggle"
@@ -343,6 +424,38 @@
             />
           </label>
           <button type="button" @click.stop="exitFullscreen">退出全屏</button>
+        </div>
+        <div v-if="isLyricFullscreen" class="lyric-fullscreen-control-dock">
+          <KaraokeControlToggle
+            ref="lyricControlToggle"
+            :open="controlPanelOpen"
+            @toggle="setControlPanelOpen"
+          />
+          <KaraokeControlPanel
+            :open="controlPanelOpen"
+            :config="controlPanelConfig"
+            :mode-options="stageModeOptions"
+            :background-options="controlPanelBackgroundOptions"
+            :is-follower="false"
+            :volume="player.volume"
+            :track="track"
+            :follows="controlPanelFollows"
+            :capabilities="controlPanelCapabilities"
+            :return-focus-to="getControlPanelToggle"
+            @close="setControlPanelOpen(false)"
+            @change="handleControlPanelChange"
+            @asset="handleVisualAsset"
+            @volume="setVolume"
+          >
+            <template #extra>
+              <KaraokeSmartBeatControls
+                :settings="smartBeatSettings"
+                :renderer-mode="lyricStageMode"
+                :status="smartBeatStatus"
+                @change="onSmartBeatPreferencesChange"
+              />
+            </template>
+          </KaraokeControlPanel>
         </div>
       </section>
 
@@ -424,38 +537,13 @@
     </div>
 
     <footer class="karaoke-controls glass-panel">
-      <div class="quick-setting">
-        <span>歌词同步</span>
-        <button
-          type="button"
-          aria-label="歌词延迟 0.1 秒"
-          @click="adjustOffset(-0.1)"
-          >−</button
-        >
-        <input
-          v-model="lyricOffsetDraft"
-          class="setting-input offset-input"
-          type="number"
-          min="-10"
-          max="10"
-          step="0.1"
-          aria-label="直接编辑歌词同步偏移秒数"
-          title="正数提前，负数延迟"
-          @change="commitOffsetDraft"
-          @keydown.enter.prevent="$event.target.blur()"
-        />
-        <span class="setting-unit">s</span>
-        <button
-          type="button"
-          aria-label="歌词提前 0.1 秒"
-          @click="adjustOffset(0.1)"
-          >+</button
-        >
-        <button type="button" class="text-button" @click="setOffset(0)"
-          >归零</button
-        >
-      </div>
       <div class="player-actions">
+        <SongRequestButton
+          v-if="isKtvFullscreen && !isElectron && lanRoom"
+          :url="lanRoom.joinUrl || lanRoom.url || ''"
+          :qr-data-url="lanRoom.qrDataUrl || ''"
+          placement="above"
+        />
         <button type="button" :disabled="!currentItem" @click="replay"
           >重唱</button
         >
@@ -471,54 +559,42 @@
           {{ currentItem ? '切歌' : '开始待唱' }}
         </button>
       </div>
-      <div class="quick-setting font-setting">
-        <span>舞台字号</span>
-        <button
-          type="button"
-          aria-label="减小歌词字号"
-          @click="adjustFontSize(-1)"
-          >−</button
-        >
-        <input
-          v-model="lyricFontSizeDraft"
-          class="setting-input font-size-input"
-          type="number"
-          min="16"
-          max="64"
-          step="1"
-          aria-label="直接编辑歌词字号"
-          @change="commitFontSizeDraft"
-          @keydown.enter.prevent="$event.target.blur()"
-        />
-        <span class="setting-unit">px</span>
-        <button
-          type="button"
-          aria-label="增大歌词字号"
-          @click="adjustFontSize(1)"
-          >+</button
-        >
-        <label class="lyric-effect-setting">
-          <span>歌词舞台</span>
-          <select v-model="lyricStageMode" aria-label="歌词舞台展示方式">
-            <option
-              v-for="mode in stageModeOptions"
-              :key="mode.value"
-              :value="mode.value"
-              >{{ mode.label }}</option
-            >
-          </select>
-        </label>
-        <label class="lyric-effect-setting">
-          <span>歌词字效</span>
-          <select v-model="lyricEffect" aria-label="自定义歌词字体效果">
-            <option value="gradient">渐变</option>
-            <option value="neon">霓虹</option>
-            <option value="outline">描边</option>
-            <option value="solid">纯色</option>
-          </select>
-        </label>
-      </div>
+      <KaraokeControlToggle
+        v-if="!isLyricFullscreen"
+        ref="karaokeControlToggle"
+        class="karaoke-control-toggle--bar"
+        :open="controlPanelOpen"
+        @toggle="setControlPanelOpen"
+      />
     </footer>
+
+    <KaraokeControlPanel
+      v-if="!isLyricFullscreen"
+      class="karaoke-control-panel--bar"
+      :open="controlPanelOpen"
+      :config="controlPanelConfig"
+      :mode-options="stageModeOptions"
+      :background-options="controlPanelBackgroundOptions"
+      :is-follower="false"
+      :volume="player.volume"
+      :track="track"
+      :follows="controlPanelFollows"
+      :capabilities="controlPanelCapabilities"
+      :return-focus-to="getControlPanelToggle"
+      @close="setControlPanelOpen(false)"
+      @change="handleControlPanelChange"
+      @asset="handleVisualAsset"
+      @volume="setVolume"
+    >
+      <template #extra>
+        <KaraokeSmartBeatControls
+          :settings="smartBeatSettings"
+          :renderer-mode="lyricStageMode"
+          :status="smartBeatStatus"
+          @change="onSmartBeatPreferencesChange"
+        />
+      </template>
+    </KaraokeControlPanel>
   </section>
 </template>
 
@@ -531,17 +607,71 @@ import {
   normalizeLyricOffset,
 } from '@/utils/lyricsSettings';
 import findLyricIndex from '@/utils/lyricCursor';
-import { normalizeStageMode, stageModeOptions } from '@/utils/lyricStageModes';
+import {
+  normalizeStageMode,
+  stageModeOptions,
+  isPvStageMode,
+  supportsAnimationIntensity,
+} from '@/utils/lyricStageModes';
 import KaraokeLyricScene from '@/components/karaoke/KaraokeLyricScene.vue';
 import KaraokeThemeSwitcher from '@/components/karaoke/KaraokeThemeSwitcher.vue';
+import KaraokeControlPanel from '@/components/karaoke/KaraokeControlPanel.vue';
+import KaraokeControlToggle from '@/components/karaoke/KaraokeControlToggle.vue';
+import KaraokeSmartBeatControls from '@/components/karaoke/KaraokeSmartBeatControls.vue';
+import ReactionOverlay from '@/components/karaoke/ReactionOverlay.vue';
+import SongRequestButton from '@/components/karaoke/SongRequestButton.vue';
 import createWebRoomBridge from '@/karaoke/webRoomBridge';
-import { buildLyricContext } from '@/karaoke/lyricDisplay';
+import {
+  buildLyricContext,
+  sanitizeCoverReference,
+} from '@/karaoke/lyricDisplay';
+import {
+  backgroundOptionsForMode,
+  createVisualAssetUploadQueue,
+  normalizeAppearanceConfig,
+  normalizeAppearancePatch,
+  normalizeAppearancePreferences,
+  readMasterAppearancePreferences,
+  writeMasterAppearancePreferences,
+} from '@/karaoke/appearanceConfig';
+import { sparseVisualTuning } from '@/karaoke/visualConfig';
+import {
+  chooseRandomStyle,
+  resolveRandomStyleForTrack,
+} from '@/karaoke/randomStylePool';
+import { resolveVisualAssets } from '@/karaoke/visualAssets';
+import { createPlayerMusicAnalyzer } from '@/karaoke/musicReactionAnalyzer';
+import {
+  normalizeSmartBeatPreferences,
+  readSmartBeatPreferences,
+  writeSmartBeatPreferences,
+  getSmartBeatSourceRequirements,
+} from '@/karaoke/smartBeatPreferences';
+import { sanitizeSmartBeatTimeline } from '@/karaoke/smartBeatTimeline';
+import { loadFoliaRuntime } from '@/karaoke/folia/loadRuntime';
+import { memoizedPvDocument } from '@/karaoke/folia/timing';
 import { executeKaraokeCommand } from '@/electron/ipcRenderer';
 import { Howl, Howler } from 'howler';
 
+function replaceAsciiControlCharacters(value) {
+  let result = '';
+  for (const character of value) {
+    result += character.charCodeAt(0) <= 0x1f ? ' ' : character;
+  }
+  return result;
+}
+
 export default {
   name: 'Karaoke',
-  components: { KaraokeThemeSwitcher, KaraokeLyricScene },
+  components: {
+    KaraokeThemeSwitcher,
+    KaraokeControlPanel,
+    KaraokeControlToggle,
+    KaraokeSmartBeatControls,
+    KaraokeLyricScene,
+    ReactionOverlay,
+    SongRequestButton,
+  },
   props: { webHostName: { type: String, default: '主电脑' } },
   data() {
     return {
@@ -565,11 +695,21 @@ export default {
       copyLinkTimer: null,
       lyricFontSizeDraft: '45',
       lyricOffsetDraft: '0.0',
+      appearancePreferences: readMasterAppearancePreferences(undefined, {
+        onTrim: () =>
+          this.$store.dispatch(
+            'showToast',
+            '配置达到 16 KiB，已精简可选参数或未选中的背景地址；当前样式与素材已保留'
+          ),
+        onInvalid: error => this.$store.dispatch('showToast', error.message),
+      }),
       isElectron: process.env.IS_ELECTRON === true,
       isWindowMaximized: false,
       windowStateListener: null,
       isKtvFullscreen: false,
       isLyricFullscreen: false,
+      controlPanelOpen: false,
+      controlPanelFollows: {},
       isExitingFullscreen: false,
       lyricControlsVisible: false,
       lyricControlsTimer: null,
@@ -580,11 +720,69 @@ export default {
       localTrackCount: 0,
       localLoading: false,
       localError: '',
+      localDirectoryInput: '',
+      reactionEvents: [],
+      reactionFeatureEnabled: process.env.VUE_APP_DOCKER_KTV === 'true',
+      reactionGeneration: '',
+      reactionServerTime: 0,
+      musicReaction: null,
+      smartBeatSettings: readSmartBeatPreferences(),
+      smartBeatStatus: { state: 'idle', detail: '' },
+      smartBeatTimeline: null,
+      smartBeatAnalysisRevision: 0,
     };
   },
   computed: {
+    isPvStage() {
+      return isPvStageMode(this.lyricStageMode);
+    },
+    pvLyricDocument() {
+      const itemId =
+        this.currentItem?.queueItemId ||
+        (this.trackId ? `player:${this.trackId}` : '');
+      if (!itemId || this.lyricRequestKeyValue !== this.lyricRequestKey)
+        return null;
+      const lines = this.lyrics;
+      const duration = Math.max(
+        Number(this.track.dt || 0) / 1000,
+        (lines[lines.length - 1]?.time || 0) + 5
+      );
+      return memoizedPvDocument(itemId, duration, lines);
+    },
     stageModeOptions() {
       return stageModeOptions;
+    },
+    appearanceConfig() {
+      return normalizeAppearanceConfig({
+        mode: this.lyricStageMode,
+        effect: this.lyricEffect,
+        fontSize: this.lyricFontSize,
+        offset: this.lyricOffset,
+        theme: this.karaokeTheme,
+        ...this.appearancePreferences,
+      });
+    },
+    controlPanelConfig() {
+      return { ...this.appearanceConfig, resolvedTheme: this.resolvedTheme };
+    },
+    controlPanelBackgroundOptions() {
+      return backgroundOptionsForMode(this.lyricStageMode);
+    },
+    sceneAppearanceProps() {
+      return {
+        background: this.appearanceConfig.background,
+        animationIntensity: this.appearanceConfig.animationIntensity,
+        tuningByMode: this.appearanceConfig.tuningByMode,
+        coverUrl: this.cover,
+        assets: resolveVisualAssets(this.appearanceConfig),
+      };
+    },
+    controlPanelCapabilities() {
+      return {
+        fontSize: this.lyricStageMode !== 'hanabi',
+        effect: !this.isPvStage,
+        intensity: supportsAnimationIntensity(this.lyricStageMode),
+      };
     },
     lyricStageMode: {
       get() {
@@ -630,6 +828,19 @@ export default {
     },
     trackId() {
       return this.track.id;
+    },
+    randomTrackKey() {
+      if (this.currentItem && this.currentItem.queueItemId)
+        return `queue:${this.currentItem.queueItemId}`;
+      return this.trackId ? `track:${this.trackId}` : '';
+    },
+    smartBeatTrackKey() {
+      if (this.currentItem?.queueItemId)
+        return `${this.currentItem.queueItemId}:${this.trackId || ''}`.slice(
+          0,
+          320
+        );
+      return this.trackId ? `player:${this.trackId}`.slice(0, 320) : '';
     },
     lyricRequestKey() {
       return `${this.currentItem?.queueItemId || 'player'}:${
@@ -699,7 +910,14 @@ export default {
       return normalizeLyricOffset(this.settings.lyricOffsetSeconds);
     },
     stageStyle() {
-      return { '--ktv-active-lyric-size': `${this.lyricFontSize}px` };
+      const colors = this.appearanceConfig.customTheme || {};
+      const style = { '--ktv-active-lyric-size': `${this.lyricFontSize}px` };
+      if (colors.background) style['--ktv-bg-base'] = colors.background;
+      if (colors.text) style['--ktv-text-primary'] = colors.text;
+      if (colors.accent) style['--ktv-accent'] = colors.accent;
+      if (colors.accentStrong)
+        style['--ktv-accent-strong'] = colors.accentStrong;
+      return style;
     },
     lyricOffsetLabel() {
       if (this.lyricOffset === 0) return '同步';
@@ -753,6 +971,9 @@ export default {
     },
   },
   watch: {
+    controlPanelOpen() {
+      if (this.isLyricFullscreen) this.showLyricControls();
+    },
     lyricRequestKey(value) {
       this.lyricRequestKeyValue = value;
       this.loadLyrics();
@@ -764,6 +985,23 @@ export default {
       this.lyricOffsetDraft = Number(value).toFixed(1);
       this.syncLyricCursor(this.now + Number(value), true);
     },
+    randomTrackKey(value, previous) {
+      if (value && value !== previous)
+        this.resolveRandomStyleForCurrentTrack(value);
+      this.updateSmartBeatTrack();
+    },
+    smartBeatSettings: {
+      deep: true,
+      handler() {
+        writeSmartBeatPreferences(this.smartBeatSettings);
+        this.updateSmartBeatRuntime();
+        this.syncSmartBeatAnalyzer();
+      },
+    },
+    lyricStageMode() {
+      this.updateSmartBeatRuntime();
+      this.syncSmartBeatAnalyzer();
+    },
   },
   created() {
     if (!this.isElectron) {
@@ -772,14 +1010,30 @@ export default {
         execute: command => executeKaraokeCommand(command, this.$store),
         hostName: this.webHostName,
         getPresentation: () => this.getWebPresentation(),
+        getPvLyrics: () => this.pvLyricDocument,
+        getAppearance: () => this.getWebAppearance(),
+        getSmartBeatState: () => ({
+          revision: this.smartBeatAnalysisRevision,
+          timeline: this.smartBeatTimeline,
+        }),
+        onReactions: (events, generation, serverTime) => {
+          this.reactionEvents = events;
+          this.reactionGeneration = generation || '';
+          this.reactionServerTime = serverTime || 0;
+        },
         onError: error => {
+          this.visualAssetUploads?.invalidate();
           this.lanRoom = null;
           this.$store.dispatch('showToast', error.message);
           this.$emit('web-room-lost');
         },
       });
-      this.webRoomPageHide = () => this.webRoomBridge.dispose();
+      this.webRoomPageHide = () => {
+        this.visualAssetUploads?.invalidate();
+        this.webRoomBridge.dispose();
+      };
       window.addEventListener('pagehide', this.webRoomPageHide);
+      if (this.reactionFeatureEnabled) this.ensureMusicAnalyzer();
     }
     this.themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
     this.syncSystemTheme();
@@ -789,7 +1043,7 @@ export default {
     this.loadLyrics();
     this.loadLanRoom();
     if (!this.isSessionActive) this.startDefaultSession();
-    if (this.isElectron) this.loadLocalLibrarySummary();
+    this.loadLocalLibrarySummary();
     this.lyricFontSizeDraft = String(this.lyricFontSize);
     this.lyricOffsetDraft = this.lyricOffset.toFixed(1);
     const ipcRenderer = this.electronIpc();
@@ -819,15 +1073,29 @@ export default {
       this.handleFullscreenChange
     );
     this.lyricRequestKeyValue = this.lyricRequestKey;
+    this.resolveRandomStyleForCurrentTrack();
+    this._smartBeatTimelineTrackKey = this.smartBeatTrackKey;
+    this.syncSmartBeatAnalyzer();
     this.startLyricClock();
     this.lyricVisibilityListener = () => {
-      if (document.hidden) window.clearInterval(this.clock);
-      else this.startLyricClock();
+      if (document.hidden) {
+        window.clearInterval(this.clock);
+        this.musicAnalyzer?.tick();
+        this.musicAnalyzer?.stop();
+      } else {
+        this.startLyricClock();
+        this.musicAnalyzer?.start();
+      }
     };
     document.addEventListener('visibilitychange', this.lyricVisibilityListener);
     document.addEventListener('click', this.handleOverlayOutsideClick);
   },
   beforeDestroy() {
+    this.visualAssetUploads?.dispose();
+    if (this.unsubscribeMusicEnded) this.unsubscribeMusicEnded();
+    if (this.musicAnalyzer) this.musicAnalyzer.dispose();
+    this._smartBeatSetupGeneration = (this._smartBeatSetupGeneration || 0) + 1;
+    this._smartBeatAnalyzer?.dispose?.();
     if (this.webRoomBridge) this.webRoomBridge.dispose();
     if (this.browserUnlockSound) this.browserUnlockSound.unload();
     if (this.webRoomPageHide)
@@ -865,7 +1133,494 @@ export default {
     document.removeEventListener('click', this.handleOverlayOutsideClick);
   },
   methods: {
+    setControlPanelOpen(isOpen) {
+      this.controlPanelOpen = Boolean(isOpen);
+    },
+    getControlPanelToggle() {
+      const toggle = this.isLyricFullscreen
+        ? this.$refs.lyricControlToggle
+        : this.$refs.karaokeControlToggle;
+      return toggle || null;
+    },
+    handleControlPanelChange(change) {
+      if (!change) return;
+      const { key, value } = change;
+      switch (key) {
+        case 'mode':
+          this.lyricStageMode = value;
+          if (this.appearanceConfig.random.enabled && this.randomTrackKey) {
+            this.updateAppearance({
+              random: {
+                ...this.appearanceConfig.random,
+                lastTrackKey: this.randomTrackKey,
+              },
+            });
+          }
+          break;
+        case 'effect':
+          this.lyricEffect = value;
+          break;
+        case 'fontSize':
+          this.lyricFontSizeDraft = String(value);
+          this.commitFontSizeDraft();
+          break;
+        case 'offset':
+          this.setOffset(value);
+          break;
+        case 'theme':
+          this.karaokeTheme = value;
+          break;
+        case 'customTheme':
+          this.updateAppearance({ customTheme: value });
+          break;
+        case 'animationIntensity':
+          this.updateAppearance({ animationIntensity: value });
+          break;
+        case 'random':
+          this.updateAppearance({ random: value });
+          if (value && value.enabled) this.resolveRandomStyleForCurrentTrack();
+          break;
+        case 'random.reroll':
+          this.rerollCurrentRandomStyle();
+          break;
+        case 'background.mode':
+          this.updateAppearance({ background: { mode: value } });
+          break;
+        case 'background.transparent':
+        case 'background.opacity':
+          this.updateAppearance({
+            background: { [key.slice('background.'.length)]: value },
+          });
+          break;
+        case 'background.tuning': {
+          const sparse = sparseVisualTuning(
+            'background',
+            this.appearanceConfig.background.mode,
+            value
+          );
+          this.updateAppearance({ background: { tuning: sparse } });
+          break;
+        }
+        case 'background.reset':
+          this.updateAppearance({
+            background: {
+              tuning: {},
+              assetId: null,
+              transparent: false,
+              opacity: 1,
+            },
+          });
+          break;
+        case 'tuning':
+          this.saveModeTuning(this.lyricStageMode, value);
+          break;
+        case 'tuning.reset':
+          this.resetModeTuning(value || this.lyricStageMode);
+          break;
+        default:
+          break;
+      }
+    },
+    updateAppearance(patch) {
+      try {
+        let trimmed = false;
+        const next = normalizeAppearancePatch(this.appearanceConfig, patch, {
+          onTrim: () => {
+            trimmed = true;
+          },
+        });
+        if (next.background.mode !== this.appearanceConfig.background.mode)
+          this.visualAssetUploads?.invalidate();
+        this.visualAssetUploads?.assertFits(next);
+        const preferences = normalizeAppearancePreferences(next);
+        if (!writeMasterAppearancePreferences(preferences))
+          throw new Error('外观设置保存失败');
+        this.appearancePreferences = preferences;
+        if (trimmed)
+          this.$store.dispatch(
+            'showToast',
+            '配置达到 16 KiB，已精简可选参数或未选中的背景地址；当前样式与素材已保留'
+          );
+        return true;
+      } catch (error) {
+        this.$store.dispatch('showToast', error.message);
+        return false;
+      }
+    },
+    saveModeTuning(mode, fullTuning) {
+      const tuningByMode = { ...this.appearanceConfig.tuningByMode };
+      const sparse = sparseVisualTuning('mode', mode, fullTuning);
+      if (Object.keys(sparse).length) tuningByMode[mode] = sparse;
+      else delete tuningByMode[mode];
+      this.updateAppearance({ tuningByMode });
+    },
+    resetModeTuning(mode) {
+      const tuningByMode = { ...this.appearanceConfig.tuningByMode };
+      delete tuningByMode[mode];
+      this.updateAppearance({ tuningByMode });
+    },
+    resolveRandomStyleForCurrentTrack(trackKey = this.randomTrackKey) {
+      const result = resolveRandomStyleForTrack(
+        this.appearanceConfig.random,
+        trackKey,
+        this.lyricStageMode
+      );
+      if (!result.changed) return false;
+      if (result.mode !== this.lyricStageMode)
+        this.lyricStageMode = result.mode;
+      this.updateAppearance({ random: result.settings });
+      return true;
+    },
+    rerollCurrentRandomStyle() {
+      const random = this.appearanceConfig.random;
+      const mode = chooseRandomStyle(random.pool, this.lyricStageMode);
+      if (!mode) return;
+      this.lyricStageMode = mode;
+      this.updateAppearance({
+        random: { ...random, lastTrackKey: this.randomTrackKey },
+      });
+    },
+    handleVisualAsset(change) {
+      if (!change || !this.webRoomBridge?.uploadVisualAsset) {
+        this.$store.dispatch('showToast', '图片上传服务暂不可用');
+        return Promise.resolve([]);
+      }
+      if (!this.visualAssetUploads) {
+        this.visualAssetUploads = createVisualAssetUploadQueue({
+          getConfig: () => this.appearanceConfig,
+          getGeneration: () =>
+            this._isBeingDestroyed || this._isDestroyed
+              ? null
+              : this.lanRoom || null,
+          upload: (file, role) =>
+            this.webRoomBridge.uploadVisualAsset(file, role),
+          commit: next => this.updateAppearance(next),
+          notify: message => this.$store.dispatch('showToast', message),
+        });
+      }
+      return this.visualAssetUploads.run(change);
+    },
+    ensureMusicAnalyzer() {
+      if (this.musicAnalyzer) return this.musicAnalyzer;
+      this.musicAnalyzer = createPlayerMusicAnalyzer({
+        getPlayer: () => this.player,
+        getCurrentItem: () => this.currentItem,
+        getLyrics: () => this.lyrics,
+        getOutputDevice: () => this.settings?.outputDevice || '',
+        onUpdate: state => {
+          if (this.reactionFeatureEnabled) this.musicReaction = state;
+          this.updateSmartBeatTrack();
+        },
+        onAudioFeatures: features => {
+          this._smartBeatAudioFeatures = features;
+          this.$refs.lyricScene?.publishAudioFeatures?.(features);
+        },
+      });
+      this.unsubscribeMusicEnded = this.player?.onPlaybackEnded?.(() => {
+        if (this.currentItem) {
+          this.musicAnalyzer?.markFinished({
+            itemId: this.currentItem.queueItemId || '',
+            trackId: this.trackId || '',
+          });
+        }
+      });
+      if (
+        !document.hidden &&
+        (this.reactionFeatureEnabled || this.smartBeatSettings.mode !== 'off')
+      )
+        this.musicAnalyzer.start();
+      return this.musicAnalyzer;
+    },
+    smartBeatSourceUrl() {
+      const player = this.player;
+      const howl = player?._howler;
+      const sound = howl?._sounds?.[0];
+      const node = sound?._node;
+      const source = Array.isArray(howl?._src) ? howl._src[0] : howl?._src;
+      return (
+        (typeof node?.currentSrc === 'string' && node.currentSrc) ||
+        (typeof node?.src === 'string' && node.src) ||
+        (typeof source === 'string' && source) ||
+        null
+      );
+    },
+    updateSmartBeatTrack() {
+      const trackKey = this.smartBeatTrackKey;
+      if (trackKey !== this._smartBeatTimelineTrackKey) {
+        this._smartBeatTimelineTrackKey = trackKey;
+        this.smartBeatTimeline = null;
+        this.smartBeatAnalysisRevision += 1;
+        this._smartBeatRequestSignature = '';
+        this.updateSmartBeatRuntime();
+      }
+      const analyzer = this._smartBeatAnalyzer;
+      if (!trackKey) {
+        analyzer?.updateTrack({
+          key: '',
+          cacheKey: '',
+          sourceUrl: null,
+          duration: 0,
+          playing: false,
+        });
+        this._smartBeatTrackSignature = '';
+        const sources = getSmartBeatSourceRequirements(
+          this.smartBeatSettings,
+          this.lyricStageMode
+        );
+        if (
+          this.smartBeatSettings.mode !== 'off' &&
+          (sources.beats || sources.drums)
+        ) {
+          this.smartBeatStatus = {
+            state: 'waiting',
+            detail: '等待正在播放的歌曲。',
+          };
+        }
+        return;
+      }
+      if (!analyzer) return;
+      const sourceUrl = this.smartBeatSourceUrl();
+      const trackId = String(this.trackId || this.currentItem?.localId || '');
+      const cacheKey = `ktv:${trackId}:${Math.max(
+        0,
+        Number(this.track.dt || 0)
+      )}`.slice(0, 320);
+      const duration = Math.max(
+        0,
+        Number(this.track.dt || this.currentItem?.duration || 0) / 1000
+      );
+      const playing = Boolean(this.currentItem && this.player.playing);
+      const track = { key: trackKey, cacheKey, sourceUrl, duration, playing };
+      const signature = JSON.stringify(track);
+      if (
+        signature === this._smartBeatTrackSignature &&
+        !this._smartBeatForceTrackUpdate
+      )
+        return;
+      this._smartBeatForceTrackUpdate = false;
+      this._smartBeatTrackSignature = signature;
+      analyzer.updateTrack(track);
+      if (this.smartBeatSettings.mode === 'off') return;
+      const sources = getSmartBeatSourceRequirements(
+        this.smartBeatSettings,
+        this.lyricStageMode
+      );
+      if (!sources.beats && !sources.drums) return;
+      const currentTimeline = this.smartBeatTimeline;
+      if (
+        currentTimeline?.trackKey === trackKey &&
+        (!sources.beats || currentTimeline.beats) &&
+        (!sources.drums || currentTimeline.drums)
+      )
+        return;
+      // The controller can use its verified cache without a source URL. For a new
+      // analysis, wait until Howler exposes the actual playing source.
+      if (!sourceUrl && this.smartBeatSettings.mode !== 'cached') {
+        this.setSmartBeatStatus({
+          stage: 'unsupported',
+          trackKey,
+          message: '播放器暂未提供可读取的歌曲音频地址。',
+        });
+        return;
+      }
+      this.requestSmartBeatSources(analyzer, sources, trackKey);
+    },
+    async requestSmartBeatSources(analyzer, sources, trackKey) {
+      const requestSignature = JSON.stringify([
+        trackKey,
+        this.smartBeatSettings.mode,
+        this.lyricStageMode,
+        sources,
+        this.smartBeatSourceUrl(),
+      ]);
+      if (requestSignature === this._smartBeatRequestSignature) return;
+      this._smartBeatRequestSignature = requestSignature;
+      try {
+        await analyzer.ensureSources(sources);
+      } catch (error) {
+        this.setSmartBeatStatus({
+          stage: 'error',
+          trackKey,
+          message: error?.message || String(error),
+        });
+      }
+    },
+    setSmartBeatStatus(status) {
+      if (status?.trackKey && status.trackKey !== this.smartBeatTrackKey)
+        return;
+      const stage = status?.stage === 'analysing' ? 'analysing' : status?.stage;
+      const rawMessage = String(status?.message || status?.error || '');
+      const knownMessages = {
+        'WebGPU requires a secure context':
+          '需要 HTTPS 或 localhost 安全上下文。',
+        'WebGPU is unavailable in this browser': '此浏览器未提供 WebGPU。',
+        'Dedicated workers are unavailable': '此浏览器不支持专用 Worker。',
+        'No readable source URL is available for this track.':
+          '播放器暂未提供可读取的歌曲音频地址。',
+        'No complete cached analysis exists for the requested sources.':
+          '本机没有满足当前效果所需的完整缓存。',
+      };
+      const message = replaceAsciiControlCharacters(
+        String(knownMessages[rawMessage] || rawMessage)
+      ).slice(0, 180);
+      this.smartBeatStatus = {
+        state: stage || 'error',
+        detail: message,
+        ...(Number.isFinite(status?.progress)
+          ? { progress: Math.max(0, Math.min(1, status.progress)) }
+          : {}),
+        ...(typeof status?.cacheHit === 'boolean'
+          ? { cacheHit: status.cacheHit }
+          : {}),
+      };
+    },
+    onSmartBeatPreferencesChange(preferences) {
+      this.smartBeatSettings = normalizeSmartBeatPreferences(preferences);
+    },
+    updateSmartBeatRuntime() {
+      this.$nextTick(() => {
+        this.$refs.lyricScene?.updateSmartBeat?.({
+          mode: this.lyricStageMode,
+          trackKey: this.smartBeatTrackKey,
+          settings: this.smartBeatSettings,
+          timeline: this.smartBeatTimeline,
+          playing: Boolean(this.currentItem && this.player.playing),
+        });
+      });
+    },
+    async syncSmartBeatAnalyzer() {
+      const preferences = normalizeSmartBeatPreferences(this.smartBeatSettings);
+      this._smartBeatRequestSignature = '';
+      if (preferences.mode === 'off') {
+        this._smartBeatAnalyzer?.setMode('off');
+        this.smartBeatStatus = { state: 'idle', detail: '' };
+        this.updateSmartBeatRuntime();
+        return;
+      }
+      const sources = getSmartBeatSourceRequirements(
+        preferences,
+        this.lyricStageMode
+      );
+      if (!sources.beats && !sources.drums) {
+        this._smartBeatAnalyzer?.setMode('off');
+        this.smartBeatStatus = {
+          state: 'idle',
+          detail: '当前歌词样式没有可用的节拍效果。',
+        };
+        return;
+      }
+      const trackKey = this.smartBeatTrackKey;
+      if (!trackKey) {
+        this.smartBeatStatus = {
+          state: 'waiting',
+          detail: '等待正在播放的歌曲。',
+        };
+        return;
+      }
+      this.ensureMusicAnalyzer();
+      if (!document.hidden) this.musicAnalyzer?.start();
+      try {
+        if (!this._smartBeatAnalyzer) {
+          if (!this._smartBeatAnalyzerPromise) {
+            this._smartBeatAnalyzerPromise = loadFoliaRuntime()
+              .then(async module => {
+                if (typeof module.createSmartBeatAnalyzer !== 'function')
+                  throw new Error('SMART_BEAT_FACTORY_UNAVAILABLE');
+                const analyzer = await module.createSmartBeatAnalyzer({
+                  onStatus: status => this.setSmartBeatStatus(status),
+                  onResult: result => {
+                    let timeline;
+                    try {
+                      timeline = sanitizeSmartBeatTimeline(result);
+                    } catch (error) {
+                      this.setSmartBeatStatus({
+                        stage: 'error',
+                        trackKey: this.smartBeatTrackKey,
+                        message: error.message,
+                      });
+                      return;
+                    }
+                    if (timeline.trackKey !== this.smartBeatTrackKey) return;
+                    const previous = this.smartBeatTimeline;
+                    const compatible =
+                      previous?.trackKey === timeline.trackKey &&
+                      previous.audioHash === timeline.audioHash &&
+                      JSON.stringify(previous.modelVersions) ===
+                        JSON.stringify(timeline.modelVersions);
+                    this.smartBeatTimeline = Object.freeze(
+                      compatible
+                        ? sanitizeSmartBeatTimeline({
+                            ...timeline,
+                            beats: timeline.beats || previous.beats,
+                            drums: timeline.drums || previous.drums,
+                          })
+                        : timeline
+                    );
+                    this.smartBeatAnalysisRevision += 1;
+                    this.smartBeatStatus = {
+                      state:
+                        this.smartBeatSettings.mode === 'cached'
+                          ? 'cached'
+                          : 'ready',
+                      detail:
+                        this.smartBeatSettings.mode === 'cached'
+                          ? '已载入本机验证过的分析缓存。'
+                          : '分析完成。',
+                      cacheHit: this.smartBeatSettings.mode === 'cached',
+                    };
+                    this.updateSmartBeatRuntime();
+                  },
+                });
+                if (this._isBeingDestroyed || this._isDestroyed) {
+                  analyzer?.dispose?.();
+                  return null;
+                }
+                this._smartBeatAnalyzer = analyzer;
+                return analyzer;
+              })
+              .catch(error => {
+                const reason = String(error?.message || error);
+                const detail = reason.includes('ANALYSIS_WORKER_UNAVAILABLE')
+                  ? '当前 PV 清单没有提供 SmartBeat 分析 Worker。'
+                  : reason.includes('SMART_BEAT_FACTORY_UNAVAILABLE')
+                  ? '当前 PV 模块没有提供 SmartBeat 分析器。'
+                  : reason.includes('WebGPU') ||
+                    reason.includes('secure context')
+                  ? reason
+                  : `SmartBeat 暂不可用：${reason}`;
+                this.setSmartBeatStatus({
+                  stage: 'unsupported',
+                  trackKey,
+                  message: detail,
+                });
+                this._smartBeatAnalyzerPromise = null;
+                return null;
+              });
+          }
+          await this._smartBeatAnalyzerPromise;
+        }
+        const analyzer = this._smartBeatAnalyzer;
+        if (!analyzer) return;
+        analyzer.setMode(preferences.mode);
+        this._smartBeatRequestSignature = '';
+        this._smartBeatForceTrackUpdate = true;
+        this.updateSmartBeatTrack();
+        // updateSmartBeatTrack owns the single source request for this track.
+      } catch (error) {
+        this.setSmartBeatStatus({
+          stage: 'unsupported',
+          trackKey,
+          message: error?.message || String(error),
+        });
+      }
+    },
+    onMusicSensitivityChange(value) {
+      this.musicAnalyzer?.setSensitivity(value);
+    },
     getWebPresentation() {
+      if (document.hidden && this.musicAnalyzer) {
+        this.musicAnalyzer.tick();
+      }
       const item = this.currentItem;
       const position = item
         ? Math.max(0, Number(this.player.seek(null, false)) || 0)
@@ -874,17 +1629,36 @@ export default {
         itemId: item?.queueItemId || '',
         title: item?.trackName || '',
         artists: item?.artists?.join(' / ') || '',
+        coverUrl: sanitizeCoverReference(this.cover),
         position,
         playing: Boolean(item && this.player.playing),
         offset: this.lyricOffset,
+        smartBeat: {
+          settings: this.smartBeatSettings,
+          status: this.smartBeatStatus.state,
+          detail: this.smartBeatStatus.detail,
+          ...(Number.isFinite(this.smartBeatStatus.progress)
+            ? { progress: this.smartBeatStatus.progress }
+            : {}),
+          ...(typeof this.smartBeatStatus.cacheHit === 'boolean'
+            ? { cacheHit: this.smartBeatStatus.cacheHit }
+            : {}),
+          trackKey: this.smartBeatTrackKey,
+          analysisRevision: this.smartBeatAnalysisRevision,
+        },
+        audioFeatures: this._smartBeatAudioFeatures,
         mode: this.lyricStageMode,
         effect: this.lyricEffect,
         theme: this.resolvedTheme,
         fontSize: this.lyricFontSize,
+        ...(this.musicReaction ? { musicReaction: this.musicReaction } : {}),
         ...(item
           ? buildLyricContext(this.lyrics, position, this.lyricOffset)
           : { lines: [], contextFrom: 0, contextUntil: null }),
       };
+    },
+    getWebAppearance() {
+      return this.appearanceConfig;
     },
     enableBrowserAudio() {
       if (Howler.ctx && Howler.ctx.state === 'suspended') Howler.ctx.resume();
@@ -959,11 +1733,49 @@ export default {
         return;
       }
       if (
-        this.currentItem?.source === 'local' &&
-        Array.isArray(this.currentItem.lyrics)
+        this.currentItem?.source === 'local' ||
+        this.track.source === 'local'
       ) {
-        this.lyrics = this.currentItem.lyrics.filter(line => line.content);
-        this.syncLyricCursor(this.now + this.lyricOffset, true);
+        const inlineLyrics = this.currentItem?.lyrics;
+        if (Array.isArray(inlineLyrics) && inlineLyrics.length) {
+          this.lyrics = inlineLyrics.filter(line => line.content);
+          this.syncLyricCursor(this.now + this.lyricOffset, true);
+          return;
+        }
+        const localId =
+          this.currentItem?.localId ||
+          this.currentItem?.trackId ||
+          this.trackId;
+        const ipcRenderer = this.roomIpc();
+        if (ipcRenderer && localId) {
+          ipcRenderer
+            .invoke('karaoke:local:resolve', localId)
+            .then(resolved => {
+              if (
+                generation !== this.lyricLoadGeneration ||
+                requestedKey !== this.lyricRequestKey ||
+                requestedTrackId !== this.trackId
+              )
+                return;
+              const resolvedLyrics = Array.isArray(resolved?.lyrics)
+                ? resolved.lyrics
+                : [];
+              this.lyrics = resolvedLyrics.filter(line => line.content);
+              this.syncLyricCursor(this.now + this.lyricOffset, true);
+            })
+            .catch(() => {
+              if (
+                generation !== this.lyricLoadGeneration ||
+                requestedKey !== this.lyricRequestKey ||
+                requestedTrackId !== this.trackId
+              )
+                return;
+              this.lyrics = [];
+              this.syncLyricCursor();
+            });
+          return;
+        }
+        this.lyrics = [];
         return;
       }
       getLyric(this.trackId)
@@ -1065,7 +1877,7 @@ export default {
       );
     },
     async loadLocalLibrarySummary() {
-      const ipcRenderer = this.electronIpc();
+      const ipcRenderer = this.roomIpc();
       if (!ipcRenderer) return;
       this.localError = '';
       try {
@@ -1076,7 +1888,7 @@ export default {
       }
     },
     async scanLocalLibrary() {
-      const ipcRenderer = this.electronIpc();
+      const ipcRenderer = this.roomIpc();
       if (!ipcRenderer) return;
       this.localLoading = true;
       this.localError = '';
@@ -1097,11 +1909,94 @@ export default {
       );
       if (result?.ok) await this.scanLocalLibrary();
     },
+    async addLocalDirectoryByPath() {
+      const directory = this.localDirectoryInput.trim();
+      const ipcRenderer = this.roomIpc();
+      if (!directory || !ipcRenderer) return;
+      this.localLoading = true;
+      this.localError = '';
+      try {
+        const result = await ipcRenderer.invoke(
+          'karaoke:local:add-directory',
+          directory
+        );
+        this.localDirectoryInput = '';
+        this.applyLocalLibraryResult(result);
+      } catch (error) {
+        this.localError = error.message || '添加本地音乐目录失败';
+      } finally {
+        this.localLoading = false;
+      }
+    },
     async removeLocalDirectory(directory) {
-      const ipcRenderer = this.electronIpc();
+      const ipcRenderer = this.roomIpc();
       if (!ipcRenderer) return;
-      await ipcRenderer.invoke('karaoke:local:remove-directory', directory);
-      await this.scanLocalLibrary();
+      this.localLoading = true;
+      this.localError = '';
+      try {
+        const result = await ipcRenderer.invoke(
+          'karaoke:local:remove-directory',
+          directory
+        );
+        if (result?.playlists) {
+          this.applyLocalLibraryResult(result);
+        } else {
+          await this.scanLocalLibrary();
+        }
+      } catch (error) {
+        this.localError = error.message || '移除本地音乐目录失败';
+      } finally {
+        this.localLoading = false;
+      }
+    },
+    enqueueLocalTrack(track, priority = false) {
+      if (!this.isSessionActive) {
+        this.karaokeManager.startSession();
+      }
+      if (!this.isElectron) {
+        this.enableBrowserAudio();
+      }
+      const normalizedTrack = {
+        id: track.trackId || track.localId || track.id,
+        localId: track.localId || track.trackId || track.id,
+        name: track.name,
+        ar: (track.ar || track.artists || []).map(a => ({
+          name: a.name || a,
+        })),
+        al: {
+          name: track.al?.name || track.album?.name || track.album || '',
+          picUrl:
+            track.coverUrl || track.al?.picUrl || track.album?.picUrl || '',
+        },
+        coverUrl:
+          track.coverUrl || track.al?.picUrl || track.album?.picUrl || '',
+        dt: track.dt || track.duration || 0,
+        source: 'local',
+        lyrics: Array.isArray(track.lyrics) ? track.lyrics : [],
+      };
+      const item = this.karaokeManager.enqueueTrack(normalizedTrack, {
+        id: 'host',
+        name: '主机',
+        type: 'host',
+        priorityRequested: Boolean(priority),
+      });
+      if (item) {
+        if (priority) {
+          this.karaokeManager.moveQueueItemToFront(item.queueItemId);
+        }
+        if (
+          !this.karaokeManager.queue.currentItem &&
+          !this.karaokeManager.transitionPromise
+        ) {
+          this.karaokeManager.startQueue();
+        }
+        this.$store.dispatch(
+          'showToast',
+          priority
+            ? `已优先加入待唱：${item.trackName}`
+            : `已加入待唱：${item.trackName}`
+        );
+      }
     },
     async loadLanCandidates() {
       const ipcRenderer = this.roomIpc();
@@ -1282,7 +2177,7 @@ export default {
       this.lyricControlsVisible = true;
       window.clearTimeout(this.lyricControlsTimer);
       this.lyricControlsTimer = window.setTimeout(() => {
-        this.lyricControlsVisible = false;
+        if (!this.controlPanelOpen) this.lyricControlsVisible = false;
       }, 4000);
     },
     async exitFullscreen() {
@@ -1568,6 +2463,10 @@ export default {
   padding: 12px;
   box-sizing: border-box;
 }
+/* Scale the panel and its QR code, typography and controls together. */
+.karaoke-desktop .room-access-overlay {
+  transform-origin: top center;
+}
 @media (min-width: 761px) {
   .karaoke-desktop .room-access-overlay,
   .karaoke-desktop .local-library-overlay {
@@ -1584,6 +2483,9 @@ export default {
   .karaoke-desktop .local-library-overlay {
     width: min(720px, calc(100% - 32px));
     padding: 12px;
+  }
+  .karaoke-desktop .room-access-overlay {
+    transform: translateX(-50%) scale(0.8);
   }
 }
 .local-library {
@@ -1680,6 +2582,93 @@ export default {
   color: var(--ktv-text-muted);
   font-size: 16px;
   line-height: 1;
+}
+.local-directory-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.local-directory-input {
+  flex: 1 1 auto;
+  min-width: 0;
+  height: 32px;
+  padding: 0 10px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 7px;
+  background: var(--ktv-glass-soft);
+  color: var(--ktv-text-primary);
+  font-size: 12px;
+}
+.local-playlist-browser {
+  display: grid;
+  gap: 12px;
+  max-height: 340px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
+.local-playlist-section {
+  display: grid;
+  gap: 8px;
+}
+.local-playlist-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: var(--ktv-text-secondary);
+  font-size: 13px;
+}
+.local-track-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 8px;
+}
+.local-track-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 10px;
+  background: var(--ktv-glass-soft);
+}
+.local-track-cover {
+  flex: 0 0 42px;
+  width: 42px;
+  height: 42px;
+  border-radius: 8px;
+  object-fit: cover;
+  background: var(--ktv-glass-strong);
+}
+.local-track-cover-fallback {
+  display: grid;
+  place-items: center;
+  color: var(--ktv-text-muted);
+  font-size: 18px;
+}
+.local-track-meta {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.local-track-meta strong,
+.local-track-meta small {
+  display: block;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.local-track-meta strong {
+  color: var(--ktv-text-primary);
+  font-size: 13px;
+}
+.local-track-meta small {
+  margin-top: 2px;
+  color: var(--ktv-text-muted);
+  font-size: 11px;
+}
+.local-track-buttons {
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
 }
 .room-access-pending .room-access-copy {
   grid-column: 1 / -1;
@@ -1899,6 +2888,9 @@ button:disabled {
   overflow: hidden;
   text-align: center;
 }
+.stage ::v-deep .lyric-stage-shell {
+  z-index: 1;
+}
 .stage::before {
   position: absolute;
   inset: 18% 22%;
@@ -2104,11 +3096,12 @@ button:disabled {
    selector list can invalidate the entire rule in Chromium. */
 .stage:fullscreen {
   display: flex;
+  flex-direction: column;
   justify-content: center;
   width: 100vw;
   height: 100vh;
   min-height: 0;
-  padding: 32px;
+  padding: 0;
   box-sizing: border-box;
   border: 0;
   border-radius: 0;
@@ -2119,15 +3112,35 @@ button:disabled {
 .stage:fullscreen .fullscreen-actions {
   display: none;
 }
+.stage:fullscreen.pv-stage ::v-deep .pv-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
+.stage:-webkit-full-screen.pv-stage ::v-deep .pv-scene,
+.stage:-moz-full-screen.pv-stage ::v-deep .pv-scene,
+.stage:-ms-fullscreen.pv-stage ::v-deep .pv-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
 .stage:fullscreen,
 .stage:-webkit-full-screen,
 .stage:-moz-full-screen,
 .stage:-ms-fullscreen {
-  display: grid;
-  place-content: center;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  width: 100vw;
+  height: 100vh;
   min-width: 100vw;
   min-height: 100vh;
-  padding: 48px;
+  padding: 0;
+  box-sizing: border-box;
   background: var(--ktv-bg-base);
 }
 .stage:fullscreen .fullscreen-actions,
@@ -2226,7 +3239,24 @@ button:disabled {
   pointer-events: none;
   transition: opacity 180ms ease;
 }
-.lyric-fullscreen-overlay.visible {
+.lyric-fullscreen-control-dock {
+  display: contents;
+}
+.lyric-fullscreen-control-dock ::v-deep .ktv-control-toggle {
+  bottom: calc(112px + env(safe-area-inset-bottom, 0px));
+}
+.lyric-fullscreen-control-dock ::v-deep .ktv-control-panel {
+  bottom: calc(
+    112px + var(--ktv-control-toggle-size, 52px) + 24px +
+      env(safe-area-inset-bottom, 0px)
+  );
+  max-height: calc(
+    100dvh - 112px - var(--ktv-control-toggle-size, 52px) - 48px -
+      env(safe-area-inset-top, 0px) - env(safe-area-inset-bottom, 0px)
+  );
+}
+.lyric-fullscreen-overlay.visible,
+.lyric-fullscreen-overlay:hover {
   opacity: 1;
   pointer-events: auto;
 }
@@ -2363,12 +3393,16 @@ button:disabled {
   color: var(--ktv-danger);
 }
 .karaoke-controls {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
+  display: flex;
   align-items: center;
+  justify-content: center;
   gap: 18px;
   min-height: 68px;
   padding: 10px 18px;
+}
+.karaoke-desktop ::v-deep .karaoke-control-panel--bar {
+  right: 40px;
+  bottom: calc(var(--ktv-control-toggle-size, 52px) + 40px);
 }
 .lyric-effect-setting {
   display: flex;
@@ -2500,6 +3534,9 @@ button:disabled {
     margin: 0;
     padding: 12px;
   }
+  .karaoke-desktop .room-access-overlay {
+    transform: translateX(-50%) scale(0.8);
+  }
   .room-qr-wrap {
     width: min(240px, 100%);
     justify-self: center;
@@ -2542,6 +3579,13 @@ button:disabled {
     grid-template-columns: 1fr;
     justify-items: center;
     flex-shrink: 0;
+  }
+  .karaoke-desktop ::v-deep .karaoke-control-panel--bar {
+    right: 24px;
+    bottom: calc(
+      var(--ktv-control-toggle-size, 52px) + 28px +
+        env(safe-area-inset-bottom, 0px)
+    );
   }
   .font-setting {
     justify-content: center;

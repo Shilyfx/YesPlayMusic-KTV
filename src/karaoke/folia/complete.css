@@ -1,0 +1,712 @@
+/* LumaSing's bounded Folia stage utilities. These selectors never escape the host. */
+.folia-complete-host {
+  container-type: inline-size;
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.folia-complete-host .folia-complete-stage,
+.folia-complete-host .folia-complete-lyric-shell {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+  background: transparent;
+}
+
+.folia-complete-host *,
+.folia-complete-host *::before,
+.folia-complete-host *::after {
+  box-sizing: border-box;
+}
+
+.folia-complete-host .folia-complete-background-layer,
+.folia-complete-host .folia-complete-lyric-layer {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.folia-complete-host .folia-complete-background-layer {
+  z-index: 0;
+  overflow: hidden;
+  pointer-events: none;
+}
+
+.folia-complete-host .folia-complete-common-background {
+  position: absolute;
+  inset: 0;
+  overflow: hidden;
+  pointer-events: none;
+  transition: opacity 220ms ease-out;
+}
+
+.folia-complete-host .folia-complete-background-root,
+.folia-complete-host .folia-complete-sora-blank {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.folia-complete-host .folia-complete-background-root > * {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+}
+
+.folia-complete-host .folia-complete-lyric-layer {
+  z-index: 1;
+}
+
+.folia-complete-host .folia-complete-renderer-scale {
+  position: relative;
+  width: 100%;
+  height: 100%;
+  min-width: 0;
+  min-height: 0;
+  transform-origin: center;
+}
+
+.folia-complete-host .relative {
+  position: relative;
+}
+.folia-complete-host .absolute {
+  position: absolute;
+}
+.folia-complete-host .inset-0 {
+  inset: 0;
+}
+.folia-complete-host .inset-x-0 {
+  left: 0;
+  right: 0;
+}
+.folia-complete-host .left-0 {
+  left: 0;
+}
+.folia-complete-host .right-0 {
+  right: 0;
+}
+.folia-complete-host .w-full {
+  width: 100%;
+}
+.folia-complete-host .h-full {
+  height: 100%;
+}
+.folia-complete-host .flex {
+  display: flex;
+}
+.folia-complete-host .inline-block {
+  display: inline-block;
+}
+.folia-complete-host .flex-col {
+  flex-direction: column;
+}
+.folia-complete-host .items-center {
+  align-items: center;
+}
+.folia-complete-host .justify-center {
+  justify-content: center;
+}
+.folia-complete-host .text-center {
+  text-align: center;
+}
+.folia-complete-host .whitespace-nowrap {
+  white-space: nowrap;
+}
+.folia-complete-host .overflow-hidden {
+  overflow: hidden;
+}
+.folia-complete-host .pointer-events-none {
+  pointer-events: none;
+}
+.folia-complete-host .rounded-full {
+  border-radius: 9999px;
+}
+.folia-complete-host .isolate {
+  isolation: isolate;
+}
+.folia-complete-host .truncate {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.folia-complete-host .object-cover {
+  object-fit: cover;
+}
+.folia-complete-host .opacity-50 {
+  opacity: 0.5;
+}
+.folia-complete-host .z-0 {
+  z-index: 0;
+}
+.folia-complete-host .z-10 {
+  z-index: 10;
+}
+.folia-complete-host .z-20 {
+  z-index: 20;
+}
+.folia-complete-host .max-w-2xl {
+  max-width: 42rem;
+}
+.folia-complete-host .max-w-4xl {
+  max-width: 56rem;
+}
+.folia-complete-host .cappella-message-column {
+  width: 80%;
+  max-width: none;
+}
+.folia-complete-host .mx-auto {
+  margin-left: auto;
+  margin-right: auto;
+}
+.folia-complete-host .p-8 {
+  padding: 2rem;
+}
+.folia-complete-host .px-1\.5 {
+  padding-left: 0.375rem;
+  padding-right: 0.375rem;
+}
+.folia-complete-host .px-4 {
+  padding-left: 1rem;
+  padding-right: 1rem;
+}
+.folia-complete-host .py-0\.5 {
+  padding-top: 0.125rem;
+  padding-bottom: 0.125rem;
+}
+.folia-complete-host .\-inset-x-10 {
+  left: -2.5rem;
+  right: -2.5rem;
+}
+.folia-complete-host .\-inset-y-6 {
+  top: -1.5rem;
+  bottom: -1.5rem;
+}
+.folia-complete-host .gap-y-3 {
+  row-gap: 0.75rem;
+}
+.folia-complete-host .space-y-2 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.5rem;
+}
+.folia-complete-host .text-2xl {
+  font-size: 1.5rem;
+  line-height: 2rem;
+}
+.folia-complete-host .blur-2xl {
+  filter: blur(40px);
+}
+.folia-complete-host .blur-\[1px\] {
+  filter: blur(1px);
+}
+.folia-complete-host .transition-all {
+  transition-property: all;
+}
+.folia-complete-host .transition-colors {
+  transition-property: color, background-color, border-color,
+    text-decoration-color, fill, stroke;
+}
+.folia-complete-host .transition-opacity {
+  transition-property: opacity;
+}
+.folia-complete-host
+  .transition-\[color\,background-color\,border-color\,opacity\] {
+  transition-property: color, background-color, border-color, opacity;
+}
+.folia-complete-host .duration-500 {
+  transition-duration: 500ms;
+}
+.folia-complete-host .duration-700 {
+  transition-duration: 700ms;
+}
+.folia-complete-host .duration-1000 {
+  transition-duration: 1000ms;
+}
+.folia-complete-host .ease-out {
+  transition-timing-function: cubic-bezier(0, 0, 0.2, 1);
+}
+
+@media (min-width: 640px) {
+  .folia-complete-host .sm\:gap-y-4 {
+    row-gap: 1rem;
+  }
+}
+
+/* Additional utilities used by the selected Folia renderer leaves only. */
+.folia-complete-host .block {
+  display: block;
+}
+.folia-complete-host .inline-flex {
+  display: inline-flex;
+}
+.folia-complete-host .flex-row {
+  flex-direction: row;
+}
+.folia-complete-host .flex-row-reverse {
+  flex-direction: row-reverse;
+}
+.folia-complete-host .flex-wrap {
+  flex-wrap: wrap;
+}
+.folia-complete-host .items-end {
+  align-items: flex-end;
+}
+.folia-complete-host .items-start {
+  align-items: flex-start;
+}
+.folia-complete-host .items-stretch {
+  align-items: stretch;
+}
+.folia-complete-host .justify-end {
+  justify-content: flex-end;
+}
+.folia-complete-host .justify-start {
+  justify-content: flex-start;
+}
+.folia-complete-host .content-center {
+  align-content: center;
+}
+.folia-complete-host .shrink-0 {
+  flex-shrink: 0;
+}
+.folia-complete-host .pointer-events-auto {
+  pointer-events: auto;
+}
+.folia-complete-host .cursor-pointer {
+  cursor: pointer;
+}
+.folia-complete-host .select-none {
+  user-select: none;
+}
+.folia-complete-host .overflow-visible {
+  overflow: visible;
+}
+.folia-complete-host .whitespace-pre {
+  white-space: pre;
+}
+.folia-complete-host .whitespace-pre-wrap {
+  white-space: pre-wrap;
+}
+.folia-complete-host .tabular-nums {
+  font-variant-numeric: tabular-nums;
+}
+.folia-complete-host .font-medium {
+  font-weight: 500;
+}
+.folia-complete-host .leading-tight {
+  line-height: 1.25;
+}
+.folia-complete-host .tracking-wide {
+  letter-spacing: 0.025em;
+}
+.folia-complete-host .tracking-\[0\.02em\] {
+  letter-spacing: 0.02em;
+}
+.folia-complete-host .border {
+  border: 1px solid #e5e7eb;
+}
+.folia-complete-host .border-0 {
+  border-width: 0;
+}
+.folia-complete-host .rounded-2xl {
+  border-radius: 1rem;
+}
+.folia-complete-host .rounded-3xl {
+  border-radius: 1.5rem;
+}
+.folia-complete-host .rounded-bl-md {
+  border-bottom-left-radius: 0.375rem;
+}
+.folia-complete-host .rounded-br-md {
+  border-bottom-right-radius: 0.375rem;
+}
+.folia-complete-host .rounded-\[inherit\] {
+  border-radius: inherit;
+}
+.folia-complete-host .mix-blend-multiply {
+  mix-blend-mode: multiply;
+}
+.folia-complete-host .origin-center {
+  transform-origin: center;
+}
+.folia-complete-host .top-0 {
+  top: 0;
+}
+.folia-complete-host .inset-y-0 {
+  top: 0;
+  bottom: 0;
+}
+.folia-complete-host .left-1\/2 {
+  left: 50%;
+}
+.folia-complete-host .-translate-x-1\/2 {
+  translate: -50% 0;
+}
+.folia-complete-host .-translate-y-1\/2 {
+  translate: 0 -50%;
+}
+.folia-complete-host .z-\[1\] {
+  z-index: 1;
+}
+.folia-complete-host .h-2 {
+  height: 0.5rem;
+}
+.folia-complete-host .h-10 {
+  height: 2.5rem;
+}
+.folia-complete-host .h-20 {
+  height: 5rem;
+}
+.folia-complete-host .h-px {
+  height: 1px;
+}
+.folia-complete-host .h-\[70\%\] {
+  height: 70%;
+}
+.folia-complete-host .w-10 {
+  width: 2.5rem;
+}
+.folia-complete-host .w-28 {
+  width: 7rem;
+}
+.folia-complete-host .w-px {
+  width: 1px;
+}
+.folia-complete-host .w-\[72\%\] {
+  width: 72%;
+}
+.folia-complete-host .min-w-40 {
+  min-width: 10rem;
+}
+.folia-complete-host .min-w-\[3\.8rem\] {
+  min-width: 3.8rem;
+}
+.folia-complete-host .min-h-\[24rem\] {
+  min-height: 24rem;
+}
+.folia-complete-host .max-w-5xl {
+  max-width: 64rem;
+}
+.folia-complete-host .max-w-6xl {
+  max-width: 72rem;
+}
+.folia-complete-host .max-w-\[78\%\] {
+  max-width: 78%;
+}
+.folia-complete-host .mt-2 {
+  margin-top: 0.5rem;
+}
+.folia-complete-host .mt-3 {
+  margin-top: 0.75rem;
+}
+.folia-complete-host .gap-2\.5 {
+  gap: 0.625rem;
+}
+.folia-complete-host .gap-3 {
+  gap: 0.75rem;
+}
+.folia-complete-host .gap-4 {
+  gap: 1rem;
+}
+.folia-complete-host .gap-8 {
+  gap: 2rem;
+}
+.folia-complete-host .pt-12 {
+  padding-top: 3rem;
+}
+.folia-complete-host .pb-16 {
+  padding-bottom: 4rem;
+}
+.folia-complete-host .pb-36 {
+  padding-bottom: 9rem;
+}
+.folia-complete-host .px-3 {
+  padding-left: 0.75rem;
+  padding-right: 0.75rem;
+}
+.folia-complete-host .px-6 {
+  padding-left: 1.5rem;
+  padding-right: 1.5rem;
+}
+.folia-complete-host .px-12 {
+  padding-left: 3rem;
+  padding-right: 3rem;
+}
+.folia-complete-host .py-5 {
+  padding-top: 1.25rem;
+  padding-bottom: 1.25rem;
+}
+.folia-complete-host .opacity-30 {
+  opacity: 0.3;
+}
+.folia-complete-host .opacity-80 {
+  opacity: 0.8;
+}
+.folia-complete-host .opacity-100 {
+  opacity: 1;
+}
+.folia-complete-host .opacity-\[0\.65\] {
+  opacity: 0.65;
+}
+.folia-complete-host .text-xl {
+  font-size: 1.25rem;
+  line-height: 1.75rem;
+}
+.folia-complete-host .text-3xl {
+  font-size: 1.875rem;
+  line-height: 2.25rem;
+}
+.folia-complete-host .text-\[11px\] {
+  font-size: 11px;
+}
+.folia-complete-host .text-\[2\.5rem\] {
+  font-size: 2.5rem;
+}
+.folia-complete-host .drop-shadow-md {
+  filter: drop-shadow(0 4px 3px rgb(0 0 0 / 0.07))
+    drop-shadow(0 2px 2px rgb(0 0 0 / 0.06));
+}
+.folia-complete-host .drop-shadow-sm {
+  filter: drop-shadow(0 1px 1px rgb(0 0 0 / 0.05));
+}
+.folia-complete-host .shadow-lg {
+  box-shadow: 0 10px 15px -3px rgb(0 0 0 / 0.1), 0 4px 6px -4px rgb(0 0 0 / 0.1);
+}
+.folia-complete-host .duration-200 {
+  transition-duration: 200ms;
+}
+.folia-complete-host
+  .transition-\[color\,background-color\,border-color\,opacity\] {
+  transition-property: color, background-color, border-color, opacity;
+}
+.folia-complete-host .transition-\[min-height\,box-shadow\,background-color\] {
+  transition-property: min-height, box-shadow, background-color;
+}
+.folia-complete-host .will-change-transform {
+  will-change: transform;
+}
+.folia-complete-host .-z-10 {
+  z-index: -10;
+}
+.folia-complete-host .z-\[5\] {
+  z-index: 5;
+}
+.folia-complete-host .-inset-y-14 {
+  top: -3.5rem;
+  bottom: -3.5rem;
+}
+.folia-complete-host .-top-10 {
+  top: -2.5rem;
+}
+.folia-complete-host .-top-3 {
+  top: -0.75rem;
+}
+.folia-complete-host .top-1\/2 {
+  top: 50%;
+}
+.folia-complete-host .right-8 {
+  right: 2rem;
+}
+.folia-complete-host .bottom-0 {
+  bottom: 0;
+}
+.folia-complete-host .min-h-0 {
+  min-height: 0;
+}
+.folia-complete-host .min-w-0 {
+  min-width: 0;
+}
+.folia-complete-host .max-w-full {
+  max-width: 100%;
+}
+.folia-complete-host .flex-1 {
+  flex: 1 1 0%;
+}
+.folia-complete-host .hidden {
+  display: none;
+}
+.folia-complete-host .h-14 {
+  height: 3.5rem;
+}
+.folia-complete-host .h-2\.5 {
+  height: 0.625rem;
+}
+.folia-complete-host .w-2\.5 {
+  width: 0.625rem;
+}
+.folia-complete-host .w-3 {
+  width: 0.75rem;
+}
+.folia-complete-host .mb-3 {
+  margin-bottom: 0.75rem;
+}
+.folia-complete-host .mb-6 {
+  margin-bottom: 1.5rem;
+}
+.folia-complete-host .mt-auto {
+  margin-top: auto;
+}
+.folia-complete-host .px-5 {
+  padding-left: 1.25rem;
+  padding-right: 1.25rem;
+}
+.folia-complete-host .pt-4 {
+  padding-top: 1rem;
+}
+.folia-complete-host .py-2 {
+  padding-top: 0.5rem;
+  padding-bottom: 0.5rem;
+}
+.folia-complete-host .p-2 {
+  padding: 0.5rem;
+}
+.folia-complete-host .p-1\.5 {
+  padding: 0.375rem;
+}
+.folia-complete-host .space-y-1 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.25rem;
+}
+.folia-complete-host .space-y-1\.5 > :not([hidden]) ~ :not([hidden]) {
+  margin-top: 0.375rem;
+}
+.folia-complete-host .font-semibold {
+  font-weight: 600;
+}
+.folia-complete-host .leading-\[1\.06\] {
+  line-height: 1.06;
+}
+.folia-complete-host .text-sm {
+  font-size: 0.875rem;
+  line-height: 1.25rem;
+}
+.folia-complete-host .text-xs {
+  font-size: 0.75rem;
+  line-height: 1rem;
+}
+.folia-complete-host .uppercase {
+  text-transform: uppercase;
+}
+.folia-complete-host .line-clamp-2 {
+  display: -webkit-box;
+  overflow: hidden;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+}
+.folia-complete-host .border-2 {
+  border-width: 2px;
+}
+.folia-complete-host .border-dashed {
+  border-style: dashed;
+}
+.folia-complete-host .rounded-\[2\.5rem\] {
+  border-radius: 2.5rem;
+}
+.folia-complete-host .rounded-\[2rem\] {
+  border-radius: 2rem;
+}
+.folia-complete-host .rounded-\[2\.15rem\] {
+  border-radius: 2.15rem;
+}
+.folia-complete-host .rounded-\[1\.85rem\] {
+  border-radius: 1.85rem;
+}
+.folia-complete-host .shadow-md {
+  box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1),
+    0 2px 4px -2px rgb(0 0 0 / 0.1);
+}
+.folia-complete-host .backdrop-blur-sm {
+  -webkit-backdrop-filter: blur(4px);
+  backdrop-filter: blur(4px);
+}
+.folia-complete-host .backdrop-blur-md {
+  -webkit-backdrop-filter: blur(12px);
+  backdrop-filter: blur(12px);
+}
+.folia-complete-host .transition-transform {
+  transition-property: transform, translate, scale, rotate;
+}
+.folia-complete-host .transition-\[box-shadow\,background-color\] {
+  transition-property: box-shadow, background-color;
+}
+.folia-complete-host
+  .transition-\[box-shadow\,background-color\,border-color\] {
+  transition-property: box-shadow, background-color, border-color;
+}
+.folia-complete-host [style*='cappella-char-fade'] {
+  animation-fill-mode: both;
+}
+.folia-complete-host .animate-pulse {
+  animation: folia-complete-pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}
+@keyframes folia-complete-pulse {
+  50% {
+    opacity: 0.5;
+  }
+}
+.folia-complete-host
+  .bg-\[radial-gradient\(ellipse_at_center\,transparent_0\%\,\#000_100\%\)\] {
+  background-image: radial-gradient(
+    ellipse at center,
+    transparent 0%,
+    #000 100%
+  );
+}
+.folia-complete-host
+  .folia-complete-background-root[data-stage-paused='true']
+  *,
+.folia-complete-host
+  .folia-complete-background-root[data-stage-paused='true']
+  *::before,
+.folia-complete-host
+  .folia-complete-background-root[data-stage-paused='true']
+  *::after {
+  animation-play-state: paused !important;
+}
+
+@media (min-width: 640px) {
+  .folia-complete-host .sm\:max-w-\[68\%\] {
+    max-width: 68%;
+  }
+  .folia-complete-host .sm\:pb-40 {
+    padding-bottom: 10rem;
+  }
+  .folia-complete-host .sm\:pt-16 {
+    padding-top: 4rem;
+  }
+  .folia-complete-host .sm\:px-8 {
+    padding-left: 2rem;
+    padding-right: 2rem;
+  }
+  .folia-complete-host .sm\:w-\[68\%\] {
+    width: 68%;
+  }
+}
+
+@media (min-width: 1024px) {
+  .folia-complete-host .lg\:pt-20 {
+    padding-top: 5rem;
+  }
+  .folia-complete-host .lg\:px-14 {
+    padding-left: 3.5rem;
+    padding-right: 3.5rem;
+  }
+  .folia-complete-host .lg\:w-\[60\%\] {
+    width: 60%;
+  }
+}

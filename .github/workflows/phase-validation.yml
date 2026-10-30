@@ -17,15 +17,24 @@ jobs:
           node-version: 16
           cache: yarn
       - run: yarn install --frozen-lockfile
+      - name: Cache verified Folia analysis models
+        uses: actions/cache@v4
+        with:
+          path: public/pv/models
+          key: folia-models-v1-6365ae5b-27d5331a
       - name: Production web build
         env:
           VUE_APP_DOCKER_KTV: 'true'
+          VUE_APP_NETEASE_API_URL: '/api'
         run: yarn build
       - name: KTV source formatting
         run: >-
           ./node_modules/.bin/prettier --check
           src/utils/lyricsSettings.js src/views/lyrics.vue src/views/settings.vue
           src/utils/lyricStageModes.js src/components/karaoke/KaraokeLyricScene.vue
+          src/components/karaoke/KaraokePvScene.vue src/karaoke/folia/*.js
+          src/components/karaoke/ReactionOverlay.vue src/components/karaoke/ReactionActor.vue src/karaoke/moodMates.js
+          src/karaoke/folia/*.ts scripts/build-folia-pv.cjs scripts/vendor-folia-pv.cjs
           src/views/karaokeWeb.vue
           src/views/karaoke.vue src/views/karaokeRemote.vue src/App.vue
           src/karaoke/*.js src/utils/Player.js src/store/index.js
@@ -34,6 +43,7 @@ jobs:
           src/remote/*.js src/remote/*.css vue.config.js
           scripts/test-karaoke-server.js scripts/test-karaoke-lifecycle.js
           scripts/test-karaoke-remote-api.js scripts/test-karaoke-player.js
+          scripts/test-music-reaction-linkage.js
           scripts/test-safe-storage.js scripts/isolate-remote-assets.js
           src/utils/safeStorage.js src/utils/request.js src/utils/updateApp.js
           src/utils/auth.js src/api/track.js src/utils/common.js package.json
@@ -42,6 +52,8 @@ jobs:
           ./node_modules/.bin/eslint
           src/utils/lyricsSettings.js src/views/lyrics.vue src/views/settings.vue
           src/utils/lyricStageModes.js src/components/karaoke/KaraokeLyricScene.vue
+          src/components/karaoke/KaraokePvScene.vue src/karaoke/folia/*.js
+          src/components/karaoke/ReactionOverlay.vue src/components/karaoke/ReactionActor.vue src/karaoke/moodMates.js
           src/views/karaokeWeb.vue
           src/views/karaoke.vue src/views/karaokeRemote.vue src/App.vue
           src/karaoke/*.js src/utils/Player.js src/store/index.js
@@ -50,6 +62,7 @@ jobs:
           src/remote/*.js vue.config.js
           scripts/test-karaoke-server.js scripts/test-karaoke-lifecycle.js
           scripts/test-karaoke-remote-api.js scripts/test-karaoke-player.js
+          scripts/test-music-reaction-linkage.js
           scripts/test-safe-storage.js scripts/isolate-remote-assets.js
           src/utils/safeStorage.js src/utils/request.js src/utils/updateApp.js
           src/utils/auth.js src/api/track.js src/utils/common.js
@@ -57,6 +70,8 @@ jobs:
         run: node scripts/test-karaoke-domain.js
       - name: Lyric stage mode compatibility
         run: node scripts/test-lyric-stage-modes.js
+      - name: Original Folia PV compilers and clock
+        run: node scripts/test-folia-pv.js
       - name: KTV Player persistence and cancellation
         run: node scripts/test-karaoke-player.js
       - name: KTV LAN room server
@@ -74,12 +89,32 @@ jobs:
       - name: Docker KTV host and browser transport
         run: |
           node scripts/test-karaoke-web-host.js
+          node scripts/test-karaoke-reactions.js
+          node scripts/test-music-reaction-linkage.js
+          node scripts/test-reaction-loader.js
           node scripts/test-karaoke-web-bridge.js
           node scripts/test-karaoke-display.js
           node scripts/test-karaoke-display-client.js
           node scripts/test-karaoke-display-preferences.js
           node scripts/test-karaoke-display-lifecycle.js
           node scripts/build-ktv-server.js
+      - name: Folia visual configuration, assets and lifecycle
+        run: |
+          node scripts/test-karaoke-visual-config.js
+          node scripts/test-karaoke-visual-assets.js
+          node scripts/test-karaoke-visual-upload-preflight.js
+          node scripts/test-folia-render.js
+          node scripts/test-folia-lifecycle.js
+          node scripts/test-folia-tempera-assets.js
+          node scripts/test-karaoke-visual-preview.js
+          node scripts/test-karaoke-preference-storage.js
+          node scripts/test-karaoke-display-analysis-retry.js
+          node scripts/test-folia-build-policy.js
+          node scripts/test-smartbeat-integration.js
+      - name: Verify analysis models and CPU-side contracts
+        run: |
+          node scripts/fetch-folia-models.cjs
+          node scripts/test-smartbeat-analysis.js
       - name: Full repository lint diagnostic (known upstream failures)
         continue-on-error: true
         run: yarn lint

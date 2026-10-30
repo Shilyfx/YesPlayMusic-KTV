@@ -1,10 +1,19 @@
-// Keep the original stage as the default for existing and invalid settings.
-export const stageModeOptions = Object.freeze([
-  { value: 'classic', label: '经典 · 原有舞台' },
-  { value: 'poem', label: '诗页 · 留白排版' },
-  { value: 'depth', label: '纵深 · 透视镜头' },
-  { value: 'orbit', label: '环轨 · 弧线叙事' },
-]);
+import {
+  getVisualModeMetadata,
+  stageModeOptions,
+} from '../karaoke/visualCatalog';
+
+export { stageModeOptions };
+
+export function isPvStageMode(mode) {
+  const metadata = getVisualModeMetadata(mode);
+  return Boolean(metadata && metadata.engine !== 'native');
+}
+
+export function supportsAnimationIntensity(mode) {
+  const metadata = getVisualModeMetadata(mode);
+  return Boolean(metadata && metadata.supportsIntensity);
+}
 
 export function normalizeStageMode(value) {
   return stageModeOptions.some(mode => mode.value === value)

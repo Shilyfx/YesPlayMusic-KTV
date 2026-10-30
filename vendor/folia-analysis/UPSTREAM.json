@@ -1,0 +1,151 @@
+{
+  "repository": "https://github.com/chthollyphile/folia-major",
+  "revision": "7a5f975e337e5ba13f55d72b5bc68983bf41c379",
+  "license": "AGPL-3.0",
+  "sourceFiles": [
+    {
+      "path": "LICENSE",
+      "sha256": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0"
+    },
+    {
+      "path": "shared/modelManifest.json",
+      "sha256": "5bc6486eae2c8fc0edbe0281a37bcdb06938d6d6bb84c2f30a8dcb3a9edc1e6b"
+    },
+    {
+      "path": "electron/analysis/packedWeights.cjs",
+      "sha256": "1f85eaab8e5212b8d47d1e078d86d7708d1839a7fb392f863013f2cb0d6391e5"
+    },
+    {
+      "path": "src/services/analysis/beatThis.ts",
+      "sha256": "e95e0aeb1da7cc3a6122719ac6f1ce3e78286db93c4e47c9e543da106a1a9fac"
+    },
+    {
+      "path": "src/services/analysis/beatThisGpu.ts",
+      "sha256": "bb7e28d38fa5c431f154118da61d591fb4bc9490c1f81922b1871cd09a9615ad"
+    },
+    {
+      "path": "src/services/analysis/drumHitStream.ts",
+      "sha256": "0ef4ab5e2b3c1139707a4ca3ceffe7bdcdcc621ff4f82127ef6e391b7586fcf9"
+    },
+    {
+      "path": "src/services/analysis/drumHits.ts",
+      "sha256": "ec9834602f63e33297f4aa123cd72764f2bdae341a28eb04dbdb5b2ae40fe867"
+    },
+    {
+      "path": "src/services/analysis/drumStem.ts",
+      "sha256": "4ccfcd6a6f4aeee09267bf474ec682b0772f8834655ba6ebc4dfcfe88d15dceb"
+    },
+    {
+      "path": "src/services/analysis/stemRange.ts",
+      "sha256": "3be5b50963638d77c6d07777f321a1b32311696ce2e659230f30676d8f547b57"
+    },
+    {
+      "path": "src/services/analysis/beatThisWgsl/kernels.ts",
+      "sha256": "172ca3c4fc3e04944214f7bdcaf66fd481052d32c967c984c9760f810a58463e"
+    },
+    {
+      "path": "src/services/analysis/beatThisWgsl/percussive.ts",
+      "sha256": "6fc1cc5699d62486520d6a0c51136649fb2691cb31f8f9e009ac92bc2e8933c8"
+    },
+    {
+      "path": "src/services/analysis/beatThisWgsl/runtime.ts",
+      "sha256": "88000eccccc18d09bc5e61c8b0d8bfa319f530d3b0c3d680fdf73095d06f4824"
+    },
+    {
+      "path": "src/services/analysis/htdemucsWgsl/kernels.ts",
+      "sha256": "7ad1b94587580edc822da1d68f86d0ae85da6885fc9caca8ff297ed0aea79c43"
+    },
+    {
+      "path": "src/services/analysis/htdemucsWgsl/runtime.ts",
+      "sha256": "4388c2bd157d43c8926d2056ef7fe6e8674d32e4d2f7c8b39ff8b2e4d5b39a56"
+    },
+    {
+      "path": "src/services/automix/signalAnalysis.ts",
+      "sha256": "1d43ee32bc80ff3df905023429673b29ac9b3770fba455efa38ebc0790444a2d"
+    },
+    {
+      "path": "src/services/automix/uiYield.ts",
+      "sha256": "a65e073d6c21305a962c78d9f41ff3f12b7508eee4aeefad8bb1cab70f9e3784"
+    },
+    {
+      "path": "src/services/analysis/trackAudio.ts",
+      "sha256": "ab1fecf4574dea71f37e87422375915138edcc2037d720754352845c75d1e7b3"
+    },
+    {
+      "path": "src/services/analysis/trackBytes.ts",
+      "sha256": "49d4cac4afb653b088b68dcda564c8dcbdec5123e35afac5619d2c9cd231ea90"
+    },
+    {
+      "path": "src/services/beatFx/beatFxSource.ts",
+      "sha256": "593e1f1eeda570955fbac08958dbf7b684136f8feae22115ff1af4cbd0f4cbb4"
+    },
+    {
+      "path": "src/workers/beatThisGpu.worker.ts",
+      "sha256": "96bcbccd57788f0f759d6b50811b8a5d382c4f52fe8960cf7b9c3b0cb12cc8d3"
+    }
+  ],
+  "modelManifestSha256": "5bc6486eae2c8fc0edbe0281a37bcdb06938d6d6bb84c2f30a8dcb3a9edc1e6b",
+  "models": [
+    {
+      "name": "beat_this",
+      "file": "beat_this-wgsl.bin",
+      "bytes": 41102271,
+      "sha256": "6365ae5ba2e42922772da01fbfd0bde8dd20b7362a679018e78a5f251fe8a967",
+      "license": "MIT",
+      "upstream": "https://github.com/CPJKU/beat_this"
+    },
+    {
+      "name": "htdemucs",
+      "file": "htdemucs-wgsl.bin",
+      "bytes": 91838176,
+      "sha256": "27d5331a74a4e23b18172b3d59d0378e698fd79bc0d0fed3316da77e3a37d8d1",
+      "license": "MIT",
+      "upstream": "https://huggingface.co/itamiArika/htdemucs-int8-memory"
+    }
+  ],
+  "adaptedFiles": [
+    "beatThisMath.ts",
+    "fft.ts",
+    "yield.ts",
+    "beatThisTypes.ts",
+    "drumHitMath.ts",
+    "drumHitStream.ts",
+    "stemSegmentMath.ts",
+    "drumStem.ts",
+    "beatThisWgsl/runtime.ts",
+    "beatThisWgsl/kernels.ts",
+    "beatThisWgsl/percussive.ts",
+    "htdemucsWgsl/runtime.ts",
+    "htdemucsWgsl/kernels.ts"
+  ],
+  "adaptations": {
+    "beatThisMath.ts": "Exact pure math extracted from beatThis.ts before its Electron-only runner guard; local FFT and task-yield imports.",
+    "drumHitMath.ts": "Exact rise-picking and drum-coverage functions extracted; Electron/WebAudio/cache host code omitted. Includes a Math.fround-preserving stereo energy reduction equivalent to the source Float32 mix buffer.",
+    "drumStem.ts": "Exact stereo segment and overlap-add algorithm with an injected GPU segment runner and awaited progress callback.",
+    "stemSegmentMath.ts": "Exact segment starts and triangular window with the pinned segment constant.",
+    "yield.ts": "Preserves the upstream 8 ms work budget and yields a worker task turn for cancellation."
+  },
+  "copiedModelManifest": "shared/modelManifest.json (byte-for-byte from the pinned source)",
+  "sourceHashByPath": {
+    "LICENSE": "0d96a4ff68ad6d4b6f1f30f713b18d5184912ba8dd389f86aa7710db079abcb0",
+    "shared/modelManifest.json": "5bc6486eae2c8fc0edbe0281a37bcdb06938d6d6bb84c2f30a8dcb3a9edc1e6b",
+    "electron/analysis/packedWeights.cjs": "1f85eaab8e5212b8d47d1e078d86d7708d1839a7fb392f863013f2cb0d6391e5",
+    "src/services/analysis/beatThis.ts": "e95e0aeb1da7cc3a6122719ac6f1ce3e78286db93c4e47c9e543da106a1a9fac",
+    "src/services/analysis/beatThisGpu.ts": "bb7e28d38fa5c431f154118da61d591fb4bc9490c1f81922b1871cd09a9615ad",
+    "src/services/analysis/drumHitStream.ts": "0ef4ab5e2b3c1139707a4ca3ceffe7bdcdcc621ff4f82127ef6e391b7586fcf9",
+    "src/services/analysis/drumHits.ts": "ec9834602f63e33297f4aa123cd72764f2bdae341a28eb04dbdb5b2ae40fe867",
+    "src/services/analysis/drumStem.ts": "4ccfcd6a6f4aeee09267bf474ec682b0772f8834655ba6ebc4dfcfe88d15dceb",
+    "src/services/analysis/stemRange.ts": "3be5b50963638d77c6d07777f321a1b32311696ce2e659230f30676d8f547b57",
+    "src/services/analysis/beatThisWgsl/kernels.ts": "172ca3c4fc3e04944214f7bdcaf66fd481052d32c967c984c9760f810a58463e",
+    "src/services/analysis/beatThisWgsl/percussive.ts": "6fc1cc5699d62486520d6a0c51136649fb2691cb31f8f9e009ac92bc2e8933c8",
+    "src/services/analysis/beatThisWgsl/runtime.ts": "88000eccccc18d09bc5e61c8b0d8bfa319f530d3b0c3d680fdf73095d06f4824",
+    "src/services/analysis/htdemucsWgsl/kernels.ts": "7ad1b94587580edc822da1d68f86d0ae85da6885fc9caca8ff297ed0aea79c43",
+    "src/services/analysis/htdemucsWgsl/runtime.ts": "4388c2bd157d43c8926d2056ef7fe6e8674d32e4d2f7c8b39ff8b2e4d5b39a56",
+    "src/services/automix/signalAnalysis.ts": "1d43ee32bc80ff3df905023429673b29ac9b3770fba455efa38ebc0790444a2d",
+    "src/services/automix/uiYield.ts": "a65e073d6c21305a962c78d9f41ff3f12b7508eee4aeefad8bb1cab70f9e3784",
+    "src/services/analysis/trackAudio.ts": "ab1fecf4574dea71f37e87422375915138edcc2037d720754352845c75d1e7b3",
+    "src/services/analysis/trackBytes.ts": "49d4cac4afb653b088b68dcda564c8dcbdec5123e35afac5619d2c9cd231ea90",
+    "src/services/beatFx/beatFxSource.ts": "593e1f1eeda570955fbac08958dbf7b684136f8feae22115ff1af4cbd0f4cbb4",
+    "src/workers/beatThisGpu.worker.ts": "96bcbccd57788f0f759d6b50811b8a5d382c4f52fe8960cf7b9c3b0cb12cc8d3"
+  }
+}

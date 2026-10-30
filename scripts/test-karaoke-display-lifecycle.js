@@ -27,6 +27,8 @@ vm.runInNewContext(code, {
       : localRequire(name),
   clearInterval,
   setInterval,
+  clearTimeout,
+  setTimeout,
   document: { hidden: false, removeEventListener() {} },
   window: { removeEventListener() {} },
 });
@@ -35,12 +37,12 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
 function fixture() {
   let stopped = 0;
   const instance = {
-    ...component.data(),
     ...component.methods,
     $route: { name: 'home' },
     $nextTick: async () => {},
     $refs: {},
     $store: {
+      dispatch() {},
       state: {
         player: { pause() {}, _initMediaSession() {} },
         webKtvDisplayOnly: false,
@@ -55,6 +57,11 @@ function fixture() {
     poller: { stop() {} },
     visibilityHandler() {},
   };
+  // Vue binds data() to the instance, including the injected store. Keep that
+  // contract when testing the unavailable-storage notification path in Node.
+  Object.assign(instance, component.data.call(instance));
+  instance.poller = { stop() {} };
+  instance.visibilityHandler = () => {};
   return { instance, stops: () => stopped };
 }
 (async () => {

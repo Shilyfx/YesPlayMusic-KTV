@@ -1,11 +1,32 @@
 import './styles.css';
 import createRefreshScheduler from './refreshScheduler';
+import { loadEmotionBall, loadMoodMates } from '../karaoke/moodMates';
+import {
+  ktvReactionChoices,
+  reactionCharacters,
+  reactionEffects,
+  normalizeReactionText,
+  resolveReaction,
+} from '../karaoke/reactions';
 
 const app = document.querySelector('#remote-app');
 const apiRoot = '/ktv/api';
 const roomCode = window.location.pathname.split('/').filter(Boolean).pop();
 const storageKey = `yesplaymusic-ktv:${roomCode}`;
 let client;
+function shuffleEffects(list) {
+  const copy = [...list];
+  for (let i = copy.length - 1; i > 0; i -= 1) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [copy[i], copy[j]] = [copy[j], copy[i]];
+  }
+  return copy;
+}
+const randomizedReactionEffects = shuffleEffects(reactionEffects);
+let reactionEffect = randomizedReactionEffects[0]?.id || 'bounce';
+let reactionEffectsExpanded = false;
+let reactionCharacter = 'ball';
+let reactionPreviewVersion = 0;
 let state;
 let searchTimer;
 let searchAbort;
@@ -49,15 +70,45 @@ let artistSearchAbort;
 let artistSearchGeneration = 0;
 let artistQuery = '';
 let artists = [];
-const featuredArtistQueries = [
-  '周杰伦',
-  '林俊杰',
-  '邓紫棋',
-  '陈奕迅',
-  '薛之谦',
-  '杨宗纬',
+const featuredArtistDefaults = [
+  {
+    id: '6452',
+    name: '周杰伦',
+    coverUrl: '/artist-portraits/6452.jpg',
+    albumCount: 38,
+  },
+  {
+    id: '3684',
+    name: '林俊杰',
+    coverUrl: '/artist-portraits/3684.jpg',
+    albumCount: 42,
+  },
+  {
+    id: '7763',
+    name: '邓紫棋',
+    coverUrl: '/artist-portraits/7763.jpg',
+    albumCount: 35,
+  },
+  {
+    id: '2116',
+    name: '陈奕迅',
+    coverUrl: '/artist-portraits/2116.jpg',
+    albumCount: 96,
+  },
+  {
+    id: '5781',
+    name: '薛之谦',
+    coverUrl: '/artist-portraits/5781.jpg',
+    albumCount: 28,
+  },
+  {
+    id: '6066',
+    name: '杨宗纬',
+    coverUrl: '/artist-portraits/6066.jpg',
+    albumCount: 18,
+  },
 ];
-let featuredArtists = [];
+let featuredArtists = featuredArtistDefaults.map(artist => ({ ...artist }));
 let featuredArtistsLoaded = false;
 let featuredArtistsPromise;
 let selectedArtistId = '';
@@ -67,6 +118,7 @@ let artistSelections = [];
 let selectedModule = 'search';
 let previewTrackId = '';
 let previewGeneration = 0;
+let requestToastTimer;
 const refreshScheduler = createRefreshScheduler(
   () => performRefresh(),
   () => !roomEnded
@@ -105,12 +157,29 @@ function api(path, options = {}) {
 
 function setNotice(message = '', kind = '') {
   const notice = app.querySelector('[data-notice]');
+  if (!notice) return;
   notice.textContent = message;
   notice.dataset.kind = kind;
   notice.classList.remove('notice-pop');
   if (kind === 'success') {
     requestAnimationFrame(() => notice.classList.add('notice-pop'));
   }
+}
+
+function showRequestToast(message = '点歌成功', kind = 'success') {
+  const toast = app.querySelector('[data-request-toast]');
+  if (!toast) return;
+  clearTimeout(requestToastTimer);
+  toast.textContent = message;
+  toast.dataset.kind = kind;
+  toast.hidden = false;
+  toast.classList.remove('toast-active');
+  void toast.offsetWidth;
+  toast.classList.add('toast-active');
+  requestToastTimer = setTimeout(() => {
+    toast.classList.remove('toast-active');
+    toast.hidden = true;
+  }, 950);
 }
 
 function formatDuration(milliseconds) {
@@ -141,10 +210,27 @@ function itemMarkup(item, index, own = false) {
 function initializeModuleTabs() {
   const panels = [...app.querySelectorAll('[data-module-panel]')];
   const tabs = [...app.querySelectorAll('[data-module-tab]')];
-  const update = module => {
+  const update = tabId => {
+    const module = tabId === 'local-playlists' ? 'playlists' : tabId;
     selectedModule = module;
+    if (tabId === 'local-playlists') {
+      playlistSource = 'local';
+      renderPlaylistSource();
+    } else if (tabId === 'playlists') {
+      playlistSource = 'user';
+      renderPlaylistSource();
+    }
     tabs.forEach(tab => {
-      const active = tab.dataset.moduleTab === module;
+      const isPlaylistTab =
+        tab.dataset.moduleTab === 'playlists' ||
+        tab.dataset.moduleTab === 'local-playlists';
+      const active = isPlaylistTab
+        ? module === 'playlists' &&
+          ((tab.dataset.moduleTab === 'local-playlists' &&
+            playlistSource === 'local') ||
+            (tab.dataset.moduleTab === 'playlists' &&
+              playlistSource === 'user'))
+        : tab.dataset.moduleTab === module;
       tab.classList.toggle('active', active);
       tab.setAttribute('aria-selected', String(active));
     });
@@ -165,7 +251,7 @@ function initializeShell() {
   app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">LUMASING · LAN KTV</p><h1 data-room-name>LumaSing KTV</h1></div><label class="theme-picker">主题<select data-theme><option value="auto">跟随系统</option><option value="light">浅色</option><option value="dark">深色</option></select></label></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div><div class="local-playlist-block"><div class="section-heading"><div><p class="section-label">主机本地目录</p><h3>本地歌单</h3></div><button class="quiet" type="button" data-local-playlists-refresh>刷新本地歌单</button></div><label>选择本地歌单<select data-local-playlist><option value="">正在加载本地歌单…</option></select></label><div class="playlist-track-list" data-local-playlist-tracks><div class="hint">主机尚未配置本地音乐目录。</div></div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section></section></main>`;
   app.insertAdjacentHTML(
     'beforeend',
-    '<div class="preview-float" data-preview-float hidden><button type="button" class="preview-float-toggle" data-preview-toggle="true" aria-label="播放试听" title="播放或暂停试听">▶</button><strong data-preview-title>试听</strong><button type="button" class="preview-float-close" data-preview-stop="true" aria-label="关闭试听" title="关闭试听">×</button><audio data-preview-audio preload="none"></audio></div>'
+    '<div class="request-toast" data-request-toast role="status" aria-live="polite" hidden>点歌成功</div><div class="preview-float" data-preview-float hidden><button type="button" class="preview-float-toggle" data-preview-toggle="true" aria-label="播放试听" title="播放或暂停试听">▶</button><strong data-preview-title>试听</strong><button type="button" class="preview-float-close" data-preview-stop="true" aria-label="关闭试听" title="关闭试听">×</button><audio data-preview-audio preload="none"></audio></div>'
   );
   const previewAudio = app.querySelector('[data-preview-audio]');
   ['play', 'pause', 'ended'].forEach(eventName =>
@@ -264,8 +350,12 @@ function initializeShell() {
     ['.playlist-area', 'playlists'],
     ['.history-area', 'history'],
     ['.queue-grid', 'queue'],
+    ['.reaction-studio', 'reactions'],
   ];
   const firstPanel = app.querySelector('.now-playing');
+  if (process.env.VUE_APP_DOCKER_KTV === 'true') {
+    firstPanel?.insertAdjacentHTML('afterend', reactionStudioMarkup());
+  }
   moduleMap.forEach(([selector, module]) => {
     const panel = app.querySelector(selector);
     if (panel) {
@@ -275,8 +365,15 @@ function initializeShell() {
   });
   firstPanel?.insertAdjacentHTML(
     'afterend',
-    '<nav class="module-tabs" role="tablist" aria-label="点歌模块"><button type="button" role="tab" data-module-tab="search">搜索歌曲</button><button type="button" role="tab" data-module-tab="recommendations">推荐歌单</button><button type="button" role="tab" data-module-tab="artists">歌手点歌</button><button type="button" role="tab" data-module-tab="playlists">我的歌单</button><button type="button" role="tab" data-module-tab="queue">等待队列</button><button type="button" role="tab" data-module-tab="history">已播放</button></nav>'
+    '<nav class="module-tabs" role="tablist" aria-label="点歌模块"><button type="button" role="tab" data-module-tab="search">搜索歌曲</button><button type="button" role="tab" data-module-tab="recommendations">推荐歌单</button><button type="button" role="tab" data-module-tab="artists">歌手点歌</button><button type="button" role="tab" data-module-tab="local-playlists">本地歌单</button><button type="button" role="tab" data-module-tab="playlists">我的歌单</button><button type="button" role="tab" data-module-tab="queue">等待队列</button><button type="button" role="tab" data-module-tab="history">已播放</button></nav>'
   );
+  if (process.env.VUE_APP_DOCKER_KTV === 'true')
+    app
+      .querySelector('.module-tabs')
+      ?.insertAdjacentHTML(
+        'beforeend',
+        '<button type="button" role="tab" data-module-tab="reactions">互动应援</button>'
+      );
   app.querySelector('[data-theme]').value = theme;
   app.querySelector('[data-theme]').addEventListener('change', event => {
     localStorage.setItem('yesplaymusic-ktv-theme', event.target.value);
@@ -307,9 +404,45 @@ function initializeShell() {
   app.addEventListener('click', event => {
     const button = event.target.closest('button');
     if (!button) return;
-    if (button.dataset.request) requestSong(button.dataset.request, false);
+    if (button.dataset.characterChoice) {
+      reactionCharacter = button.dataset.characterChoice;
+      app
+        .querySelectorAll('[data-character-choice]')
+        .forEach(item =>
+          item.setAttribute('aria-pressed', String(item === button))
+        );
+      renderReactionGrid();
+    } else if (button.hasAttribute('data-custom-reaction')) {
+      const editor = app.querySelector('[data-reaction-custom-editor]');
+      editor.hidden = !editor.hidden;
+      button.setAttribute('aria-expanded', String(!editor.hidden));
+      if (!editor.hidden)
+        app.querySelector('[data-reaction-custom-text]').focus();
+    } else if (button.hasAttribute('data-clear-reaction-text')) {
+      app.querySelector('[data-reaction-custom-text]').value = '';
+      updateReactionCustomText();
+    } else if (button.hasAttribute('data-toggle-more-effects')) {
+      reactionEffectsExpanded = !reactionEffectsExpanded;
+      const moreContainer = app.querySelector('[data-more-reaction-effects]');
+      if (moreContainer) moreContainer.hidden = !reactionEffectsExpanded;
+      button.setAttribute('aria-expanded', String(reactionEffectsExpanded));
+      const hiddenCount = Math.max(0, randomizedReactionEffects.length - 6);
+      button.textContent = reactionEffectsExpanded
+        ? '收起更多登场方式'
+        : `展开更多登场方式（${hiddenCount}）`;
+    } else if (button.dataset.effectChoice) {
+      reactionEffect = button.dataset.effectChoice;
+      app
+        .querySelectorAll('[data-effect-choice]')
+        .forEach(item =>
+          item.setAttribute('aria-pressed', String(item === button))
+        );
+    } else if (button.dataset.reaction)
+      sendReaction(button.dataset.reaction, button);
+    else if (button.dataset.request)
+      requestSong(button.dataset.request, false, button);
     else if (button.dataset.priority)
-      requestSong(button.dataset.priority, true);
+      requestSong(button.dataset.priority, true, button);
     else if (button.dataset.preview) previewTrack(button.dataset.preview);
     else if (button.hasAttribute('data-preview-toggle'))
       togglePreviewPlayback();
@@ -329,7 +462,68 @@ function initializeShell() {
     else if (button.dataset.front)
       mutate(`/requests/${button.dataset.front}/front`, 'POST');
   });
+  app
+    .querySelector('[data-reaction-custom-text]')
+    ?.addEventListener('input', updateReactionCustomText);
   initializeModuleTabs();
+}
+
+async function sendReaction(kind, button) {
+  if (!client?.clientToken) {
+    setNotice('正在连接房间，请稍后再试', 'error');
+    return;
+  }
+  button.disabled = true;
+  try {
+    const effect = reactionEffect;
+    const customText = normalizeReactionText(
+      app.querySelector('[data-reaction-custom-text]')?.value
+    );
+    const result = await api('/reactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        kind,
+        effect,
+        character: reactionCharacter,
+        ...(kind === 'emotion' ? { emotionId: button.dataset.emotionId } : {}),
+        ...(customText ? { customText } : {}),
+      }),
+    });
+    const labelText =
+      customText ||
+      resolveReaction({ kind, emotionId: button.dataset.emotionId })?.label ||
+      '应援';
+    const isQueued = result?.status === 'queued';
+    const isReplaced = result?.status === 'replaced';
+    setNotice(
+      isQueued
+        ? `已加入排队（第 ${result.queuePosition || 1} 位），即将登场`
+        : isReplaced
+        ? '已更新当前登场表情'
+        : '表情已送出',
+      'success'
+    );
+    const feedback = app.querySelector('[data-reaction-feedback]');
+    if (feedback)
+      feedback.textContent = isQueued
+        ? `排队中「${labelText}」· 第 ${result.queuePosition || 1} 位等待登场`
+        : `已送出「${labelText}」· 看看舞台上的角色`;
+  } catch (error) {
+    setNotice(
+      (error.code || error.message) === 'INVALID_REACTION_TEXT'
+        ? '自定义内容最多40个字符，请缩短后发送'
+        : error.code === 'REACTION_QUEUE_FULL'
+        ? '当前舞台互动较多，请稍后再试'
+        : error.code === 'RATE_LIMIT'
+        ? '发送太快，请稍后再试'
+        : '表情发送失败，请稍后重试',
+      'error'
+    );
+  } finally {
+    setTimeout(() => {
+      if (button.isConnected) button.disabled = false;
+    }, 500);
+  }
 }
 
 function renderNowPlaying() {
@@ -531,7 +725,10 @@ function trackRequestMarkup(track, className = '') {
       ? '不可播放'
       : availability === 'error'
       ? '检测失败'
-      : '待检测';
+      : '';
+  const availabilityMarkup = label
+    ? ` · <b class="availability ${availability}">${label}</b>`
+    : '';
   const disabled = availability !== 'unknown' && availability !== 'playable';
   const previewButton =
     track.source === 'local'
@@ -542,7 +739,13 @@ function trackRequestMarkup(track, className = '') {
           previewTrackId === trackId ? '暂停试听' : '试听'
         }</button>`;
   const sourceLabel = track.source === 'local' ? '本地歌曲 · ' : '';
-  return `<article class="result-card ${className}"><div class="result-info"><strong>${escape(
+  const coverThumb =
+    track.source === 'local' && track.coverUrl
+      ? `<img class="result-cover" src="${escape(
+          track.coverUrl
+        )}" alt="" loading="lazy" />`
+      : '';
+  return `<article class="result-card ${className}">${coverThumb}<div class="result-info"><strong>${escape(
     track.name
   )}</strong><p>${escape((track.artists || []).join(' / '))} · ${escape(
     track.album || '未知专辑'
@@ -550,7 +753,7 @@ function trackRequestMarkup(track, className = '') {
     track.versionLabel ? `${escape(track.versionLabel)} · ` : ''
   }${formatDuration(
     track.duration
-  )} · <b class="availability ${availability}">${label}</b></small></div><div class="request-actions">${previewButton}<button data-request="${escape(
+  )}${availabilityMarkup}</small></div><div class="request-actions">${previewButton}<button data-request="${escape(
     trackId
   )}" ${
     disabled ? 'disabled' : ''
@@ -772,20 +975,34 @@ function renderFeaturedArtists({ loading = false } = {}) {
 }
 
 async function loadFeaturedArtists({ force = false } = {}) {
+  if (!client?.clientToken) {
+    renderFeaturedArtists();
+    return;
+  }
   if (featuredArtistsPromise) return featuredArtistsPromise;
   if (featuredArtistsLoaded && !force) return;
-  renderFeaturedArtists({ loading: true });
+  if (!featuredArtists.length) {
+    featuredArtists = featuredArtistDefaults.map(artist => ({ ...artist }));
+  }
+  renderFeaturedArtists();
   featuredArtistsPromise = (async () => {
     try {
       const results = await Promise.all(
-        featuredArtistQueries.map(async query => {
+        featuredArtistDefaults.map(async fallback => {
           try {
             const response = await api(
-              `/artists/search?q=${encodeURIComponent(query)}`
+              `/artists/search?q=${encodeURIComponent(fallback.name)}`
             );
-            return response.artists?.[0] || null;
+            const matched =
+              (response.artists || []).find(
+                item =>
+                  String(item.id) === fallback.id || item.name === fallback.name
+              ) || response.artists?.[0];
+            return matched
+              ? { ...fallback, ...matched, coverUrl: fallback.coverUrl }
+              : { ...fallback };
           } catch (_) {
-            return null;
+            return { ...fallback };
           }
         })
       );
@@ -795,12 +1012,14 @@ async function loadFeaturedArtists({ force = false } = {}) {
           (artist, index, list) =>
             list.findIndex(item => item.id === artist.id) === index
         );
+      featuredArtistsLoaded = featuredArtists.length > 0;
       renderFeaturedArtists();
     } catch (_) {
-      featuredArtists = [];
+      if (!featuredArtists.length) {
+        featuredArtists = featuredArtistDefaults.map(artist => ({ ...artist }));
+      }
       renderFeaturedArtists();
     } finally {
-      featuredArtistsLoaded = true;
       featuredArtistsPromise = null;
     }
   })();
@@ -888,6 +1107,19 @@ function renderPlaylistSource() {
 function togglePlaylistSource() {
   playlistSource = playlistSource === 'local' ? 'user' : 'local';
   renderPlaylistSource();
+  app.querySelectorAll('[data-module-tab]').forEach(tab => {
+    const isPlaylistTab =
+      tab.dataset.moduleTab === 'playlists' ||
+      tab.dataset.moduleTab === 'local-playlists';
+    if (!isPlaylistTab) return;
+    const active =
+      selectedModule === 'playlists' &&
+      ((tab.dataset.moduleTab === 'local-playlists' &&
+        playlistSource === 'local') ||
+        (tab.dataset.moduleTab === 'playlists' && playlistSource === 'user'));
+    tab.classList.toggle('active', active);
+    tab.setAttribute('aria-selected', String(active));
+  });
   ensureModuleLoaded('playlists');
 }
 
@@ -898,12 +1130,132 @@ function refreshPlaylistSource() {
 }
 
 function ensureModuleLoaded(module) {
+  if (module === 'reactions') return loadReactionPreviews();
+  if (!client?.clientToken) {
+    if (module === 'artists') renderFeaturedArtists();
+    return Promise.resolve();
+  }
   if (module === 'recommendations') return loadRecommendations();
   if (module === 'artists') return loadFeaturedArtists();
   if (module === 'playlists') {
     return playlistSource === 'local' ? loadLocalPlaylists() : loadPlaylists();
   }
   return Promise.resolve();
+}
+
+function prefetchCatalogModules() {
+  if (!client?.clientToken) return;
+  loadRecommendations();
+  loadFeaturedArtists();
+  loadLocalPlaylists();
+  loadPlaylists({ silent: true });
+}
+
+function reactionCardsMarkup() {
+  return ktvReactionChoices
+    .map(
+      item =>
+        `<button type="button" class="reaction-card" data-reaction="${item.kind}" data-emotion-id="${item.emotion}"><span class="reaction-preview" data-reaction-preview="${item.emotion}" aria-hidden="true"></span><strong>${item.label}</strong><small>${item.caption}</small></button>`
+    )
+    .join('');
+}
+
+function effectButtonMarkup(item) {
+  return `<button type="button" data-effect-choice="${escape(
+    item.id
+  )}" aria-pressed="${
+    item.id === reactionEffect
+  }"><span class="effect-sketch ${escape(item.sketch)}"></span><strong>${escape(
+    item.label
+  )}</strong><small>${escape(item.caption)}</small></button>`;
+}
+
+function reactionEffectsMarkup() {
+  const primary = randomizedReactionEffects.slice(0, 6);
+  const extra = randomizedReactionEffects.slice(6);
+  const primaryHtml = `<div class="reaction-effects" role="group" aria-label="出场方式">${primary
+    .map(effectButtonMarkup)
+    .join('')}</div>`;
+  if (!extra.length) return primaryHtml;
+  const extraHtml = `<div class="reaction-effects reaction-effects-extra" data-more-reaction-effects role="group" aria-label="更多出场方式" ${
+    reactionEffectsExpanded ? '' : 'hidden'
+  }>${extra
+    .map(effectButtonMarkup)
+    .join(
+      ''
+    )}</div><div class="reaction-effects-more-wrap"><button type="button" class="quiet reaction-effects-toggle" data-toggle-more-effects aria-expanded="${reactionEffectsExpanded}">${
+    reactionEffectsExpanded
+      ? '收起更多登场方式'
+      : `展开更多登场方式（${extra.length}）`
+  }</button></div>`;
+  return primaryHtml + extraHtml;
+}
+
+function reactionStudioMarkup() {
+  return `<section class="reaction-studio glass" aria-label="互动应援"><div class="section-heading"><div><p class="section-label">把气氛送上舞台</p><h2>互动应援站</h2></div><span class="reaction-hint">选角色、选出场方式，再把表情送上舞台</span></div><div class="reaction-characters" role="group" aria-label="选择角色">${reactionCharacters
+    .map(
+      item =>
+        `<button type="button" data-character-choice="${
+          item.id
+        }" aria-pressed="${
+          item.id === reactionCharacter
+        }"><span class="reaction-preview" data-reaction-preview="10" data-preview-character="${
+          item.id
+        }" aria-hidden="true"></span><strong>${item.label}</strong></button>`
+    )
+    .join(
+      ''
+    )}</div>${reactionEffectsMarkup()}<div class="reaction-custom"><button type="button" data-custom-reaction aria-expanded="false" aria-controls="reaction-custom-editor">自定义内容</button><div id="reaction-custom-editor" data-reaction-custom-editor hidden><label>这次想说的话<input type="text" data-reaction-custom-text maxlength="80" autocomplete="off" placeholder="例如：这首唱给今晚的你" /></label><div class="reaction-custom-actions"><small data-reaction-text-count>0 / 40</small><button type="button" data-clear-reaction-text>恢复默认文字</button></div><p>填写后替换应援文字，留空使用默认内容。</p></div></div><p class="reaction-instruction">选一个表情，把应援送上舞台</p><div class="reaction-grid">${reactionCardsMarkup()}</div><p class="reaction-feedback" role="status" data-reaction-feedback>你的应援将出现在主屏和副屏</p></section>`;
+}
+
+function updateReactionCustomText() {
+  const input = app.querySelector('[data-reaction-custom-text]');
+  if (!input) return;
+  const length = Array.from(input.value).length;
+  const count = app.querySelector('[data-reaction-text-count]');
+  count.textContent = `${length} / 40`;
+  count.classList.toggle('over-limit', length > 40);
+  app.querySelector('[data-custom-reaction]').textContent = input.value.trim()
+    ? '自定义内容 · 使用中'
+    : '自定义内容';
+}
+
+function renderReactionGrid() {
+  const grid = app.querySelector('.reaction-grid');
+  if (grid) grid.innerHTML = reactionCardsMarkup();
+  loadReactionPreviews();
+}
+
+async function loadReactionPreviews() {
+  const version = ++reactionPreviewVersion;
+  try {
+    const [ball, mates] = await Promise.all([
+      loadEmotionBall(),
+      loadMoodMates(),
+    ]);
+    if (version !== reactionPreviewVersion) return;
+    app.querySelectorAll('[data-reaction-preview]').forEach(node => {
+      const character = node.dataset.previewCharacter || reactionCharacter;
+      const key = `${character}:${node.dataset.reactionPreview}`;
+      if (node.dataset.rendered === key) return;
+      const library = character === 'ball' ? ball : mates;
+      node.innerHTML = '';
+      const instance = library.create(node, {
+        character,
+        emotion: node.dataset.reactionPreview,
+        autostart: false,
+        idle: false,
+        lite: true,
+      });
+      const markup = node.innerHTML;
+      instance.destroy();
+      node.innerHTML = markup;
+      node.dataset.rendered = key;
+    });
+  } catch (_) {
+    if (version === reactionPreviewVersion)
+      setNotice('角色预览加载失败，请重新打开互动应援', 'error');
+  }
 }
 
 function renderPlaylistPicker() {
@@ -1087,13 +1439,15 @@ async function selectToplist(playlistId) {
   }
 }
 
-async function loadRecommendations({ force = false } = {}) {
+async function loadRecommendations({ force = false, silent = false } = {}) {
+  if (!client?.clientToken) return;
   if (recommendationsPromise) return recommendationsPromise;
   if (recommendationsLoaded && !force) return;
   recommendationsPromise = (async () => {
     try {
       const response = await api('/recommendations');
       recommendations = response.playlists || [];
+      recommendationsLoaded = recommendations.length > 0;
       const hasSelected = recommendations.some(
         playlist => playlist.id === selectedRecommendationId
       );
@@ -1109,9 +1463,10 @@ async function loadRecommendations({ force = false } = {}) {
       selectedRecommendationId = '';
       renderRecommendations();
       renderRecommendationTracks();
-      setNotice('推荐歌单暂时无法加载，请稍后重试。', 'error');
+      if (!silent && selectedModule === 'recommendations') {
+        setNotice('推荐歌单暂时无法加载，请稍后重试。', 'error');
+      }
     } finally {
-      recommendationsLoaded = true;
       recommendationsPromise = null;
     }
   })();
@@ -1256,7 +1611,8 @@ async function selectPlaylist(playlistId) {
   }
 }
 
-async function loadPlaylists({ force = false } = {}) {
+async function loadPlaylists({ force = false, silent = false } = {}) {
+  if (!client?.clientToken) return;
   if (playlistsPromise) return playlistsPromise;
   if (playlistsLoaded && !force) return;
   const button = app.querySelector('[data-playlists-refresh]');
@@ -1265,6 +1621,7 @@ async function loadPlaylists({ force = false } = {}) {
     try {
       const response = await api(force ? '/playlists?force=1' : '/playlists');
       playlists = response.playlists || [];
+      playlistsLoaded = playlists.length > 0;
       const hasSelected = playlists.some(
         playlist => playlist.id === selectedPlaylistId
       );
@@ -1276,7 +1633,9 @@ async function loadPlaylists({ force = false } = {}) {
       if (selectedPlaylistId) await selectPlaylist(selectedPlaylistId);
       else {
         renderPlaylistTracks();
-        setNotice('主机尚未登录网易云账号，暂时无法读取歌单。', 'error');
+        if (!silent && selectedModule === 'playlists') {
+          setNotice('主机尚未登录网易云账号，暂时无法读取歌单。', 'error');
+        }
       }
     } catch (error) {
       playlists = [];
@@ -1284,14 +1643,15 @@ async function loadPlaylists({ force = false } = {}) {
       renderPlaylistPicker();
       renderPlaylistTracks();
       renderPlaylistSource();
-      setNotice(
-        error.code === 'HOST_NOT_LOGGED_IN'
-          ? '请先在 KTV 主机登录网易云账号，再从歌单点歌。'
-          : '歌单暂时无法加载，请点击“刷新歌单”重试。',
-        'error'
-      );
+      if (!silent && selectedModule === 'playlists') {
+        setNotice(
+          error.code === 'HOST_NOT_LOGGED_IN'
+            ? '请先在 KTV 主机登录网易云账号，再从歌单点歌。'
+            : '歌单暂时无法加载，请点击“刷新歌单”重试。',
+          'error'
+        );
+      }
     } finally {
-      playlistsLoaded = true;
       if (button) button.disabled = false;
       playlistsPromise = null;
     }
@@ -1324,24 +1684,39 @@ function scheduleSearch(query) {
   }, 350);
 }
 
-async function requestSong(trackId, priority) {
+async function requestSong(trackId, priority, button) {
+  if (!client?.clientToken) {
+    setNotice('正在连接房间，请稍后再试', 'error');
+    showRequestToast('正在连接房间', 'error');
+    return;
+  }
+  const track = findTrack(trackId);
+  const name = track?.name || '歌曲';
+  showRequestToast(priority ? '优先点歌成功' : '点歌成功', 'success');
+  setNotice(
+    priority ? `${name}点歌成功，已优先加入等待队列` : `${name}点歌成功`,
+    'success'
+  );
+  if (button) {
+    button.classList.add('request-ack');
+    setTimeout(() => {
+      if (button.isConnected) button.classList.remove('request-ack');
+    }, 650);
+  }
   try {
-    const track = findTrack(trackId);
     await api('/requests', {
       method: 'POST',
       body: JSON.stringify({ trackId, priority }),
     });
-    const name = track?.name || '歌曲';
-    setNotice(
-      priority ? `${name}点歌成功，已优先加入等待队列` : `${name}点歌成功`,
-      'success'
-    );
     await requestRefresh();
   } catch (error) {
-    setNotice(
+    const errorMsg =
       error.code === 'TRACK_NOT_PLAYABLE'
         ? '此歌曲当前不可播放。'
-        : '点歌失败，请稍后再试。',
+        : '点歌失败，请稍后再试。';
+    setNotice(errorMsg, 'error');
+    showRequestToast(
+      error.code === 'TRACK_NOT_PLAYABLE' ? '此歌曲不可播放' : '点歌失败',
       'error'
     );
   }
@@ -1396,8 +1771,18 @@ async function performRefresh() {
     }
     scheduleRefresh(document.hidden ? 5000 : 1500);
   } catch (error) {
-    if (error.code === 'INVALID_CLIENT_TOKEN' || error.code === 'ROOM_ENDED')
-      return showEnded();
+    if (error.code === 'ROOM_ENDED') return showEnded();
+    if (error.code === 'INVALID_CLIENT_TOKEN') {
+      try {
+        if (!(await joinRoom())) return showEnded();
+        lastStateRevision = null;
+        scheduleRefresh(0);
+        return;
+      } catch (joinError) {
+        if (['INVALID_JOIN_TOKEN', 'ROOM_ENDED'].includes(joinError.code))
+          return showEnded();
+      }
+    }
     scheduleRefresh(retryDelay);
     retryDelay = Math.min(retryDelay * 2, 8000);
   }
@@ -1415,6 +1800,19 @@ function showEnded() {
     '<main class="ended"><p class="eyebrow">LUMASING · LAN KTV</p><h1>房间已结束</h1><p>请向主机重新获取新的二维码或加入链接。</p></main>';
 }
 
+async function joinRoom() {
+  const joinToken = new URLSearchParams(window.location.hash.slice(1)).get(
+    'token'
+  );
+  if (!joinToken) return false;
+  client = await api('/client-session', {
+    method: 'POST',
+    headers: { Authorization: `Bearer ${joinToken}` },
+  });
+  sessionStorage.setItem(storageKey, JSON.stringify(client));
+  return true;
+}
+
 async function bootstrap() {
   // Render the shell before exchanging the join token. A transient LAN/API
   // failure must not leave the remote page as an empty gradient background;
@@ -1423,21 +1821,17 @@ async function bootstrap() {
   try {
     client = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
     if (!client?.clientToken) {
-      const joinToken = new URLSearchParams(window.location.hash.slice(1)).get(
-        'token'
-      );
-      if (!joinToken) return showEnded();
-      client = await api('/client-session', {
-        method: 'POST',
-        headers: { Authorization: `Bearer ${joinToken}` },
-      });
-      sessionStorage.setItem(storageKey, JSON.stringify(client));
-      history.replaceState({}, '', window.location.pathname);
+      if (!(await joinRoom())) return showEnded();
+      // Keep this room's complete invitation in the address bar so copying or
+      // reloading the joined page retains the same link until the room ends.
     }
+    ensureModuleLoaded(selectedModule);
+    prefetchCatalogModules();
     await requestRefresh();
   } catch (error) {
     if (
       error?.code === 'INVALID_CLIENT_TOKEN' ||
+      error?.code === 'INVALID_JOIN_TOKEN' ||
       error?.code === 'ROOM_ENDED'
     ) {
       showEnded();

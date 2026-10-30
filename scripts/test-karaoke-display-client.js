@@ -8,6 +8,288 @@ const createWebRoomBridge = require('../src/karaoke/webRoomBridge').default;
 const createDisplayPoller = require('../src/karaoke/displayPoller').default;
 const flush = () => new Promise(resolve => setImmediate(resolve));
 
+async function testLyricFetchOwner() {
+  let state = {
+    active: true,
+    generation: 1,
+    pvLyricsRevision: 1,
+    pvLyricsItemId: 'a',
+    presentation: { itemId: 'a' },
+  };
+  const updates = [];
+  const requests = [];
+  let failures = 0;
+  const poller = createDisplayPoller({
+    request: async () => ({ ...state }),
+    requestLyrics: (key, signal) =>
+      new Promise((resolve, reject) =>
+        requests.push({ key, signal, resolve, reject })
+      ),
+    onState: value => updates.push(value),
+    onError: () => failures++,
+    schedule: () => 1,
+    cancel: () => {},
+  });
+  const document = (itemId, revision) => ({
+    itemId,
+    revision,
+    duration: 10,
+    lines: [{ time: 0, content: itemId }],
+  });
+  poller.start();
+  await flush();
+  assert.equal(requests.length, 1);
+  await poller.refresh();
+  await poller.refresh();
+  assert.equal(
+    requests.length,
+    1,
+    'slow lyric fetch remains single flight across state polls'
+  );
+  requests[0].resolve(document('a', 1));
+  await flush();
+  const held = updates[updates.length - 1].pvLyrics;
+  assert.equal(held.itemId, 'a');
+  await poller.refresh();
+  assert.strictEqual(
+    updates[updates.length - 1].pvLyrics,
+    held,
+    'heartbeat preserves exact document reference'
+  );
+  assert.equal(requests.length, 1);
+  state = { ...state, pvLyricsRevision: 2 };
+  await poller.refresh();
+  assert.equal(updates[updates.length - 1].pvLyrics, null);
+  requests[1].reject(new Error('temporary lyrics failure'));
+  await flush();
+  assert.equal(failures, 1);
+  await poller.refresh();
+  assert.equal(
+    requests.length,
+    3,
+    'next state heartbeat retries failed revision'
+  );
+  state = {
+    ...state,
+    pvLyricsRevision: 3,
+    pvLyricsItemId: 'b',
+    presentation: { itemId: 'b' },
+  };
+  await poller.refresh();
+  assert.ok(requests[2].signal.aborted);
+  const count = updates.length;
+  requests[2].resolve(document('a', 2));
+  await flush();
+  assert.equal(updates.length, count, 'old song completion cannot publish');
+  requests[3].resolve(document('b', 3));
+  await flush();
+  assert.equal(updates[updates.length - 1].pvLyrics.itemId, 'b');
+  state = {
+    ...state,
+    generation: 2,
+    pvLyricsRevision: 1,
+    pvLyricsItemId: 'a',
+    presentation: { itemId: 'a' },
+  };
+  await poller.refresh();
+  assert.equal(
+    updates[updates.length - 1].pvLyrics,
+    null,
+    'new room cannot retain previous document'
+  );
+  assert.equal(requests[4].key.generation, 2);
+  poller.stop();
+  assert.ok(requests[4].signal.aborted);
+  const stoppedCount = updates.length;
+  requests[4].resolve(document('a', 1));
+  await flush();
+  assert.equal(
+    updates.length,
+    stoppedCount,
+    'stopped viewer ignores late lyric response'
+  );
+  poller.start();
+  await flush();
+  assert.equal(
+    requests.length,
+    6,
+    'restarting fetches again even for same server revision'
+  );
+  state = { active: false };
+  await poller.refresh();
+  assert.ok(requests[5].signal.aborted);
+  const inactiveCount = updates.length;
+  requests[5].resolve(document('a', 1));
+  await flush();
+  assert.equal(updates.length, inactiveCount);
+  assert.equal(updates[updates.length - 1].pvLyrics, null);
+  poller.stop();
+
+  // The same revision/item can exist in another room. A transport ignoring
+  // AbortSignal must still be unable to attach the previous room's document.
+  state = {
+    active: true,
+    generation: 10,
+    pvLyricsRevision: 1,
+    pvLyricsItemId: 'a',
+  };
+  poller.start();
+  await flush();
+  const oldRoom = requests[requests.length - 1];
+  state = { ...state, generation: 11 };
+  await poller.refresh();
+  const newRoom = requests[requests.length - 1];
+  assert.ok(oldRoom.signal.aborted);
+  const roomCount = updates.length;
+  oldRoom.resolve(document('a', 1));
+  await flush();
+  assert.equal(updates.length, roomCount);
+  newRoom.resolve(document('a', 99));
+  await flush();
+  assert.equal(
+    updates[updates.length - 1].pvLyrics,
+    null,
+    'wrong response revision is rejected'
+  );
+  const beforeRetry = requests.length;
+  await poller.refresh();
+  assert.equal(requests.length, beforeRetry + 1);
+  requests[requests.length - 1].resolve(document('a', 1));
+  await flush();
+  assert.equal(updates[updates.length - 1].pvLyrics.revision, 1);
+  poller.stop();
+}
+
+async function testAppearanceFetchOwner() {
+  let state = {
+    active: true,
+    generation: 1,
+    appearanceRevision: 1,
+    presentation: { itemId: 'a' },
+  };
+  const appearanceRequests = [];
+  const appearances = [];
+  const states = [];
+  const poller = createDisplayPoller({
+    request: async () => ({ ...state }),
+    requestAppearance: (identity, signal) =>
+      new Promise((resolve, reject) =>
+        appearanceRequests.push({ identity, signal, resolve, reject })
+      ),
+    onState: value => states.push(value),
+    onAppearance: value => {
+      if (value) appearances.push(value);
+    },
+    onError: error => {
+      throw error;
+    },
+    schedule: () => 1,
+    cancel: () => {},
+  });
+  const config = (mode, drift = 0) => ({
+    mode: 'tilt',
+    background: { mode, tuning: { drift } },
+  });
+  poller.start();
+  await flush();
+  assert.equal(appearanceRequests.length, 1);
+  assert.deepEqual(appearanceRequests[0].identity, {
+    generation: 1,
+    revision: 1,
+  });
+  assert.ok(
+    states.every(
+      value => !Object.prototype.hasOwnProperty.call(value, 'appearance')
+    ),
+    'frequent display state only carries the appearance revision metadata'
+  );
+  await poller.refresh();
+  await poller.refresh();
+  assert.equal(
+    appearanceRequests.length,
+    1,
+    'same appearance revision shares one in-flight fetch'
+  );
+  appearanceRequests[0].resolve({
+    generation: 1,
+    revision: 1,
+    config: config('legacy'),
+  });
+  await flush();
+  await poller.refresh();
+  assert.equal(
+    appearanceRequests.length,
+    1,
+    'same revision uses cached config'
+  );
+
+  state = { ...state, appearanceRevision: 2 };
+  await poller.refresh();
+  assert.equal(appearanceRequests.length, 2);
+  appearanceRequests[1].resolve({
+    generation: 1,
+    revision: 2,
+    config: config('common', 0.4),
+  });
+  await flush();
+  assert.equal(appearances[1].config.background.mode, 'common');
+
+  state = { ...state, generation: 2, appearanceRevision: 1 };
+  await poller.refresh();
+  assert.equal(appearanceRequests.length, 3);
+  state = { ...state, generation: 3, appearanceRevision: 1 };
+  await poller.refresh();
+  assert.ok(appearanceRequests[2].signal.aborted);
+  assert.equal(appearanceRequests.length, 4);
+  appearanceRequests[2].resolve({
+    generation: 2,
+    revision: 1,
+    config: config('common', 9),
+  });
+  appearanceRequests[3].resolve({
+    generation: 3,
+    revision: 1,
+    config: config('legacy', 0.8),
+  });
+  await flush();
+  assert.deepEqual(
+    appearances.map(value => value.generation),
+    [1, 1, 3],
+    'late response from a reset room cannot replace the current appearance'
+  );
+  state = { ...state, appearanceRevision: 2 };
+  await poller.refresh();
+  assert.equal(appearanceRequests.length, 5);
+  poller.stop();
+  assert.ok(appearanceRequests[4].signal.aborted);
+  const appliedCount = appearances.length;
+  appearanceRequests[4].resolve({
+    generation: 3,
+    revision: 2,
+    config: config('common', 0.9),
+  });
+  await flush();
+  assert.equal(
+    appearances.length,
+    appliedCount,
+    'a stopped display cannot apply a late appearance response'
+  );
+  poller.start();
+  await flush();
+  assert.equal(appearanceRequests.length, 6);
+  appearanceRequests[5].resolve({
+    generation: 3,
+    revision: 2,
+    config: config('common', 0.9),
+  });
+  await flush();
+  assert.equal(appearances.length, appliedCount + 1);
+  state = { active: false };
+  await poller.refresh();
+  assert.equal(appearances[appearances.length - 1].revision, 2);
+  poller.stop();
+}
+
 (async () => {
   const longLyrics = Array.from({ length: 2000 }, (_, index) => ({
     time: index * 3,
@@ -161,6 +443,8 @@ const flush = () => new Promise(resolve => setImmediate(resolve));
   await flush();
   assert.equal(failures, 2);
   failing.stop();
+  await testLyricFetchOwner();
+  await testAppearanceFetchOwner();
   console.log(
     'Display projection/host piggyback/single-flight/cancellation tests passed'
   );

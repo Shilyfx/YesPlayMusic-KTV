@@ -278,6 +278,17 @@ API 源代码来自 [Binaryify/NeteaseCloudMusicApi](https://github.com/Binaryif
 ![home][home-screenshot]
 ![explore][explore-screenshot]
 
+## Folia 原版歌词 PV
+
+KTV「歌词舞台」新增商籁（Sonnet）、拼贴（Tempera）、花火（Hanabi），主屏与 Docker
+副屏均可选择。保留原有经典、诗页、纵深与环轨。移植采用 Folia 原版分镜编译器和 Pixi
+渲染运行时，来源提交 `aecd330b720eb8fc728e6b10ebcec261b144d683`；详情见
+[适配说明](docs/folia-pv-port.md)与[第三方许可证](THIRD_PARTY_NOTICES.md)。
+
+PV 在显示页面所在电脑的浏览器中渲染，需要 WebGL 2。原版 PV 使用自己的文字效果，
+花火按构图自动确定字号。普通 LRC 只有逐行时间，动画中的字间时间分配不代表真实逐字
+对齐。可在歌词设置中下载对应源码；本移植不包含 Folia 的 AI 主题、音频分析模型或模组宿主。
+
 <!-- MARKDOWN LINKS & IMAGES -->
 <!-- https://www.markdownguide.org/basic-syntax/#reference-style-links -->
 

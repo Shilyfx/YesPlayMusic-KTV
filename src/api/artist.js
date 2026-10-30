@@ -17,13 +17,27 @@ export function getArtist(id) {
       timestamp: new Date().getTime(),
     },
   }).then(async data => {
+    const hotSongs = Array.isArray(data?.hotSongs) ? data.hotSongs : [];
     if (!isAccountLoggedIn()) {
-      const trackIDs = data.hotSongs.map(t => t.id);
+      const hasCompleteTracks =
+        hotSongs.length > 0 &&
+        hotSongs.every(
+          track =>
+            track?.name &&
+            Array.isArray(track.ar || track.artists) &&
+            (track.al || track.album)
+        );
+      if (hasCompleteTracks) {
+        data.hotSongs = mapTrackPlayableStatus(hotSongs);
+        return data;
+      }
+      const trackIDs = hotSongs.map(t => t.id);
+      if (!trackIDs.length) return data;
       const tracks = await getTrackDetail(trackIDs.join(','));
       data.hotSongs = tracks.songs;
       return data;
     }
-    data.hotSongs = mapTrackPlayableStatus(data.hotSongs);
+    data.hotSongs = mapTrackPlayableStatus(hotSongs);
     return data;
   });
 }

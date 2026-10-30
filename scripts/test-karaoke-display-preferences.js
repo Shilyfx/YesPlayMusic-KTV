@@ -23,7 +23,93 @@ const primary = {
 };
 const saved = JSON.stringify(primary);
 const defaults = normalizeDisplayPreferences();
+assert.deepEqual(defaults.random, {
+  enabled: false,
+  pool: require('../src/utils/lyricStageModes').stageModeOptions.map(
+    mode => mode.value
+  ),
+  lastTrackKey: '',
+});
 assert.deepEqual(effectiveDisplayPresentation(primary, defaults), primary);
+const migratedV1 = normalizeDisplayPreferences({
+  version: 1,
+  followStyle: false,
+  followTiming: false,
+  mode: 'poem',
+  effect: 'outline',
+  fontSize: 32,
+  offset: -2.3,
+  theme: 'dark',
+});
+assert.equal(migratedV1.followStyle, false);
+assert.equal(migratedV1.followTiming, false);
+assert.equal(migratedV1.followBackground, true);
+assert.equal(migratedV1.mode, 'poem');
+assert.equal(migratedV1.offset, -2.3);
+assert.equal(migratedV1.background.mode, 'legacy');
+assert.deepEqual(migratedV1.tuningByMode, {});
+assert.equal(
+  effectiveDisplayPresentation({ ...primary, offset: 4 }, migratedV1).offset,
+  -2.3,
+  'v1 absolute offset remains unchanged during migration'
+);
+const masterAppearance = {
+  mode: 'tilt',
+  animationIntensity: 'chaotic',
+  background: { mode: 'common', tuning: { drift: 0.4 } },
+  tuningByMode: { tilt: { tilt: 12 } },
+  random: { enabled: true, pool: ['sonnet', 'tilt'], lastTrackKey: 'queue:1' },
+};
+const localBackground = normalizeDisplayPreferences({
+  followStyle: true,
+  followBackground: false,
+  background: { mode: 'legacy' },
+});
+const localBackgroundResult = effectiveDisplayPresentation(
+  primary,
+  localBackground,
+  masterAppearance
+);
+assert.equal(localBackgroundResult.mode, 'orbit');
+assert.equal(localBackgroundResult.background.mode, 'legacy');
+assert.equal(localBackgroundResult.animationIntensity, 'chaotic');
+assert.deepEqual(
+  localBackgroundResult.random,
+  masterAppearance.random,
+  'the active chosen mode stays on the presentation while random remains a preference'
+);
+const localTuning = normalizeDisplayPreferences({
+  followStyle: false,
+  followBackground: true,
+  mode: 'poem',
+  tuningByMode: { poem: { lineGap: 1.4 } },
+});
+const localTuningResult = effectiveDisplayPresentation(
+  primary,
+  localTuning,
+  masterAppearance
+);
+assert.equal(localTuningResult.mode, 'poem');
+assert.equal(localTuningResult.background.mode, 'common');
+assert.deepEqual(localTuningResult.tuningByMode, {
+  poem: { lineGap: 1.4 },
+});
+assert.equal(defaults.theme, 'auto');
+assert.equal(
+  effectiveDisplayPresentation({ ...primary, theme: 'dark' }, defaults).theme,
+  'dark',
+  'auto display theme follows the primary screen'
+);
+assert.equal(
+  effectiveDisplayPresentation(primary, { ...defaults, theme: 'dark' }).theme,
+  'dark',
+  'a local dark theme overrides only the display screen'
+);
+assert.equal(
+  effectiveDisplayPresentation(primary, { ...defaults, theme: 'light' }).theme,
+  'light'
+);
+assert.equal(normalizeDisplayPreferences({ theme: 'invalid' }).theme, 'auto');
 const custom = normalizeDisplayPreferences({
   followStyle: false,
   followTiming: false,

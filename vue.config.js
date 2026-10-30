@@ -1,6 +1,19 @@
 const webpack = require('webpack');
 const path = require('path');
 const fs = require('fs');
+const localKtvBuild = require('./scripts/local-ktv-build.cjs');
+const foliaBuild = require('./scripts/build-folia-pv.cjs');
+const serviceScriptIndex = process.argv.findIndex(argument =>
+  /(?:^|[\\/])vue-cli-service(?:\.js)?$/.test(argument)
+);
+const serviceCommand =
+  serviceScriptIndex >= 0 ? process.argv[serviceScriptIndex + 1] : undefined;
+foliaBuild.buildFoliaPv({
+  requireModels: foliaBuild.shouldAcquireFoliaModels({
+    nodeEnv: process.env.NODE_ENV,
+    command: serviceCommand,
+  }),
+});
 const { isolateRemoteAssets } = require('./scripts/isolate-remote-assets');
 function resolve(dir) {
   return path.join(__dirname, dir);
@@ -61,6 +74,8 @@ module.exports = {
     },
   },
   pwa: {
+    // Native PV modules are loaded on demand, not precached for every listener.
+    workboxOptions: { exclude: [/\.map$/, /^pv\//, /^reactions\//] },
     name: 'LumaSing',
     iconPaths: {
       favicon32: 'img/icons/favicon-32x32.png',
@@ -73,6 +88,11 @@ module.exports = {
     //   swSrc: "dev/sw.js",
     // },
   },
+  configureWebpack: ['build', 'electron:build'].includes(serviceCommand)
+    ? {
+        plugins: [localKtvBuild.createBuildIdentityPlugin(process.env)],
+      }
+    : {},
   pages: {
     index: {
       entry: 'src/main.js',

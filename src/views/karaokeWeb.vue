@@ -5,125 +5,81 @@
     :web-host-name="hostName"
     @web-room-lost="releaseMaster"
     @web-host-ended="releaseMaster"
-  >
-    <template #docker-controls>
-      <button type="button" class="session-button" @click="requestRelease">
-        主电脑：{{ hostName }} · 切换为副屏
-      </button>
-    </template>
-  </Karaoke>
+  />
   <section
     v-else
     ref="screen"
     class="karaoke-surface display-screen"
+    :class="{
+      'is-fullscreen': isFullscreen,
+      'controls-idle': controlsIdle,
+      'pv-stage': isPvStage,
+    }"
     :data-ktv-theme="presentation.theme || 'light'"
     :style="sceneStyle"
+    @pointermove="handlePointerActivity"
+    @keydown.capture="handlePointerActivity"
   >
-    <header>
+    <header class="display-header">
       <button type="button" @click="$router.push('/')">返回音乐</button>
-      <div
-        ><strong>{{
-          state.active ? state.hostName + ' · 同步副屏' : '等待指定主电脑'
-        }}</strong>
+      <div class="display-status"
+        ><strong>副屏歌词</strong>
         <small>{{ connectionLabel }} · 本屏静音</small></div
       >
       <div class="screen-actions">
+        <KaraokeThemeSwitcher v-model="displayTheme" />
+        <SongRequestButton :url="state.joinUrl || ''" />
         <button
           type="button"
           :aria-expanded="showSettings"
-          @click="showSettings = !showSettings"
-          >本屏歌词设置</button
+          @click="toggleSettings"
+          >歌词设置</button
         >
         <button type="button" @click="fullscreen">歌词全屏</button>
       </div>
     </header>
-    <section
-      v-if="showSettings"
-      class="display-preferences glass-panel"
-      aria-label="本屏歌词设置"
+    <KaraokeControlPanel
+      ref="settingsPanel"
+      :open="showSettings"
+      :config="controlConfig"
+      :mode-options="stageModeOptions"
+      :background-options="controlBackgroundOptions"
+      :is-follower="true"
+      :volume="1"
+      :track="controlTrack"
+      :follows="controlFollows"
+      :capabilities="controlCapabilities"
+      :return-focus-to="$refs.settingsToggle"
+      @close="setControlPanelOpen(false)"
+      @change="handleControlChange"
+      @asset="forwardAssetSelection"
+      @follow="handleControlFollow"
     >
-      <fieldset>
-        <legend>舞台与字体</legend>
-        <label class="follow-toggle"
-          ><input
-            type="checkbox"
-            :checked="preferences.followStyle"
-            @change="updatePreference('followStyle', $event.target.checked)"
-          />跟随主屏样式</label
-        >
-        <div class="preference-fields">
-          <label
-            >舞台样式<select
-              aria-label="本屏舞台样式"
-              :disabled="preferences.followStyle"
-              :value="presentation.mode || 'classic'"
-              @change="updatePreference('mode', $event.target.value)"
-              ><option
-                v-for="mode in stageModeOptions"
-                :key="mode.value"
-                :value="mode.value"
-                >{{ mode.label }}</option
-              ></select
-            ></label
-          >
-          <label
-            >歌词字效<select
-              aria-label="本屏歌词字效"
-              :disabled="preferences.followStyle"
-              :value="presentation.effect || 'gradient'"
-              @change="updatePreference('effect', $event.target.value)"
-              ><option value="gradient">渐变</option
-              ><option value="neon">霓虹</option
-              ><option value="outline">描边</option
-              ><option value="solid">纯色</option></select
-            ></label
-          >
-          <label
-            >歌词字号<input
-              aria-label="本屏歌词字号"
-              type="number"
-              min="16"
-              max="64"
-              step="1"
-              :disabled="preferences.followStyle"
-              :value="presentation.fontSize || 45"
-              @change="updatePreference('fontSize', $event.target.value)"
-            />px</label
-          >
+      <template #extra>
+        <KaraokeSmartBeatControls
+          :settings="smartBeatControlSettings"
+          :renderer-mode="presentation.mode || ''"
+          :status="smartBeatControlStatus"
+          read-only
+        />
+        <div class="display-preference-footer">
+          <p>本屏偏移按歌曲原始时间计算，不叠加主屏偏移。</p>
+          <p v-if="isPvStage" class="display-pv-attribution">
+            原版 PV 使用自带字效；花火自动排版字号。
+            <a href="/pv/source.tgz" download>Folia 源码 · AGPL-3.0</a>
+          </p>
+          <span role="status">{{
+            preferenceMessage || '仅保存在本机浏览器，不影响主屏与其他副屏。'
+          }}</span>
+          <button type="button" @click="restoreFollow">全部恢复跟随主屏</button>
         </div>
-      </fieldset>
-      <fieldset>
-        <legend>歌词同步</legend>
-        <label class="follow-toggle"
-          ><input
-            type="checkbox"
-            :checked="preferences.followTiming"
-            @change="updatePreference('followTiming', $event.target.checked)"
-          />跟随主屏提前 / 延后</label
-        >
-        <label
-          >本屏偏移<input
-            aria-label="本屏歌词偏移"
-            type="number"
-            min="-10"
-            max="10"
-            step="0.1"
-            :disabled="preferences.followTiming"
-            :value="presentation.offset || 0"
-            @change="updatePreference('offset', $event.target.value)"
-          />秒</label
-        >
-        <p>正数提前，负数延后；以歌曲原始时间为准，不叠加主屏偏移。</p>
-      </fieldset>
-      <div class="preference-footer"
-        ><span role="status">{{
-          preferenceMessage || '仅保存在本机浏览器，不影响主屏与其他副屏。'
-        }}</span
-        ><button type="button" @click="restoreFollow"
-          >全部恢复跟随主屏</button
-        ></div
-      >
-    </section>
+      </template>
+    </KaraokeControlPanel>
+    <KaraokeControlToggle
+      ref="settingsToggle"
+      :open="showSettings"
+      @toggle="setControlPanelOpen"
+    />
     <div v-if="!state.active" class="master-choice glass-panel">
       <h1>让多台电脑，听同一首歌</h1>
       <p
@@ -142,10 +98,6 @@
       <p v-if="error" role="status">{{ error }}</p>
     </div>
     <main v-else class="display-stage" aria-label="同步歌词舞台">
-      <div class="track-caption"
-        ><strong>{{ presentation.title || '等待主电脑开始播放' }}</strong
-        ><span>{{ presentation.artists }}</span></div
-      >
       <KaraokeLyricScene
         :mode="presentation.mode || 'classic'"
         :lines="stage"
@@ -153,25 +105,84 @@
         :effect="presentation.effect || 'gradient'"
         :playing="presentation.playing && !stale"
         :fullscreen="true"
+        :lyric-document="
+          state.pvLyrics && state.pvLyrics.itemId === presentation.itemId
+            ? state.pvLyrics
+            : null
+        "
+        :position="pvPosition"
+        :raw-position="smartBeatRawPosition"
+        :smart-beat-settings="smartBeatControlSettings"
+        :smart-beat-track-key="presentation.smartBeat?.trackKey || ''"
+        :smart-beat-timeline="followerSmartBeatTimeline"
+        :audio-features="presentation.audioFeatures || null"
+        :theme="presentation.theme || 'light'"
+        :font-size="presentation.fontSize || 45"
+        v-bind="sceneAppearanceProps"
       />
       <p v-if="stale" class="connection-warning" role="status"
         >主电脑同步中断，正在等待重连；本屏不会接管播放。</p
       >
     </main>
-    <footer
-      >Docker 多屏显示 · 请保持主电脑页面打开 ·
-      只在主电脑或手机上点歌和切歌</footer
+    <aside
+      v-if="state.active && !showSettings"
+      class="next-track"
+      aria-label="下一首歌曲"
     >
+      <span>下一首</span>
+      <strong>{{
+        state.nextTrack && state.nextTrack.title
+          ? state.nextTrack.title
+          : '暂无待唱歌曲'
+      }}</strong>
+      <small v-if="state.nextTrack && state.nextTrack.artists.length">{{
+        state.nextTrack.artists.join(' / ')
+      }}</small>
+    </aside>
+    <ReactionOverlay
+      v-if="state.active"
+      :events="state.reactions || []"
+      :generation="state.reactionEpoch || ''"
+      :server-time="state.serverTime || 0"
+      storage-key="display"
+      :theme="presentation.theme || 'light'"
+      :playing="!!presentation.playing"
+      :has-track="!!presentation.itemId"
+      :music-reaction="presentation.musicReaction || null"
+    />
   </section>
 </template>
 
 <script>
 import { Howler } from 'howler';
 import Karaoke from './karaoke.vue';
+import KaraokeControlPanel from '@/components/karaoke/KaraokeControlPanel.vue';
+import KaraokeControlToggle from '@/components/karaoke/KaraokeControlToggle.vue';
+import KaraokeSmartBeatControls from '@/components/karaoke/KaraokeSmartBeatControls.vue';
 import KaraokeLyricScene from '@/components/karaoke/KaraokeLyricScene.vue';
+import KaraokeThemeSwitcher from '@/components/karaoke/KaraokeThemeSwitcher.vue';
+import ReactionOverlay from '@/components/karaoke/ReactionOverlay.vue';
+import SongRequestButton from '@/components/karaoke/SongRequestButton.vue';
 import createDisplayPoller from '@/karaoke/displayPoller';
 import { projectPresentation } from '@/karaoke/lyricDisplay';
-import { stageModeOptions } from '@/utils/lyricStageModes';
+import { normalizeSmartBeatPreferences } from '@/karaoke/smartBeatPreferences';
+import {
+  stageModeOptions,
+  isPvStageMode,
+  supportsAnimationIntensity,
+} from '@/utils/lyricStageModes';
+import {
+  backgroundOptionsForMode,
+  normalizeAppearanceConfig,
+  createVisualAssetUploadQueue,
+} from '@/karaoke/appearanceConfig';
+import { sparseVisualTuning } from '@/karaoke/visualConfig';
+import {
+  resolveLocalVisualAssets,
+  resolveVisualAssets,
+  uploadLocalVisualAsset,
+} from '@/karaoke/visualAssets';
+import { getVisualModeMetadata } from '@/karaoke/visualCatalog';
 import {
   readDisplayPreferences,
   writeDisplayPreferences,
@@ -180,7 +191,16 @@ import {
 } from '@/karaoke/displayPreferences';
 
 export default {
-  components: { Karaoke, KaraokeLyricScene },
+  components: {
+    Karaoke,
+    KaraokeControlPanel,
+    KaraokeControlToggle,
+    KaraokeSmartBeatControls,
+    KaraokeLyricScene,
+    KaraokeThemeSwitcher,
+    ReactionOverlay,
+    SongRequestButton,
+  },
   data() {
     return {
       isMaster: false,
@@ -194,19 +214,134 @@ export default {
       clock: null,
       claimEpoch: 0,
       showSettings: false,
-      preferences: readDisplayPreferences(),
+      settingsCloseTimer: null,
+      isFullscreen: false,
+      controlsIdle: false,
+      controlsIdleTimer: null,
+      controlsIdleDelay: 2400,
+      fullscreenStageShift: 0,
+      fullscreenShiftFrame: null,
+      preferences: readDisplayPreferences(undefined, {
+        onTrim: () =>
+          this.$store.dispatch(
+            'showToast',
+            '配置达到 16 KiB，已精简可选参数或未选中的背景地址；当前样式与素材已保留'
+          ),
+        onInvalid: error => this.$store.dispatch('showToast', error.message),
+      }),
       preferenceMessage: '',
+      remoteAppearance: null,
+      localVisualAssetSet: null,
+      localAssetResolveGeneration: 0,
     };
   },
   computed: {
+    isPvStage() {
+      return isPvStageMode(this.presentation.mode);
+    },
     presentation() {
       return effectiveDisplayPresentation(
         this.state.presentation || {},
-        this.preferences
+        this.preferences,
+        this.remoteAppearance
       );
+    },
+    localAssetReferenceKey() {
+      const tuning = this.presentation.tuningByMode || {};
+      const cappella = tuning.cappella || {};
+      const tempera = tuning.tempera || {};
+      return JSON.stringify([
+        this.presentation.background && this.presentation.background.assetId,
+        tuning.monet && tuning.monet.portraitAssetId,
+        cappella.emojiAssetIds || [],
+        cappella.avatarAssetIds || [],
+        tempera.layerImageAssetIds || [],
+        (tempera.layerImages || []).map(image => [image.id, image.name]),
+        tempera.layerImageNames || [],
+      ]);
+    },
+    displayTheme: {
+      get() {
+        return this.preferences.theme;
+      },
+      set(value) {
+        this.updatePreference('theme', value);
+      },
     },
     stageModeOptions() {
       return stageModeOptions;
+    },
+    controlBackgroundOptions() {
+      return backgroundOptionsForMode(this.presentation.mode);
+    },
+    sceneAppearanceProps() {
+      const remoteAssets = resolveVisualAssets(this.presentation);
+      const localAssets =
+        this.localVisualAssetSet && this.localVisualAssetSet.assets;
+      return {
+        background: this.presentation.background,
+        animationIntensity: this.presentation.animationIntensity,
+        tuningByMode: this.presentation.tuningByMode || {},
+        coverUrl: this.presentation.coverUrl || '',
+        assets: localAssets
+          ? {
+              backgroundImage:
+                localAssets.backgroundImage || remoteAssets.backgroundImage,
+              monetPortraitImage:
+                localAssets.monetPortraitImage ||
+                remoteAssets.monetPortraitImage,
+              cappellaCustomEmojiImages: localAssets.cappellaCustomEmojiImages
+                .length
+                ? localAssets.cappellaCustomEmojiImages
+                : remoteAssets.cappellaCustomEmojiImages,
+              cappellaCustomAvatarImages: localAssets.cappellaCustomAvatarImages
+                .length
+                ? localAssets.cappellaCustomAvatarImages
+                : remoteAssets.cappellaCustomAvatarImages,
+              temperaLayerImageAssets: localAssets.temperaLayerImageAssets
+                ?.length
+                ? localAssets.temperaLayerImageAssets
+                : remoteAssets.temperaLayerImageAssets || [],
+            }
+          : remoteAssets,
+      };
+    },
+    controlConfig() {
+      return {
+        ...this.presentation,
+        theme: this.preferences.theme,
+        resolvedTheme: this.presentation.theme || 'light',
+      };
+    },
+    controlTrack() {
+      const presentation = this.state.presentation || {};
+      const title =
+        typeof presentation.title === 'string'
+          ? presentation.title.slice(0, 300)
+          : '';
+      if (!title.trim()) return {};
+      return {
+        title,
+        artist:
+          typeof presentation.artists === 'string'
+            ? presentation.artists.slice(0, 300)
+            : '',
+      };
+    },
+    controlFollows() {
+      return {
+        style: this.preferences.followStyle,
+        timing: this.preferences.followTiming,
+        background: this.preferences.followBackground,
+        theme: this.preferences.theme === 'auto',
+      };
+    },
+    controlCapabilities() {
+      return {
+        fontSize: this.presentation.mode !== 'hanabi',
+        effect: !this.isPvStage,
+        intensity: supportsAnimationIntensity(this.presentation.mode),
+      };
     },
     stale() {
       return (
@@ -234,10 +369,78 @@ export default {
         age + Math.max(0, this.clockNow - this.receivedAt) / 1000
       );
     },
-    sceneStyle() {
+    pvPosition() {
+      const age =
+        Math.max(
+          0,
+          (this.state.serverTime || 0) - (this.state.updatedAt || 0)
+        ) / 1000;
+      const elapsed = age + Math.max(0, this.clockNow - this.receivedAt) / 1000;
+      return Math.max(
+        0,
+        (this.presentation.position || 0) +
+          (this.presentation.offset || 0) +
+          (this.presentation.playing ? Math.min(3, elapsed) : 0)
+      );
+    },
+    smartBeatRawPosition() {
+      const age =
+        Math.max(
+          0,
+          (this.state.serverTime || 0) - (this.state.updatedAt || 0)
+        ) / 1000;
+      const elapsed = age + Math.max(0, this.clockNow - this.receivedAt) / 1000;
+      return Math.max(
+        0,
+        (this.presentation.position || 0) +
+          (this.presentation.playing ? Math.min(3, elapsed) : 0)
+      );
+    },
+    smartBeatControlSettings() {
+      return normalizeSmartBeatPreferences(
+        this.presentation.smartBeat?.settings
+      );
+    },
+    smartBeatControlStatus() {
+      const value = this.presentation.smartBeat || {};
       return {
-        '--ktv-active-lyric-size': `${this.presentation.fontSize || 45}px`,
+        state: value.status || 'idle',
+        detail: value.detail || '',
+        ...(Number.isFinite(value.progress)
+          ? { progress: value.progress }
+          : {}),
+        ...(typeof value.cacheHit === 'boolean'
+          ? { cacheHit: value.cacheHit }
+          : {}),
       };
+    },
+    followerSmartBeatTimeline() {
+      const timeline = this.state.smartBeatTimeline;
+      return timeline &&
+        timeline.trackKey === this.presentation.smartBeat?.trackKey
+        ? timeline
+        : null;
+    },
+    sceneStyle() {
+      const colors = this.presentation.customTheme || {};
+      const style = {
+        '--ktv-active-lyric-size': `${this.presentation.fontSize || 45}px`,
+        '--ktv-fullscreen-stage-shift': `${this.fullscreenStageShift}px`,
+      };
+      if (colors.background) style['--ktv-bg-base'] = colors.background;
+      if (colors.text) style['--ktv-text-primary'] = colors.text;
+      if (colors.accent) style['--ktv-accent'] = colors.accent;
+      if (colors.accentStrong)
+        style['--ktv-accent-strong'] = colors.accentStrong;
+      return style;
+    },
+  },
+  watch: {
+    'stage.cueKey': 'scheduleFullscreenStageShift',
+    'presentation.mode': 'scheduleFullscreenStageShift',
+    'presentation.fontSize': 'scheduleFullscreenStageShift',
+    localAssetReferenceKey() {
+      this.refreshLocalVisualAssets();
     },
   },
   created() {
@@ -250,6 +453,10 @@ export default {
         this.receivedAt = this.clockNow = performance.now();
         this.restartClock();
       },
+      onAppearance: snapshot => {
+        if (!this.leaving)
+          this.remoteAppearance = snapshot ? snapshot.config : null;
+      },
       onError: () => {
         this.connected = false;
         this.error = '无法连接 Docker KTV 服务';
@@ -257,49 +464,356 @@ export default {
     });
     this.visibilityHandler = () => {
       clearInterval(this.clock);
-      if (document.hidden || this.isMaster) this.poller.stop();
-      else {
+      if (document.hidden || this.isMaster) {
+        this.poller.stop();
+      } else {
         this.poller.start();
         this.restartClock();
       }
     };
     document.addEventListener('visibilitychange', this.visibilityHandler);
+    this.fullscreenHandler = () => this.handleFullscreenChange();
+    document.addEventListener('fullscreenchange', this.fullscreenHandler);
+    this.fullscreenResizeHandler = () => this.scheduleFullscreenStageShift();
+    window.addEventListener('resize', this.fullscreenResizeHandler);
     this.pageHideHandler = () => {
+      this.visualAssetUploads?.invalidate();
       if (this.isMaster) this.releaseMaster();
     };
     window.addEventListener('pagehide', this.pageHideHandler);
+    this.refreshLocalVisualAssets();
     this.visibilityHandler();
   },
   beforeDestroy() {
+    this.visualAssetUploads?.dispose();
     this.leaving = true;
     this.claimEpoch++;
+    this.localAssetResolveGeneration++;
+    this.localVisualAssetSet?.release?.();
+    this.localVisualAssetSet = null;
     if (this.isMaster) this.$store.$karaokeManager.endSession();
     this.poller.stop();
     clearInterval(this.clock);
+    clearTimeout(this.settingsCloseTimer);
+    clearTimeout(this.controlsIdleTimer);
     document.removeEventListener('visibilitychange', this.visibilityHandler);
+    document.removeEventListener('fullscreenchange', this.fullscreenHandler);
+    window.removeEventListener('resize', this.fullscreenResizeHandler);
+    if (this.fullscreenShiftFrame !== null)
+      cancelAnimationFrame(this.fullscreenShiftFrame);
     window.removeEventListener('pagehide', this.pageHideHandler);
     Howler.mute(this.previousMuted);
     this.$store.state.webKtvDisplayOnly = true;
     if (this.$route.name !== 'karaoke') this.$store.$initializePlayerOnce();
   },
   methods: {
+    setControlPanelOpen(open) {
+      this.showSettings = Boolean(open);
+      clearTimeout(this.settingsCloseTimer);
+      this.settingsCloseTimer = null;
+      if (this.showSettings) this.preferenceMessage = '';
+      this.handlePointerActivity();
+    },
+    handleControlChange(change) {
+      if (
+        !change ||
+        ![
+          'mode',
+          'effect',
+          'fontSize',
+          'offset',
+          'theme',
+          'customTheme',
+          'background.mode',
+          'background.tuning',
+          'background.reset',
+          'background.transparent',
+          'background.opacity',
+          'animationIntensity',
+          'tuning',
+          'tuning.reset',
+        ].includes(change.key)
+      )
+        return;
+      if (change.key === 'background.mode') {
+        this.updatePreference('background', {
+          ...this.preferences.background,
+          mode: change.value,
+        });
+        return;
+      }
+      if (
+        change.key === 'background.transparent' ||
+        change.key === 'background.opacity'
+      ) {
+        this.updatePreference('background', {
+          ...this.preferences.background,
+          [change.key.slice('background.'.length)]: change.value,
+        });
+        return;
+      }
+      if (change.key === 'background.reset') {
+        this.updatePreference('background', {
+          ...this.preferences.background,
+          tuning: {},
+          assetId: null,
+          transparent: false,
+          opacity: 1,
+        });
+        return;
+      }
+      if (change.key === 'background.tuning') {
+        this.updatePreference('background', {
+          ...this.preferences.background,
+          tuning: sparseVisualTuning(
+            'background',
+            this.preferences.background.mode,
+            change.value
+          ),
+        });
+        return;
+      }
+      if (change.key === 'tuning') {
+        const sparse = sparseVisualTuning(
+          'mode',
+          this.presentation.mode,
+          change.value
+        );
+        const tuningByMode = { ...this.preferences.tuningByMode };
+        if (Object.keys(sparse).length)
+          tuningByMode[this.presentation.mode] = sparse;
+        else delete tuningByMode[this.presentation.mode];
+        this.updatePreference('tuningByMode', {
+          ...tuningByMode,
+        });
+        return;
+      }
+      if (change.key === 'tuning.reset') {
+        const tuningByMode = { ...this.preferences.tuningByMode };
+        delete tuningByMode[change.value || this.presentation.mode];
+        this.updatePreference('tuningByMode', tuningByMode);
+        return;
+      }
+      this.updatePreference(change.key, change.value);
+    },
+    async refreshLocalVisualAssets() {
+      const generation = ++this.localAssetResolveGeneration;
+      let resolved;
+      try {
+        resolved = await resolveLocalVisualAssets(this.presentation);
+      } catch (_) {
+        if (generation === this.localAssetResolveGeneration && !this.leaving) {
+          this.localVisualAssetSet?.release?.();
+          this.localVisualAssetSet = null;
+        }
+        return;
+      }
+      const assetView = asset =>
+        asset
+          ? {
+              id: asset.id,
+              name: asset.name,
+              url: asset.url,
+              mime: asset.mime,
+            }
+          : null;
+      const next = {
+        assets: {
+          backgroundImage: assetView(resolved.backgroundImage),
+          monetPortraitImage: assetView(resolved.monetPortraitImage),
+          cappellaCustomEmojiImages: resolved.cappellaCustomEmojiImages
+            .map(assetView)
+            .filter(Boolean),
+          cappellaCustomAvatarImages: resolved.cappellaCustomAvatarImages
+            .map(assetView)
+            .filter(Boolean),
+          temperaLayerImageAssets: (resolved.temperaLayerImageAssets || [])
+            .map(assetView)
+            .filter(Boolean),
+        },
+        release: () => resolved.release(),
+      };
+      if (generation !== this.localAssetResolveGeneration || this.leaving) {
+        next.release();
+        return;
+      }
+      const previous = this.localVisualAssetSet;
+      this.localVisualAssetSet = next;
+      previous?.release?.();
+    },
+    forwardAssetSelection(change) {
+      if (!change) return Promise.resolve([]);
+      if (!this.visualAssetUploads) {
+        this.visualAssetUploads = createVisualAssetUploadQueue({
+          maxBytes: 16 * 1024 - 128,
+          getConfig: () => normalizeAppearanceConfig(this.preferences),
+          getGeneration: selection => {
+            if (
+              this.leaving ||
+              this.isMaster ||
+              (selection.role === 'background'
+                ? this.preferences.followBackground
+                : this.preferences.followStyle)
+            )
+              return null;
+            return String(this.state.generation || '') + ':' + this.claimEpoch;
+          },
+          upload: (file, role, options) =>
+            uploadLocalVisualAsset(file, role, options),
+          commit: (next, selection) => {
+            const key =
+              selection.role === 'background' ? 'background' : 'tuningByMode';
+            return this.updatePreference(key, next[key]);
+          },
+          notify: message =>
+            this.$store.dispatch(
+              'showToast',
+              {
+                INVALID_IMAGE: '请选择有效的 PNG、JPEG、WebP 或 GIF 图片',
+                LOCAL_ASSET_TOO_LARGE: '单张图片不能超过 4 MiB',
+                LOCAL_ASSET_STORE_FULL:
+                  '本机图片素材空间已满，请先移除一些素材',
+                LOCAL_ASSET_STORAGE_UNAVAILABLE: '此浏览器暂不支持本地图片素材',
+              }[message] || message
+            ),
+        });
+      }
+      return this.visualAssetUploads.run(change);
+    },
+    updateLocalModeTuning(mode, patch) {
+      const metadata = getVisualModeMetadata(mode);
+      if (!metadata) return;
+      const current = this.preferences.tuningByMode[mode] || {};
+      const full = { ...metadata.tuningDefaults, ...current, ...patch };
+      const sparse = sparseVisualTuning('mode', mode, full);
+      const tuningByMode = { ...this.preferences.tuningByMode };
+      if (Object.keys(sparse).length) tuningByMode[mode] = sparse;
+      else delete tuningByMode[mode];
+      this.updatePreference('tuningByMode', tuningByMode);
+    },
+    handleControlFollow(change) {
+      if (!change) return;
+      if (change.key === 'style')
+        this.updatePreference('followStyle', change.value);
+      else if (change.key === 'timing')
+        this.updatePreference('followTiming', change.value);
+      else if (change.key === 'background')
+        this.updatePreference('followBackground', change.value);
+      else if (change.key === 'theme') {
+        const resolvedTheme =
+          this.presentation.theme === 'dark' ? 'dark' : 'light';
+        this.updatePreference('theme', change.value ? 'auto' : resolvedTheme);
+      }
+    },
     updatePreference(key, value) {
       if (
         ![
           'followStyle',
           'followTiming',
+          'followBackground',
           'mode',
           'effect',
           'fontSize',
           'offset',
+          'theme',
+          'customTheme',
+          'animationIntensity',
+          'background',
+          'tuningByMode',
         ].includes(key)
       )
         return;
-      this.preferences = normalizeDisplayPreferences({
-        ...this.preferences,
-        [key]: value,
+      try {
+        let trimmed = false;
+        const next = normalizeDisplayPreferences(
+          {
+            ...this.preferences,
+            [key]: value,
+          },
+          {
+            onTrim: () => {
+              trimmed = true;
+            },
+          }
+        );
+        if (
+          key === 'followStyle' ||
+          key === 'followBackground' ||
+          next.background.mode !== this.preferences.background.mode
+        )
+          this.visualAssetUploads?.invalidate();
+        this.visualAssetUploads?.assertFits(next);
+        this.preferences = next;
+        const saved = writeDisplayPreferences(next);
+        this.preferenceMessage = saved
+          ? ''
+          : '浏览器不允许保存；本次设置仍然生效';
+        if (trimmed)
+          this.$store.dispatch(
+            'showToast',
+            '配置达到 16 KiB，已精简可选参数或未选中的背景地址；当前样式与素材已保留'
+          );
+      } catch (error) {
+        this.$store.dispatch('showToast', error.message);
+        return false;
+      }
+      clearTimeout(this.settingsCloseTimer);
+      this.settingsCloseTimer = null;
+      return true;
+    },
+    toggleSettings() {
+      this.setControlPanelOpen(!this.showSettings);
+    },
+    handlePointerActivity(event) {
+      if (
+        event?.type === 'pointermove' &&
+        !event.target.closest?.('.display-header') &&
+        document.activeElement?.closest?.('.display-header')
+      )
+        document.activeElement.blur();
+      if (!this.isFullscreen) return;
+      this.controlsIdle = false;
+      clearTimeout(this.controlsIdleTimer);
+      if (this.showSettings) return;
+      this.controlsIdleTimer = setTimeout(() => {
+        if (!this.showSettings) this.controlsIdle = true;
+      }, this.controlsIdleDelay);
+    },
+    handleFullscreenChange() {
+      this.isFullscreen = document.fullscreenElement === this.$refs.screen;
+      this.scheduleFullscreenStageShift();
+      if (this.isFullscreen) this.handlePointerActivity();
+      else {
+        clearTimeout(this.controlsIdleTimer);
+        this.controlsIdle = false;
+      }
+    },
+    scheduleFullscreenStageShift() {
+      if (this.fullscreenShiftFrame !== null) {
+        cancelAnimationFrame(this.fullscreenShiftFrame);
+        this.fullscreenShiftFrame = null;
+      }
+      if (!this.isFullscreen) {
+        this.fullscreenStageShift = 0;
+        return;
+      }
+      this.fullscreenShiftFrame = requestAnimationFrame(() => {
+        this.fullscreenShiftFrame = null;
+        const screen = this.$refs.screen;
+        const copy = screen?.querySelector('.scene-copy');
+        if (!screen || !copy || !this.isFullscreen) {
+          this.fullscreenStageShift = 0;
+          return;
+        }
+        const currentGap =
+          screen.getBoundingClientRect().bottom -
+          copy.getBoundingClientRect().bottom;
+        const unshiftedGap = currentGap + this.fullscreenStageShift;
+        this.fullscreenStageShift = Math.max(
+          0,
+          Math.round(unshiftedGap * 0.3 * 10) / 10
+        );
       });
-      this.savePreferences();
     },
     savePreferences() {
       this.preferenceMessage = writeDisplayPreferences(this.preferences)
@@ -311,6 +825,8 @@ export default {
         ...this.preferences,
         followStyle: true,
         followTiming: true,
+        followBackground: true,
+        theme: 'auto',
       };
       this.savePreferences();
     },
@@ -366,14 +882,6 @@ export default {
         if (claim === this.claimEpoch) this.claiming = false;
       }
     },
-    requestRelease() {
-      if (
-        window.confirm(
-          '释放主电脑会结束当前房间及播放，其他电脑将等待重新指定主机。继续吗？'
-        )
-      )
-        this.releaseMaster();
-    },
     async releaseMaster() {
       const release = ++this.claimEpoch;
       this.claiming = false;
@@ -389,6 +897,7 @@ export default {
       this.visibilityHandler();
     },
     fullscreen() {
+      this.handlePointerActivity();
       if (document.fullscreenElement) document.exitFullscreen();
       else this.$refs.screen.requestFullscreen?.().catch(() => {});
     },
@@ -409,17 +918,28 @@ export default {
   overflow: hidden;
   background: var(--ktv-bg-base);
 }
-header {
+.display-header {
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 16px;
+  gap: 12.8px;
+  min-height: 40px;
+  flex-shrink: 0;
+  font-size: 80%;
+  transition: opacity 600ms ease;
 }
-header div {
+.display-header div {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: 4.8px;
   text-align: center;
+}
+.display-header .display-status {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
 }
 small,
 footer,
@@ -437,79 +957,76 @@ select {
   color: var(--ktv-text-primary);
   font: inherit;
 }
-.screen-actions {
+.display-header button {
+  padding: 8px 12.8px;
+}
+.display-header .screen-actions {
   flex-direction: row;
-  flex-wrap: wrap;
-  gap: 8px;
-}
-.display-preferences {
-  flex-shrink: 0;
-  padding: 16px 20px;
-  max-height: 40vh;
-  overflow-y: auto;
-  display: grid;
-  grid-template-columns: 1.2fr 1fr;
-  gap: 16px 24px;
-}
-.display-preferences fieldset {
-  border: 0;
-  padding: 0;
-  margin: 0;
-  min-width: 0;
-}
-.display-preferences legend {
-  font-weight: 700;
-  margin-bottom: 10px;
-}
-.display-preferences label {
-  display: inline-flex;
-  gap: 8px;
+  flex-wrap: nowrap;
   align-items: center;
-  flex-wrap: wrap;
-  font-size: 13px;
+  gap: 6.4px;
 }
-.display-preferences input[type='checkbox'] {
-  accent-color: var(--ktv-accent);
-  width: 16px;
-  height: 16px;
+.display-header .screen-actions > .karaoke-theme-switcher {
+  flex-direction: row;
 }
-.follow-toggle {
-  margin-bottom: 12px;
-  display: flex !important;
-}
-.preference-fields {
+.next-track {
+  position: absolute;
+  z-index: 2;
+  right: 84px;
+  bottom: 16px;
   display: flex;
-  flex-wrap: wrap;
-  gap: 12px;
+  max-width: min(360px, 38vw);
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 3px;
+  padding: 10px 14px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 14px;
+  background: var(--ktv-glass-soft);
+  box-shadow: 0 8px 24px rgba(16, 20, 40, 0.08);
+  text-align: right;
+  pointer-events: none;
 }
-.display-preferences input[type='number'] {
-  width: 68px;
-  padding: 8px;
+.next-track span {
+  color: var(--ktv-text-muted);
+  font-size: 10px;
+  letter-spacing: 0.08em;
 }
-.display-preferences select {
-  padding: 8px;
+.next-track strong {
   max-width: 100%;
+  overflow: hidden;
+  color: var(--ktv-text-primary);
+  font-size: 14px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.display-preferences p {
-  color: var(--ktv-text-muted);
-  font-size: 12px;
-  margin-bottom: 0;
+.next-track small {
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.display-preferences :disabled {
-  opacity: 0.5;
-}
-.preference-footer {
-  grid-column: 1 / -1;
+.display-preference-footer {
   display: flex;
-  align-items: center;
-  justify-content: space-between;
+  flex-direction: column;
+  align-items: stretch;
   gap: 12px;
   color: var(--ktv-text-muted);
   font-size: 12px;
+  margin-top: auto;
 }
-.display-preferences :focus-visible {
-  outline: 2px solid var(--ktv-accent);
-  outline-offset: 3px;
+.display-preference-footer button {
+  padding: 8px 10px;
+  font-size: 11px;
+}
+.display-preference-footer p {
+  margin: 0;
+  color: var(--ktv-text-muted);
+  font-size: 11px;
+  line-height: 1.5;
+}
+.display-preference-footer .display-pv-attribution {
+  text-align: center;
 }
 .master-choice {
   margin: auto;
@@ -535,7 +1052,10 @@ select {
   justify-content: center;
   min-height: 0;
   position: relative;
+  z-index: 1;
   overflow: hidden;
+  /* Reset the app-wide main padding; the lyric canvas owns its composition. */
+  padding: 0;
 }
 .track-caption {
   display: flex;
@@ -554,29 +1074,89 @@ footer {
   text-align: center;
   flex-shrink: 0;
 }
+.display-screen.is-fullscreen {
+  padding: 0;
+  gap: 0;
+}
+.display-screen ::v-deep .ktv-control-toggle {
+  right: 16px;
+  bottom: 16px;
+}
+.is-fullscreen .display-header {
+  position: absolute;
+  z-index: 5;
+  top: 16px;
+  right: 24px;
+  left: 24px;
+}
+.is-fullscreen.controls-idle .display-header {
+  opacity: 0;
+}
+.is-fullscreen .display-header:hover,
+.is-fullscreen .display-header:focus-within {
+  opacity: 1;
+}
+.is-fullscreen .display-stage {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+  box-sizing: border-box;
+  transform: none;
+}
+.is-fullscreen .display-stage ::v-deep .pv-scene {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  padding: 0;
+}
 @media (max-width: 700px) {
-  .display-preferences {
-    grid-template-columns: 1fr;
-    padding: 12px;
-  }
-  .preference-footer {
-    flex-wrap: wrap;
-  }
   .display-screen {
     padding: 14px;
     gap: 12px;
   }
-  header {
+  .next-track {
+    right: 70px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+    max-width: min(60vw, calc(100vw - 100px));
+  }
+  .display-screen ::v-deep .ktv-control-toggle {
+    right: 12px;
+    bottom: calc(12px + env(safe-area-inset-bottom, 0px));
+  }
+  .display-header {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    grid-template-areas: 'back back' 'actions actions' 'status status';
     gap: 8px;
+  }
+  .display-header > button:first-child {
+    grid-area: back;
+    justify-self: start;
+  }
+  .display-header .display-status {
+    position: static;
+    grid-area: status;
+    width: 100%;
+    transform: none;
+  }
+  .display-header .screen-actions {
+    grid-area: actions;
+    width: 100%;
+    min-width: 0;
+    justify-self: stretch;
+    justify-content: flex-end;
     flex-wrap: wrap;
   }
   .screen-actions {
-    width: 100%;
+    width: auto;
     justify-content: flex-end;
   }
-  header button {
+  .display-header button {
     font-size: 12px;
-    padding: 8px;
+    padding: 6px 8px;
   }
   .master-choice {
     padding: 20px;
@@ -587,6 +1167,14 @@ footer {
   .track-caption {
     flex-direction: column;
     align-items: center;
+  }
+  .display-screen.is-fullscreen {
+    padding: 0;
+  }
+  .is-fullscreen .display-header {
+    top: 10px;
+    right: 10px;
+    left: 10px;
   }
 }
 </style>

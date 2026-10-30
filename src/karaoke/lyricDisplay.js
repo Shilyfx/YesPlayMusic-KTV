@@ -1,5 +1,72 @@
 import { normalizeStageMode } from '../utils/lyricStageModes';
 import findLyricIndex from '../utils/lyricCursor';
+import { sanitizeMusicReaction } from './musicReactionAnalyzer';
+import { normalizeSmartBeatPreferences } from './smartBeatPreferences';
+
+const SMART_BEAT_STATUSES = new Set([
+  'unsupported',
+  'loading-model',
+  'fetching-audio',
+  'analysing',
+  'ready',
+  'cached',
+  'error',
+  'cancelled',
+  'waiting',
+  'idle',
+]);
+
+function replaceAsciiControlCharacters(value) {
+  let result = '';
+  for (const character of value) {
+    result += character.charCodeAt(0) <= 0x1f ? ' ' : character;
+  }
+  return result;
+}
+
+function sanitizeSmartBeatPresentation(value) {
+  if (!value || typeof value !== 'object') return undefined;
+  const state = SMART_BEAT_STATUSES.has(value.status) ? value.status : 'idle';
+  const trackKey =
+    typeof value.trackKey === 'string' ? value.trackKey.slice(0, 320) : '';
+  const detail =
+    typeof value.detail === 'string'
+      ? replaceAsciiControlCharacters(value.detail).trim().slice(0, 180)
+      : '';
+  return {
+    settings: normalizeSmartBeatPreferences(value.settings),
+    status: state,
+    trackKey,
+    analysisRevision: Number.isSafeInteger(value.analysisRevision)
+      ? Math.max(0, value.analysisRevision)
+      : 0,
+    ...(Number.isFinite(value.progress)
+      ? { progress: Math.max(0, Math.min(1, value.progress)) }
+      : {}),
+    ...(typeof value.cacheHit === 'boolean'
+      ? { cacheHit: value.cacheHit }
+      : {}),
+    ...(detail ? { detail } : {}),
+  };
+}
+
+function sanitizeRawAudioFeatures(value) {
+  if (!value || typeof value !== 'object') return undefined;
+  const available = value.available === true;
+  const clamp = key =>
+    available && Number.isFinite(value[key])
+      ? Math.max(0, Math.min(1, value[key]))
+      : 0;
+  return {
+    available,
+    power: clamp('power'),
+    bass: clamp('bass'),
+    lowMid: clamp('lowMid'),
+    mid: clamp('mid'),
+    vocal: clamp('vocal'),
+    treble: clamp('treble'),
+  };
+}
 
 export function buildLyricWindow(lyrics, position, offset) {
   return buildLyricContext(lyrics, position, offset).lines;
@@ -62,6 +129,38 @@ export function buildLyricContext(lyrics, position, offset) {
 
 const text = (value, max) =>
   typeof value === 'string' ? value.slice(0, max) : '';
+const MAX_COVER_REFERENCE_LENGTH = 2048;
+const LOCAL_COVER_REFERENCE = /^\/ktv\/local\/cover\/(local-[a-f0-9]{16})$/i;
+
+export function sanitizeCoverReference(value) {
+  if (typeof value !== 'string') return '';
+  const candidate = value.trim();
+  const hasControlCharacter = Array.from(candidate).some(character => {
+    const code = character.charCodeAt(0);
+    return code <= 31 || code === 127;
+  });
+  if (
+    !candidate ||
+    candidate.length > MAX_COVER_REFERENCE_LENGTH ||
+    hasControlCharacter
+  )
+    return '';
+  if (LOCAL_COVER_REFERENCE.test(candidate)) return candidate;
+  try {
+    const url = new URL(candidate);
+    if (
+      !['http:', 'https:'].includes(url.protocol) ||
+      url.username ||
+      url.password
+    )
+      return '';
+    const normalized = url.href;
+    return normalized.length <= MAX_COVER_REFERENCE_LENGTH ? normalized : '';
+  } catch (_) {
+    return '';
+  }
+}
+
 export function sanitizePresentation(value) {
   if (!value || !Array.isArray(value.lines) || value.lines.length > 4096)
     throw new Error('INVALID_PRESENTATION');
@@ -82,6 +181,7 @@ export function sanitizePresentation(value) {
     itemId: text(value.itemId, 160),
     title: text(value.title, 300),
     artists: text(value.artists, 300),
+    coverUrl: sanitizeCoverReference(value.coverUrl),
     position: value.position,
     playing: value.playing === true,
     offset: Number.isFinite(value.offset)
@@ -102,6 +202,15 @@ export function sanitizePresentation(value) {
     contextUntil: Number.isFinite(value.contextUntil)
       ? value.contextUntil
       : null,
+    ...(value.musicReaction && sanitizeMusicReaction(value.musicReaction)
+      ? { musicReaction: sanitizeMusicReaction(value.musicReaction) }
+      : {}),
+    ...(value.smartBeat
+      ? { smartBeat: sanitizeSmartBeatPresentation(value.smartBeat) }
+      : {}),
+    ...(value.audioFeatures
+      ? { audioFeatures: sanitizeRawAudioFeatures(value.audioFeatures) }
+      : {}),
   };
 }
 

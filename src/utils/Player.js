@@ -337,9 +337,11 @@ export default class {
     this._shuffledList = shuffle(list);
     if (firstTrackID !== 'first') this._shuffledList.unshift(firstTrackID);
   }
-  async _scrobble(track, time, completed = false) {
+  _scrobble(track, time, completed = false) {
+    if (!track || track.source === 'local') return;
+    const artistName = track.ar?.[0]?.name || '';
     console.debug(
-      `[debug][Player.js] scrobble track 👉 ${track.name} by ${track.ar[0].name} 👉 time:${time} completed: ${completed}`
+      `[debug][Player.js] scrobble track 👉 ${track.name} by ${artistName} 👉 time:${time} completed: ${completed}`
     );
     const trackDuration = ~~(track.dt / 1000);
     time = completed ? trackDuration : ~~time;
@@ -354,7 +356,7 @@ export default class {
     ) {
       const timestamp = ~~(new Date().getTime() / 1000) - time;
       trackScrobble({
-        artist: track.ar[0].name,
+        artist: artistName,
         track: track.name,
         timestamp,
         album: track.al.name,
@@ -672,23 +674,35 @@ export default class {
     if ('mediaSession' in navigator === false) {
       return;
     }
-    let artists = track.ar.map(a => a.name);
+    let artists = (track.ar || []).map(a => a.name);
+    const picUrl = track.al?.picUrl || '';
+    const artwork = picUrl
+      ? track.source === 'local'
+        ? [
+            {
+              src: picUrl,
+              type: 'image/jpg',
+              sizes: '512x512',
+            },
+          ]
+        : [
+            {
+              src: picUrl + '?param=224y224',
+              type: 'image/jpg',
+              sizes: '224x224',
+            },
+            {
+              src: picUrl + '?param=512y512',
+              type: 'image/jpg',
+              sizes: '512x512',
+            },
+          ]
+      : [];
     const metadata = {
       title: track.name,
       artist: artists.join(','),
-      album: track.al.name,
-      artwork: [
-        {
-          src: track.al.picUrl + '?param=224y224',
-          type: 'image/jpg',
-          sizes: '224x224',
-        },
-        {
-          src: track.al.picUrl + '?param=512y512',
-          type: 'image/jpg',
-          sizes: '512x512',
-        },
-      ],
+      album: track.al?.name || '',
+      artwork,
       length: this.currentTrackDuration,
       trackId: this.current,
       url: '/trackid/' + track.id,
@@ -916,11 +930,14 @@ export default class {
         setTitle(this._currentTrack);
       }
       this._playDiscordPresence(this._currentTrack, this.seek());
-      if (storeRef?.state?.lastfm?.key !== undefined) {
+      if (
+        storeRef?.state?.lastfm?.key !== undefined &&
+        this.currentTrack?.source !== 'local'
+      ) {
         trackUpdateNowPlaying({
-          artist: this.currentTrack.ar[0].name,
+          artist: this.currentTrack.ar?.[0]?.name || '',
           track: this.currentTrack.name,
-          album: this.currentTrack.al.name,
+          album: this.currentTrack.al?.name || '',
           trackNumber: this.currentTrack.no,
           duration: ~~(this.currentTrack.dt / 1000),
         });
@@ -1080,33 +1097,53 @@ export default class {
     this._howler?.stop();
     this._setPlaying(false);
     try {
-      if (!ipcRenderer) return { success: false };
-      const resolved = await ipcRenderer.invoke(
-        'karaoke:local:resolve',
-        item.localId || item.trackId
-      );
+      const localId = item.localId || item.trackId;
+      let resolved = null;
+      if (ipcRenderer) {
+        resolved = await ipcRenderer.invoke('karaoke:local:resolve', localId);
+      } else if (typeof fetch === 'function') {
+        const response = await fetch(
+          `/ktv/local/resolve/${encodeURIComponent(String(localId || ''))}`
+        );
+        if (response.ok) {
+          resolved = await response.json().catch(() => null);
+        }
+      }
+      const source =
+        resolved?.audioUrl ||
+        (resolved?.audioPath && window.require
+          ? window.require('url').pathToFileURL(resolved.audioPath).href
+          : '');
       if (
         generation !== this._karaokePlaybackGeneration ||
         !resolved?.ok ||
-        !resolved.audioPath
+        !source
       ) {
         return {
           success: false,
           cancelled: generation !== this._karaokePlaybackGeneration,
         };
       }
-      const pathToFileURL = window.require('url').pathToFileURL;
-      const source =
-        resolved.audioUrl || pathToFileURL(resolved.audioPath).href;
+      const resolvedLyrics =
+        Array.isArray(item.lyrics) && item.lyrics.length
+          ? item.lyrics
+          : resolved.lyrics || [];
+      if (resolvedLyrics.length) {
+        item.lyrics = resolvedLyrics;
+      }
+      const coverUrl = resolved.coverUrl || item.coverUrl || '';
+      if (coverUrl && !item.coverUrl) {
+        item.coverUrl = coverUrl;
+      }
       const track = {
-        id: item.trackId || item.localId,
+        id: item.trackId || item.localId || resolved.localId,
         name: item.trackName || resolved.name || '本地歌曲',
         ar: (item.artists || resolved.artists || []).map(artist => ({
           name: artist.name || artist,
         })),
         al: {
           name: item.albumName || '',
-          picUrl: resolved.coverUrl || item.coverUrl || '',
+          picUrl: coverUrl,
         },
         dt: item.durationMs || 0,
         source: 'local',
@@ -1116,10 +1153,7 @@ export default class {
       this._playAudioSource(source, true);
       return {
         success: true,
-        lyrics:
-          Array.isArray(item.lyrics) && item.lyrics.length
-            ? item.lyrics
-            : resolved.lyrics || [],
+        lyrics: resolvedLyrics,
       };
     } catch (error) {
       if (generation === this._karaokePlaybackGeneration)

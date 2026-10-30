@@ -4,6 +4,15 @@
     :data-ktv-theme="resolvedTheme"
   >
     <div class="remote-ambient"></div>
+    <div
+      v-if="toastVisible"
+      :key="toastKey"
+      class="request-toast"
+      role="status"
+      aria-live="polite"
+    >
+      {{ toastMessage }}
+    </div>
     <header class="remote-header glass-panel">
       <div>
         <p class="room-kicker"
@@ -157,6 +166,10 @@ export default {
       query: '',
       systemTheme: 'light',
       themeMedia: null,
+      toastVisible: false,
+      toastMessage: '点歌成功',
+      toastKey: 0,
+      toastTimer: null,
       tracks: [
         {
           id: 1,
@@ -240,6 +253,7 @@ export default {
     }
   },
   beforeDestroy() {
+    clearTimeout(this.toastTimer);
     document.documentElement.classList.remove('karaoke-remote-route');
     if (this.themeMedia && this.themeMedia.removeEventListener) {
       this.themeMedia.removeEventListener('change', this.syncSystemTheme);
@@ -259,6 +273,15 @@ export default {
         unavailable: '× 不可播放',
       }[value];
     },
+    showRequestToast(message = '点歌成功') {
+      clearTimeout(this.toastTimer);
+      this.toastMessage = message;
+      this.toastKey += 1;
+      this.toastVisible = true;
+      this.toastTimer = setTimeout(() => {
+        this.toastVisible = false;
+      }, 950);
+    },
     requestTrack(track) {
       if (track.requested || track.playability === 'unavailable') return;
       track.requested = true;
@@ -269,6 +292,7 @@ export default {
         artist: track.artist,
         by: '我',
       });
+      this.showRequestToast('点歌成功');
     },
     removeTrack(id) {
       const item = this.queue.find(queueItem => queueItem.id === id);
@@ -318,6 +342,39 @@ export default {
 .mobile-nav {
   position: relative;
   z-index: 1;
+}
+@keyframes remote-toast-fade {
+  0% {
+    opacity: 0;
+    transform: translate(-50%, -10px) scale(0.92);
+  }
+  12%,
+  65% {
+    opacity: 1;
+    transform: translate(-50%, 0) scale(1);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(-50%, -6px) scale(0.97);
+  }
+}
+.request-toast {
+  position: fixed;
+  top: 22px;
+  left: 50%;
+  z-index: 40;
+  padding: 9px 18px;
+  border: 1px solid rgba(142, 240, 194, 0.42);
+  border-radius: 999px;
+  color: #effff7;
+  background: rgba(20, 43, 40, 0.92);
+  box-shadow: 0 12px 28px rgba(4, 9, 22, 0.4);
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  pointer-events: none;
+  animation: remote-toast-fade 0.92s cubic-bezier(0.2, 0.85, 0.3, 1) both;
+  backdrop-filter: blur(14px);
 }
 .remote-header {
   display: flex;

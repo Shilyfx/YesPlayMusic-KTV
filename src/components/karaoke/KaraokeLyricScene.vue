@@ -1,29 +1,74 @@
 <template>
-  <div
-    class="lyric-scene"
-    :data-scene="mode"
-    :data-paused="!playing"
-    :data-effect="effect"
-    :data-fullscreen="fullscreen"
-  >
-    <div class="scene-guide" aria-hidden="true"><i /><i /><i /></div>
-    <div ref="copy" class="scene-copy">
-      <p :key="'past-' + cueKey" class="scene-past">{{ lines.before }}</p>
-      <p :key="'now-' + cueKey" ref="active" class="scene-now">{{
-        lines.active
-      }}</p>
-      <p :key="'next-' + cueKey" class="scene-next">{{ lines.after }}</p>
-      <p :key="'later-' + cueKey" class="scene-later">
-        {{ lines.afterSecond }}
-      </p>
+  <div class="lyric-stage-shell" :data-fullscreen="fullscreen">
+    <KaraokeBackgroundScene
+      ref="backgroundScene"
+      :lyric-mode="mode"
+      :background="background"
+      :clock="stageClock"
+      :theme="theme"
+      :animation-intensity="animationIntensity"
+      :cover-url="coverUrl"
+      :seed="stageSeed"
+      :assets="assets"
+      :playing="playing"
+    />
+    <KaraokePvScene
+      v-if="isPvMode"
+      ref="pvScene"
+      :mode="mode"
+      :lines="lines"
+      :lyric-document="lyricDocument"
+      :position="position"
+      :raw-position="rawPosition"
+      :smart-beat-settings="smartBeatSettings"
+      :smart-beat-track-key="smartBeatTrackKey"
+      :smart-beat-timeline="smartBeatTimeline"
+      :audio-features="audioFeatures"
+      :playing="playing"
+      :theme="theme"
+      :font-size="fontSize"
+      :fullscreen="fullscreen"
+      :background="background"
+      :animation-intensity="animationIntensity"
+      :tuning-by-mode="sceneTuningByMode"
+      :cover-url="coverUrl"
+      :clock="stageClock"
+      :assets="assets"
+      :metadata="sceneMetadata"
+      :preview="preview"
+    />
+    <div
+      v-else
+      class="lyric-scene"
+      :data-scene="mode"
+      :data-paused="!playing"
+      :data-effect="effect"
+      :data-fullscreen="fullscreen"
+    >
+      <div class="scene-guide" aria-hidden="true"><i /><i /><i /></div>
+      <div ref="copy" class="scene-copy">
+        <p :key="'past-' + cueKey" class="scene-past">{{ lines.before }}</p>
+        <p :key="'now-' + cueKey" ref="active" class="scene-now">{{
+          lines.active
+        }}</p>
+        <p :key="'next-' + cueKey" class="scene-next">{{ lines.after }}</p>
+        <p :key="'later-' + cueKey" class="scene-later">
+          {{ lines.afterSecond }}
+        </p>
+      </div>
     </div>
   </div>
 </template>
 
 <script>
+import KaraokePvScene from './KaraokePvScene.vue';
+import KaraokeBackgroundScene from './newKaraokeBackgroundScene.vue';
+import { isPvStageMode } from '@/utils/lyricStageModes';
+import { createPvClock } from '@/karaoke/folia/timing';
 // Four visible lines, supplied by the existing lyric cursor. No network,
 // independent playback clock, full-song DOM, or word-timing approximation.
 export default {
+  components: { KaraokeBackgroundScene, KaraokePvScene },
   props: {
     mode: { type: String, required: true },
     lines: { type: Object, required: true },
@@ -31,13 +76,77 @@ export default {
     playing: { type: Boolean, default: false },
     effect: { type: String, default: 'gradient' },
     fullscreen: { type: Boolean, default: false },
+    lyricDocument: { type: Object, default: null },
+    position: { type: Number, default: 0 },
+    rawPosition: { type: Number, default: 0 },
+    smartBeatSettings: { type: Object, default: () => ({}) },
+    smartBeatTrackKey: { type: String, default: '' },
+    smartBeatTimeline: { type: Object, default: null },
+    audioFeatures: { type: Object, default: null },
+    theme: { type: String, default: 'light' },
+    fontSize: { type: Number, default: 45 },
+    background: {
+      type: Object,
+      default: () => ({
+        mode: 'legacy',
+        tuning: {},
+        assetId: null,
+        transparent: false,
+        opacity: 1,
+      }),
+    },
+    animationIntensity: { type: String, default: 'normal' },
+    tuningByMode: { type: Object, default: () => ({}) },
+    tuning: { type: Object, default: null },
+    coverUrl: { type: String, default: '' },
+    assets: { type: Object, default: () => ({}) },
+    metadata: { type: Object, default: null },
+    preview: { type: Boolean, default: false },
+  },
+  data() {
+    return { stageClock: createPvClock() };
+  },
+  computed: {
+    isPvMode() {
+      return isPvStageMode(this.mode);
+    },
+    sceneTuningByMode() {
+      return this.tuning
+        ? { ...this.tuningByMode, [this.mode]: this.tuning }
+        : this.tuningByMode;
+    },
+    stageSeed() {
+      return String(this.lyricDocument?.itemId || 'lumasing-pv');
+    },
+    sceneMetadata() {
+      if (this.metadata) return this.metadata;
+      const document = this.lyricDocument || {};
+      return {
+        title: document.songTitle || document.title || null,
+        artist: document.songArtist || document.artist || null,
+        album: document.songAlbum || document.album || null,
+      };
+    },
   },
   watch: {
     cueKey: 'focusCue',
     fullscreen: 'focusCue',
-    mode: 'focusCue',
+    position: 'updateStageClock',
+    playing: 'updateStageClock',
+    mode() {
+      this.$nextTick(() => {
+        this.focusCue();
+      });
+    },
+    smartBeatSettings: { handler: 'updateSmartBeat', deep: true },
+    smartBeatTrackKey: 'updateSmartBeat',
+    smartBeatTimeline: 'updateSmartBeat',
+    audioFeatures: 'publishAudioFeatures',
   },
   mounted() {
+    this.visibilityChange = () => this.updateStageClock();
+    document.addEventListener('visibilitychange', this.visibilityChange);
+    this.updateStageClock();
     this.focusCue();
     if (typeof ResizeObserver !== 'undefined') {
       this.sceneResize = new ResizeObserver(() => this.focusCue());
@@ -46,15 +155,36 @@ export default {
   },
   beforeDestroy() {
     this.sceneResize?.disconnect();
+    document.removeEventListener('visibilitychange', this.visibilityChange);
   },
   methods: {
+    updateSmartBeat(patch) {
+      this.$refs.pvScene?.updateSmartBeat?.(
+        patch || {
+          mode: this.mode,
+          trackKey: this.smartBeatTrackKey,
+          settings: this.smartBeatSettings,
+          timeline: this.smartBeatTimeline,
+          playing: this.playing,
+        }
+      );
+    },
+    publishAudioFeatures(features = this.audioFeatures) {
+      this.$refs.backgroundScene?.publishAudioFeatures?.(features);
+      this.$refs.pvScene?.publishAudioFeatures?.(features);
+    },
+    updateStageClock() {
+      this.stageClock.set(this.position, this.playing && !document.hidden);
+    },
     focusCue() {
       if (!this.fullscreen) return;
       this.$nextTick(() => {
         if (this._isDestroyed || !this.fullscreen || !this.$refs.active) return;
+        const scene = this.$el.querySelector('.lyric-scene');
+        if (!scene) return;
         // Offset geometry ignores entrance transforms. Scroll only this scene,
         // never the host page; a long line remains manually scrollable.
-        this.$el.scrollTop =
+        scene.scrollTop =
           this.$refs.copy.offsetTop + this.$refs.active.offsetTop - 12;
       });
     },
@@ -63,6 +193,23 @@ export default {
 </script>
 
 <style scoped>
+.lyric-stage-shell {
+  position: relative;
+  isolation: isolate;
+  width: 100%;
+  min-width: 0;
+  min-height: 380px;
+}
+.lyric-stage-shell[data-fullscreen='true'] {
+  width: 100%;
+  height: 100%;
+  min-height: 0;
+  flex: 1 1 0%;
+}
+.lyric-stage-shell[data-fullscreen='true'] > .lyric-scene {
+  width: 100%;
+  height: 100%;
+}
 .lyric-scene {
   position: relative;
   width: 100%;
@@ -274,13 +421,13 @@ export default {
   }
 }
 .lyric-scene[data-fullscreen='true'] {
+  flex: 1 1 0%;
   min-height: 0;
-  max-height: calc(100vh - 180px);
-  max-height: calc(100dvh - 180px);
+  max-height: none;
   /* Rotated scenery must not create a sideways navigation track. Keep vertical
      scrolling for long cues, without browser chrome over the lyric stage. */
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   scrollbar-width: none;
   -ms-overflow-style: none;
   padding-top: 18px;
