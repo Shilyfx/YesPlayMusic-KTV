@@ -51,6 +51,7 @@ export default {
     this.backgroundDisposed = false;
     this.backgroundRuntimeModule = null;
     this.backgroundLatestAudioFeatures = null;
+    this.backgroundPauseStates = new WeakMap();
     this.motionPreference = null;
     this.motionPreferenceChange = null;
     this.visibilityChange = null;
@@ -71,7 +72,7 @@ export default {
       );
     else this.motionPreference.addListener(this.motionPreferenceChange);
     this.visibilityChange = () =>
-      this.backgroundRuntime?.setPaused?.(this.isPaused());
+      this.syncRuntimePaused(this.backgroundRuntime, this.isPaused());
     document.addEventListener('visibilitychange', this.visibilityChange);
 
     const host = this.$refs.host;
@@ -86,7 +87,7 @@ export default {
       },
       createRuntime: options => this.createRuntime(options),
       activate: (next, previous, duration) => {
-        next.runtime.setPaused?.(this.isPaused());
+        this.syncRuntimePaused(next.runtime, this.isPaused());
         if (previous) {
           previous.layer.style.transition = duration
             ? 'opacity 360ms cubic-bezier(0.22,1,0.36,1)'
@@ -140,6 +141,15 @@ export default {
     },
     isPaused() {
       return !this.playing || document.hidden;
+    },
+    syncRuntimePaused(runtime, paused, alreadyApplied = false) {
+      if (!runtime) return false;
+      if (!this.backgroundPauseStates)
+        this.backgroundPauseStates = new WeakMap();
+      if (this.backgroundPauseStates.get(runtime) === paused) return false;
+      if (!alreadyApplied) runtime.setPaused?.(paused);
+      this.backgroundPauseStates.set(runtime, paused);
+      return true;
     },
     stageTheme() {
       return createStageTheme(
@@ -199,7 +209,11 @@ export default {
           this.backgroundLifecycle.cancelPending();
         const applied = this.backgroundRuntime.update?.(options);
         if (applied !== false) {
-          this.backgroundRuntime.setPaused?.(this.isPaused());
+          this.syncRuntimePaused(
+            this.backgroundRuntime,
+            this.isPaused(),
+            applied === true
+          );
           return;
         }
       }

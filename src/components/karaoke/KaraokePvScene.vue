@@ -25,6 +25,29 @@ import { createPvClock } from '@/karaoke/folia/timing';
 import { supportsRuntimeUpdateMode } from '@/karaoke/folia/rendererContracts';
 import { createStageTheme } from '@/karaoke/folia/stageTheme';
 
+function syncPvRuntimeFrame(scene, runtime) {
+  if (!runtime) return;
+  if (!scene.pvRuntimeFrames) scene.pvRuntimeFrames = new WeakMap();
+  const paused = scene.isPaused();
+  const position = scene.pvClock?.get?.() ?? scene.position;
+  let frame = scene.pvRuntimeFrames.get(runtime);
+  if (!frame) {
+    frame = { paused: undefined, position: undefined };
+    scene.pvRuntimeFrames.set(runtime, frame);
+  }
+
+  const pauseChanged = frame.paused !== paused;
+  if (pauseChanged) {
+    runtime.setPaused?.(paused);
+    frame.paused = paused;
+    if (!paused) frame.position = undefined;
+  }
+  if (paused && (pauseChanged || frame.position !== position)) {
+    runtime.renderOnce?.();
+    frame.position = position;
+  }
+}
+
 export default {
   name: 'KaraokePvScene',
   props: {
@@ -97,6 +120,7 @@ export default {
     this.pvLifecycle = null;
     this.pvDisposed = false;
     this.pvQueued = false;
+    this.pvRuntimeFrames = new WeakMap();
   },
   mounted() {
     this.pvMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
@@ -111,9 +135,7 @@ export default {
       },
       createRuntime: options => this.createRuntime(options),
       activate: (next, previous, duration) => {
-        const paused = this.isPaused();
-        next.runtime.setPaused?.(paused);
-        if (paused) next.runtime.renderOnce?.();
+        syncPvRuntimeFrame(this, next.runtime);
 
         if (previous) {
           previous.layer.style.transition = duration
@@ -162,9 +184,10 @@ export default {
     updateTime() {
       if (!this.clock)
         this.pvClock.set(this.position, this.playing && !document.hidden);
-      const paused = this.isPaused();
-      this.pvRuntime?.setPaused(paused);
-      if (paused) this.pvRuntime?.renderOnce();
+      this.syncRuntimeTime(this.pvRuntime);
+    },
+    syncRuntimeTime(runtime) {
+      syncPvRuntimeFrame(this, runtime);
     },
     queueBuild() {
       if (this.pvQueued || this.pvDisposed) return;
@@ -292,6 +315,11 @@ export default {
           runtime.update?.({ ...this.runtimeUpdatePatch(), paused: true });
         runtime.setPaused?.(true);
         runtime.renderOnce?.();
+        if (!this.pvRuntimeFrames) this.pvRuntimeFrames = new WeakMap();
+        this.pvRuntimeFrames.set(runtime, {
+          paused: true,
+          position: this.pvClock?.get?.(),
+        });
         return runtime;
       } catch (error) {
         try {
