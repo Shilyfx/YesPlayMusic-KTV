@@ -91,12 +91,14 @@ export default class KaraokeLocalLibrary {
     this.workerCount = Math.max(1, Number(workerCount) || 8);
     this.scanPromise = null;
     this.scanGeneration = 0;
+    this.scannedGeneration = null;
     this.indexLoaded = false;
-    this.indexReady = this.loadIndex();
     this.setDirectories(directories);
+    this.indexReady = this.loadIndex();
   }
 
   async loadIndex() {
+    const generation = this.scanGeneration;
     if (!this.indexPath) {
       this.indexLoaded = true;
       return;
@@ -114,6 +116,8 @@ export default class KaraokeLocalLibrary {
           this.index.set(String(entry.localId), entry);
       });
       this.rebuildFromIndex();
+      if (generation === this.scanGeneration)
+        this.scannedGeneration = generation;
     } catch (_) {
       // A missing or corrupt index is recovered by the first full scan.
     } finally {
@@ -133,7 +137,10 @@ export default class KaraokeLocalLibrary {
         seen.add(key);
         next.push(directory);
       });
-    if (next.some((directory, index) => directory !== this.directories[index]))
+    if (
+      next.length !== this.directories.length ||
+      next.some((directory, index) => directory !== this.directories[index])
+    )
       this.scanGeneration += 1;
     this.directories = next;
     this.rebuildFromIndex();
@@ -157,7 +164,7 @@ export default class KaraokeLocalLibrary {
 
   async ensureIndexed() {
     await this.indexReady;
-    if (!this.index.size && this.directories.length) await this.scan();
+    if (this.scannedGeneration !== this.scanGeneration) await this.scan();
     return this.toPublicPlaylists();
   }
 
@@ -178,6 +185,7 @@ export default class KaraokeLocalLibrary {
       generation = this.scanGeneration;
       result = await this.scanGenerationSnapshot(generation);
     } while (generation !== this.scanGeneration);
+    this.scannedGeneration = generation;
     return result;
   }
 
@@ -366,11 +374,7 @@ export default class KaraokeLocalLibrary {
   async walk(directory, entriesByDirectory = new Map()) {
     const results = [];
     let entries;
-    try {
-      entries = await fs.readdir(directory, { withFileTypes: true });
-    } catch (_) {
-      return results;
-    }
+    entries = await fs.readdir(directory, { withFileTypes: true });
     const directoryKey = pathKey(normalizePath(directory));
     const siblingEntries = new Map();
     entries.forEach(entry => {
