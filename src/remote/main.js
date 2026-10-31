@@ -1,6 +1,7 @@
 import './styles.css';
 import createRefreshScheduler from './refreshScheduler';
 import createCatalogPrefetchScheduler from './catalogPrefetchScheduler';
+import searchSchedulerModule from './searchScheduler.cjs';
 import invalidateRemoteCatalogState from './catalogEpoch';
 import { loadEmotionBall, loadMoodMates } from '../karaoke/moodMates';
 import {
@@ -10,6 +11,9 @@ import {
   normalizeReactionText,
   resolveReaction,
 } from '../karaoke/reactions';
+
+const { clearSearchNotice, createSearchScheduler, getRetryAfterMs } =
+  searchSchedulerModule;
 
 const app = document.querySelector('#remote-app');
 const apiRoot = '/ktv/api';
@@ -30,8 +34,6 @@ let reactionEffectsExpanded = false;
 let reactionCharacter = 'ball';
 let reactionPreviewVersion = 0;
 let state;
-let searchTimer;
-let searchAbort;
 let refreshTimer;
 let roomEnded = false;
 let lastStateRevision = null;
@@ -131,6 +133,34 @@ const catalogPrefetchScheduler = createCatalogPrefetchScheduler({
   isHidden: () => document.hidden,
   shouldRun: () => !roomEnded && Boolean(client?.clientToken),
 });
+const searchScheduler = createSearchScheduler({
+  search: (query, { signal }) =>
+    api(`/search?q=${encodeURIComponent(query)}`, { signal }).then(
+      response => response.results
+    ),
+  onSearching: () => renderResults(searchResults, { searching: true }),
+  onResults: (_query, results) => {
+    renderResults(Array.isArray(results) ? results : []);
+    clearSearchNotice(app.querySelector('[data-notice]'), () => setNotice(''));
+  },
+  onError: (_query, error) => {
+    renderResults(searchResults);
+    setNotice(
+      error.code === 'SEARCH_TIMEOUT'
+        ? '搜索响应超时，请稍后重试。'
+        : '搜索暂时不可用，请稍后重试。',
+      'error'
+    );
+  },
+  onRateLimit: () => {
+    renderResults(searchResults);
+    setNotice('搜索较频繁，稍后自动更新', 'error');
+  },
+  onClear: () => {
+    renderResults([]);
+    clearSearchNotice(app.querySelector('[data-notice]'), () => setNotice(''));
+  },
+});
 
 function escape(value = '') {
   return String(value).replace(
@@ -157,6 +187,11 @@ function api(path, options = {}) {
     if (!response.ok) {
       const error = new Error(body.error || 'REMOTE_UNAVAILABLE');
       error.code = body.error;
+      error.status = response.status;
+      error.retryAfterMs = getRetryAfterMs(
+        body.retryAfterMs,
+        response.headers?.get('Retry-After')
+      );
       throw error;
     }
     return body;
@@ -401,9 +436,19 @@ function initializeShell() {
     localStorage.setItem('yesplaymusic-ktv-theme', value);
     selectTheme(value);
   });
-  app
-    .querySelector('[data-search]')
-    .addEventListener('input', event => scheduleSearch(event.target.value));
+  const searchInput = app.querySelector('[data-search]');
+  searchInput.addEventListener('input', event =>
+    scheduleSearch(event.target.value)
+  );
+  searchInput.addEventListener('compositionstart', () => {
+    searchGeneration += 1;
+    searchScheduler.compositionStart();
+  });
+  searchInput.addEventListener('compositionend', event => {
+    searchQuery = event.target.value;
+    searchGeneration += 1;
+    searchScheduler.compositionEnd(event.target.value);
+  });
   app
     .querySelector('[data-playlist]')
     .addEventListener('change', event => selectPlaylist(event.target.value));
@@ -1676,30 +1721,8 @@ async function loadPlaylists({ force = false, silent = false } = {}) {
 
 function scheduleSearch(query, { immediate = false } = {}) {
   searchQuery = query;
-  const generation = ++searchGeneration;
-  clearTimeout(searchTimer);
-  if (searchAbort) searchAbort.abort();
-  const clean = query.trim();
-  if (!clean) return renderResults([]);
-  searchTimer = setTimeout(
-    async () => {
-      searchAbort = new AbortController();
-      renderResults(searchResults, { searching: true });
-      try {
-        const response = await api(`/search?q=${encodeURIComponent(clean)}`, {
-          signal: searchAbort.signal,
-        });
-        if (generation === searchGeneration && clean === searchQuery.trim())
-          renderResults(response.results);
-      } catch (error) {
-        if (error.name !== 'AbortError' && generation === searchGeneration) {
-          renderResults(searchResults);
-          setNotice('搜索暂时不可用，请稍后重试。', 'error');
-        }
-      }
-    },
-    immediate ? 0 : 350
-  );
+  searchGeneration += 1;
+  searchScheduler.schedule(query, { immediate });
 }
 
 async function requestSong(trackId, priority, button) {
@@ -1794,6 +1817,7 @@ function handleCatalogEpoch(nextEpoch) {
 
   observedCatalogEpoch = invalidation.catalogEpoch;
   searchGeneration = invalidation.generations.search;
+  searchScheduler.invalidate();
   playlistLoadGeneration = invalidation.generations.playlists;
   playlistTrackGeneration = invalidation.generations.playlistTracks;
   recommendationsGeneration = invalidation.generations.recommendations;
@@ -1801,9 +1825,6 @@ function handleCatalogEpoch(nextEpoch) {
   toplistsGeneration = invalidation.generations.toplists;
   toplistTrackGeneration = invalidation.generations.toplistTracks;
 
-  clearTimeout(searchTimer);
-  searchAbort?.abort();
-  searchAbort = null;
   playlistsPromise = null;
   recommendationsPromise = null;
 
@@ -1829,7 +1850,7 @@ function handleCatalogEpoch(nextEpoch) {
   renderRecommendationTracks();
 
   if (selectedModule === 'search') {
-    scheduleSearch(searchQuery, { immediate: true });
+    searchScheduler.schedule(searchQuery, { immediate: true, force: true });
   } else if (selectedModule === 'playlists' && playlistSource === 'user') {
     loadPlaylists();
   } else if (selectedModule === 'recommendations') {
@@ -1878,6 +1899,7 @@ function requestRefresh() {
 function showEnded() {
   roomEnded = true;
   catalogPrefetchScheduler.stop();
+  searchScheduler.stop();
   clearTimeout(refreshTimer);
   sessionStorage.removeItem(storageKey);
   app.innerHTML =
@@ -1927,6 +1949,7 @@ async function bootstrap() {
 }
 
 document.addEventListener('visibilitychange', () => {
+  searchScheduler.setHidden(document.hidden);
   if (!document.hidden) {
     catalogPrefetchScheduler.resume();
     if (client) requestRefresh();

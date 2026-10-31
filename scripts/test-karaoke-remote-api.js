@@ -47,6 +47,7 @@ function request(port, method, pathname, { token, body } = {}) {
         response.on('end', () =>
           resolve({
             status: response.statusCode,
+            headers: response.headers,
             body: JSON.parse(value || '{}'),
           })
         );
@@ -300,6 +301,17 @@ async function run() {
   assert.notEqual(guestA.body.clientToken, guestB.body.clientToken);
   assert.equal(guestA.body.displayName, '麦霸01');
   assert.equal(guestB.body.displayName, '麦霸02');
+
+  for (let index = 0; index < 20; index += 1) {
+    const availability = await request(
+      port,
+      'GET',
+      '/ktv/api/track/101/availability',
+      { token: guestA.body.clientToken }
+    );
+    assert.equal(availability.status, 200);
+  }
+
   const results = await request(
     port,
     'GET',
@@ -308,7 +320,31 @@ async function run() {
   );
   assert.equal(results.status, 200);
   assert.equal(results.body.results[0].versionLabel, 'Live');
-  assert.equal(results.body.results[0].playability, 'unknown');
+  assert.equal(results.body.results[0].playability, 'playable');
+  for (let index = 1; index < 10; index += 1) {
+    const withinSearchLimit = await request(
+      port,
+      'GET',
+      '/ktv/api/search?q=%E6%B5%8B%E8%AF%95',
+      { token: guestA.body.clientToken }
+    );
+    assert.equal(withinSearchLimit.status, 200);
+  }
+  const overSearchLimit = await request(
+    port,
+    'GET',
+    '/ktv/api/search?q=%E6%B5%8B%E8%AF%95',
+    { token: guestA.body.clientToken }
+  );
+  assert.equal(overSearchLimit.status, 429);
+  assert.equal(overSearchLimit.body.error, 'RATE_LIMIT');
+  assert(Number.isSafeInteger(overSearchLimit.body.retryAfterMs));
+  assert(overSearchLimit.body.retryAfterMs > 0);
+  assert(overSearchLimit.body.retryAfterMs <= 10000);
+  assert.equal(
+    Number(overSearchLimit.headers['retry-after']),
+    Math.ceil(overSearchLimit.body.retryAfterMs / 1000)
+  );
   assert.ok(bridgeCalls.includes('search'));
   const availabilityCallsBeforeCatalog = bridgeCalls.filter(
     action => action === 'availability'
@@ -364,7 +400,7 @@ async function run() {
   );
   assert.equal(playlistTracks.status, 200);
   assert.equal(playlistTracks.body.tracks[0].trackId, '101');
-  assert.equal(playlistTracks.body.tracks[0].playability, 'unknown');
+  assert.equal(playlistTracks.body.tracks[0].playability, 'playable');
   assert.equal(
     bridgeCalls.filter(action => action === 'availability').length,
     availabilityCallsBeforeCatalog + 1
@@ -387,7 +423,7 @@ async function run() {
   );
   assert.equal(recommendationTracks.status, 200);
   assert.equal(recommendationTracks.body.tracks[0].trackId, '101');
-  assert.equal(recommendationTracks.body.tracks[0].playability, 'unknown');
+  assert.equal(recommendationTracks.body.tracks[0].playability, 'playable');
   const toplists = await request(port, 'GET', '/ktv/api/toplists', {
     token: guestA.body.clientToken,
   });
@@ -401,7 +437,7 @@ async function run() {
   );
   assert.equal(toplistTracks.status, 200);
   assert.equal(toplistTracks.body.tracks[0].trackId, '101');
-  assert.equal(toplistTracks.body.tracks[0].playability, 'unknown');
+  assert.equal(toplistTracks.body.tracks[0].playability, 'playable');
   const artistSearch = await request(
     port,
     'GET',
@@ -418,7 +454,7 @@ async function run() {
   );
   assert.equal(artistTracks.status, 200);
   assert.equal(artistTracks.body.tracks[0].trackId, '101');
-  assert.equal(artistTracks.body.tracks[0].playability, 'unknown');
+  assert.equal(artistTracks.body.tracks[0].playability, 'playable');
   assert.ok(bridgeCalls.includes('recommendations'));
   assert.ok(bridgeCalls.includes('recommendationTracks'));
   assert.ok(bridgeCalls.includes('toplists'));

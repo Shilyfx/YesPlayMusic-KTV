@@ -482,6 +482,209 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
     assert.equal(await pending, 'next-ok');
     assert.equal(ack.body.commands.length, 0);
 
+    const originalInfo = console.info;
+    const diagnosticLogs = [];
+    console.info = (...values) => diagnosticLogs.push(values.join(' '));
+    try {
+      const privateSearchText = '隐私搜索词-9d19';
+      const privateToken = 'token-secret-5ac3';
+      const privateCookie = 'cookie-secret-1d61';
+      const successfulSearch = host.command('catalog', {
+        action: 'search',
+        payload: {
+          query: privateSearchText,
+          token: privateToken,
+          cookie: privateCookie,
+          identity: 'guest-private-2ee4',
+        },
+      });
+      now += 9;
+      const searchDelivery = await call('/ktv/host/exchange', {}, hostToken);
+      const searchCommand = searchDelivery.body.commands[0];
+      now += 28;
+      await call(
+        '/ktv/host/exchange',
+        {
+          results: [{ id: searchCommand.id, ok: true, result: [] }],
+        },
+        hostToken
+      );
+      await successfulSearch;
+      const successDiagnostic = host.searchDiagnostics.at(-1);
+      assert.equal(successDiagnostic.requestId, searchCommand.id);
+      assert.equal(successDiagnostic.stage, 'main_screen');
+      assert.equal(successDiagnostic.durationMs, 37);
+      assert.equal(successDiagnostic.queueDurationMs, 9);
+      assert.equal(successDiagnostic.executionDurationMs, 28);
+      assert.equal(successDiagnostic.status, 'success');
+      assert.equal(successDiagnostic.internalError, null);
+
+      const privateFailureText = 'query-secret-4420';
+      const privateFailureToken = 'bearer-secret-62a1';
+      const failedSearch = host.command('catalog', {
+        action: 'search',
+        payload: { query: privateFailureText },
+      });
+      const failedSearchRejected = assert.rejects(failedSearch, /UPSTREAM/);
+      const failedDelivery = await call('/ktv/host/exchange', {}, hostToken);
+      const failedCommand = failedDelivery.body.commands[0];
+      await call(
+        '/ktv/host/exchange',
+        {
+          results: [
+            {
+              id: failedCommand.id,
+              ok: false,
+              error: `UPSTREAM ${privateFailureText} ${privateFailureToken}`,
+            },
+          ],
+        },
+        hostToken
+      );
+      await failedSearchRejected;
+      const failureDiagnostic = host.searchDiagnostics.at(-1);
+      assert.equal(failureDiagnostic.requestId, failedCommand.id);
+      assert.equal(failureDiagnostic.stage, 'main_screen');
+      assert.equal(failureDiagnostic.status, 'main_screen_failure');
+      assert.equal(
+        failureDiagnostic.internalError,
+        'UNKNOWN_MAIN_SCREEN_ERROR'
+      );
+
+      const knownErrorSearch = host.command('catalog', {
+        action: 'search',
+        payload: { query: 'known-error-private-query' },
+      });
+      const knownErrorRejected = assert.rejects(knownErrorSearch, /UPSTREAM/);
+      const knownErrorDelivery = await call(
+        '/ktv/host/exchange',
+        {},
+        hostToken
+      );
+      const knownErrorCommand = knownErrorDelivery.body.commands[0];
+      await call(
+        '/ktv/host/exchange',
+        {
+          results: [{ id: knownErrorCommand.id, ok: false, error: 'UPSTREAM' }],
+        },
+        hostToken
+      );
+      await knownErrorRejected;
+      const knownErrorDiagnostic = host.searchDiagnostics.at(-1);
+      assert.equal(knownErrorDiagnostic.status, 'main_screen_failure');
+      assert.equal(knownErrorDiagnostic.internalError, 'UPSTREAM');
+
+      host.commandTimeoutMs = 10;
+      const queuedTimeout = host.command('catalog', {
+        action: 'search',
+        payload: { query: 'queued-timeout-private' },
+      });
+      await assert.rejects(queuedTimeout, /KTV_NOT_ACTIVE/);
+      const queuedTimeoutDiagnostic = host.searchDiagnostics.at(-1);
+      assert.equal(queuedTimeoutDiagnostic.stage, 'queued');
+      assert.equal(queuedTimeoutDiagnostic.status, 'timeout');
+      assert.equal(queuedTimeoutDiagnostic.internalError, 'COMMAND_TIMEOUT');
+      assert.equal(queuedTimeoutDiagnostic.executionDurationMs, null);
+
+      const deliveredTimeout = host.command('catalog', {
+        action: 'search',
+        payload: { query: 'delivered-timeout-private' },
+      });
+      const deliveredTimeoutRejected = assert.rejects(
+        deliveredTimeout,
+        /KTV_NOT_ACTIVE/
+      );
+      const timeoutDelivery = await call('/ktv/host/exchange', {}, hostToken);
+      const timeoutCommand = timeoutDelivery.body.commands[0];
+      await deliveredTimeoutRejected;
+      const deliveredTimeoutDiagnostic = host.searchDiagnostics.at(-1);
+      assert.equal(deliveredTimeoutDiagnostic.requestId, timeoutCommand.id);
+      assert.equal(deliveredTimeoutDiagnostic.stage, 'main_screen');
+      assert.equal(deliveredTimeoutDiagnostic.status, 'timeout');
+      assert.equal(deliveredTimeoutDiagnostic.internalError, 'COMMAND_TIMEOUT');
+      host.commandTimeoutMs = 12000;
+
+      const completedRequestIds = [];
+      const completeSearchBatch = async (count, { fail = false } = {}) => {
+        const commands = Array.from({ length: count }, () => {
+          const promise = host.command('catalog', {
+            action: 'search',
+            payload: { query: 'bounded-private-query' },
+          });
+          promise.catch(() => {});
+          return promise;
+        });
+        const delivery = await call('/ktv/host/exchange', {}, hostToken);
+        const issued = delivery.body.commands;
+        completedRequestIds.push(...issued.map(command => command.id));
+        await call(
+          '/ktv/host/exchange',
+          {
+            results: issued.map(command => ({
+              id: command.id,
+              ok: !fail,
+              ...(fail ? { error: 'UPSTREAM' } : { result: [] }),
+            })),
+          },
+          hostToken
+        );
+        await Promise.allSettled(commands);
+      };
+      await completeSearchBatch(64, { fail: true });
+      await completeSearchBatch(64, { fail: true });
+      await completeSearchBatch(2);
+      assert.equal(host.searchDiagnostics.length, 128);
+      assert.equal(
+        host.searchDiagnostics.some(
+          entry => entry.requestId === completedRequestIds[0]
+        ),
+        false,
+        'diagnostic history drops its oldest entries at the fixed limit'
+      );
+      assert.equal(
+        diagnosticLogs.length,
+        9,
+        'diagnostic output is rate limited, with a single success sample'
+      );
+      const parsedDiagnosticLogs = diagnosticLogs.map(value =>
+        JSON.parse(value.replace('[KaraokeSearchDiagnostic] ', ''))
+      );
+      assert.equal(
+        parsedDiagnosticLogs.filter(entry => entry.status !== 'success').length,
+        8,
+        'failure logs have an independent per-minute cap'
+      );
+      assert.ok(
+        parsedDiagnosticLogs.some(
+          entry => entry.status === 'main_screen_failure'
+        ),
+        'failure diagnostics retain their stage and status in logs'
+      );
+      const serializedDiagnostics = JSON.stringify({
+        records: host.searchDiagnostics,
+        logs: diagnosticLogs,
+      });
+      for (const privateValue of [
+        privateSearchText,
+        privateToken,
+        privateCookie,
+        privateFailureText,
+        privateFailureToken,
+        'guest-private-2ee4',
+        'queued-timeout-private',
+        'delivered-timeout-private',
+        'known-error-private-query',
+      ]) {
+        assert.equal(
+          serializedDiagnostics.includes(privateValue),
+          false,
+          `diagnostics must not retain ${privateValue}`
+        );
+      }
+    } finally {
+      console.info = originalInfo;
+    }
+
     const catalog = host.service.catalog;
     assert.equal(
       (await call('/ktv/host/exchange', { catalogEpoch: 0 }, hostToken)).status,

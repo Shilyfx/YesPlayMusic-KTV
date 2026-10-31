@@ -88,6 +88,7 @@ jobs:
           node-version: 22
       - name: KTV catalog, render and persistence performance regressions
         run: |
+          node src/remote/searchScheduler.test.cjs
           node scripts/test-karaoke-catalog-performance.js
           node scripts/test-karaoke-catalog-prefetch.js
           node scripts/test-karaoke-display-performance.js

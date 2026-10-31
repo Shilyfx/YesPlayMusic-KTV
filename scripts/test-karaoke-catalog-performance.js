@@ -81,7 +81,7 @@ async function testCatalogSingleFlight() {
   searches.forEach(result => assert.deepStrictEqual(result, searches[0]));
   assert.strictEqual(searchCalls, 1);
   await catalog.search('同一首歌');
-  assert.strictEqual(searchCalls, 2);
+  assert.strictEqual(searchCalls, 1);
   const localResults = await Promise.all(
     Array.from({ length: 19 }, () => catalog.localPlaylists())
   );
@@ -216,6 +216,7 @@ async function testIdentityInvalidationGuardsLateAccountResults() {
   let finishPlaylistsA;
   let finishRecommendationsA;
   let finishToplistsA;
+  let searchCalls = 0;
   const catalog = new KaraokeCatalogService({
     hostCatalogBridge: async (action, args) => {
       if (action === 'localPlaylists')
@@ -235,12 +236,14 @@ async function testIdentityInvalidationGuardsLateAccountResults() {
             ],
           },
         ];
-      if (action === 'search')
+      if (action === 'search') {
+        searchCalls += 1;
         return account === 'A'
           ? new Promise(resolve => {
               finishSearchA = resolve;
             })
           : [{ id: 'shared-track', name: 'B 搜索结果', ar: [], al: {}, dt: 1 }];
+      }
       if (action === 'trackDetail')
         return account === 'A'
           ? new Promise(resolve => {
@@ -309,6 +312,15 @@ async function testIdentityInvalidationGuardsLateAccountResults() {
   finishToplistsA([{ id: 'toplist-A' }]);
   await Promise.all(oldRequests);
 
+  assert.strictEqual(
+    (await catalog.search('same query'))[0].name,
+    'B 搜索结果'
+  );
+  assert.strictEqual(searchCalls, 2);
+  assert.strictEqual(
+    catalog.catalogCache.get('search:same query').value[0].name,
+    'B 搜索结果'
+  );
   assert.strictEqual(
     catalog.trackCache.get('shared-track').value.name,
     'B 搜索结果'
@@ -487,6 +499,56 @@ async function testLocalTrackCacheRetainsIncrementalTracks() {
   assert.strictEqual(addedTrack.source, 'local');
 }
 
+async function testSearchCacheExpiresAndDoesNotCacheFailures() {
+  const originalNow = Date.now;
+  let now = originalNow();
+  Date.now = () => now;
+  try {
+    const calls = new Map();
+    const catalog = new KaraokeCatalogService({
+      hostCatalogBridge: async (action, { query }) => {
+        assert.strictEqual(action, 'search');
+        const count = (calls.get(query) || 0) + 1;
+        calls.set(query, count);
+        if (query === 'failed' && count === 1)
+          throw new Error('EXPECTED_SEARCH_FAILURE');
+        return [
+          {
+            id: `${query}-${count}`,
+            name: `${query}-${count}`,
+            ar: [],
+            al: {},
+            dt: 1,
+          },
+        ];
+      },
+    });
+
+    const first = await catalog.search(' expires ');
+    assert.strictEqual(first[0].name, 'expires-1');
+    assert.strictEqual((await catalog.search('expires'))[0].name, 'expires-1');
+    assert.strictEqual(calls.get('expires'), 1);
+    assert.strictEqual(
+      catalog.catalogCache.get('search:expires').expiresAt - now,
+      15000
+    );
+
+    now += 15000;
+    assert.strictEqual((await catalog.search('expires'))[0].name, 'expires-2');
+    assert.strictEqual(calls.get('expires'), 2);
+
+    await assert.rejects(
+      () => catalog.search('failed'),
+      /EXPECTED_SEARCH_FAILURE/
+    );
+    assert.strictEqual((await catalog.search('failed'))[0].name, 'failed-2');
+    assert.strictEqual((await catalog.search('failed'))[0].name, 'failed-2');
+    assert.strictEqual(calls.get('failed'), 2);
+  } finally {
+    Date.now = originalNow;
+  }
+}
+
 Promise.all([
   testCatalogSingleFlight(),
   testPlaylistAllowlistSingleFlight(),
@@ -497,6 +559,7 @@ Promise.all([
   testAvailabilityErrorsAreNotCached(),
   testLocalTrackCacheRetainsIncrementalTracks(),
 ])
+  .then(testSearchCacheExpiresAndDoesNotCacheFailures)
   .then(() => console.log('KTV catalog dedupe tests passed'))
   .catch(error => {
     console.error(error);

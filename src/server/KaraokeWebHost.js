@@ -27,12 +27,35 @@ import {
 } from '../electron/karaoke/KaraokeRemoteApi';
 
 const secret = () => crypto.randomBytes(32).toString('hex');
+const SEARCH_DIAGNOSTIC_LIMIT = 128;
+const SEARCH_DIAGNOSTIC_LOG_WINDOW_MS = 60000;
+const SEARCH_DIAGNOSTIC_LOG_LIMIT = 8;
+const SEARCH_DIAGNOSTIC_ERRORS = new Set([
+  'ARTIST_NOT_FOUND',
+  'CATALOG_EPOCH_CHANGED',
+  'COMMAND_TIMEOUT',
+  'HOST_NOT_LOGGED_IN',
+  'KTV_NOT_ACTIVE',
+  'PLAYLIST_NOT_FOUND',
+  'RATE_LIMIT',
+  'ROOM_ENDED',
+  'TRACK_NOT_FOUND',
+  'TRACK_NOT_PLAYABLE',
+  'UPSTREAM',
+]);
+
+function safeSearchDiagnosticError(error) {
+  return typeof error === 'string' && SEARCH_DIAGNOSTIC_ERRORS.has(error)
+    ? error
+    : 'UNKNOWN_MAIN_SCREEN_ERROR';
+}
 
 export default class KaraokeWebHost {
   constructor({
     publicOrigin,
     remoteDistPath = '',
     now = Date.now,
+    commandTimeoutMs = 12000,
     requiredUiRevision = '',
     localLibrary = null,
     localDirectories = [],
@@ -42,12 +65,17 @@ export default class KaraokeWebHost {
   } = {}) {
     this.publicOrigin = new URL(publicOrigin).origin;
     this.now = now;
+    this.commandTimeoutMs = commandTimeoutMs;
     this.requiredUiRevision = requiredUiRevision;
     this.localDirsPath = localDirsPath;
     this.owner = null;
     this.sequence = 0;
     this.generation = 0;
     this.pending = new Map();
+    this.searchDiagnostics = [];
+    this.searchDiagnosticLogWindowStartedAt = this.now();
+    this.searchDiagnosticFailureLogCount = 0;
+    this.searchDiagnosticSuccessLogged = false;
     this.visualAssetStore = new KaraokeVisualAssetStore({
       directory: assetDirectory || '',
     });
@@ -186,6 +214,13 @@ export default class KaraokeWebHost {
     this.service.onRoomStop();
     for (const entry of this.pending.values()) {
       clearTimeout(entry.timer);
+      if (entry.searchDiagnostic)
+        this.finishSearchDiagnostic(
+          entry.searchDiagnostic,
+          'host_failure',
+          'ROOM_ENDED',
+          'host'
+        );
       entry.reject(new Error('ROOM_ENDED'));
     }
     this.pending.clear();
@@ -302,18 +337,89 @@ export default class KaraokeWebHost {
     };
   }
 
+  finishSearchDiagnostic(diagnostic, status, internalError = null, stage) {
+    if (!diagnostic) return;
+    const finishedAt = this.now();
+    const dispatched = diagnostic.dispatchedAt !== null;
+    const record = {
+      requestId: diagnostic.requestId,
+      stage: stage || (dispatched ? 'main_screen' : 'queued'),
+      durationMs: Math.max(0, finishedAt - diagnostic.startedAt),
+      queueDurationMs: dispatched
+        ? Math.max(0, diagnostic.dispatchedAt - diagnostic.startedAt)
+        : null,
+      executionDurationMs: dispatched
+        ? Math.max(0, finishedAt - diagnostic.dispatchedAt)
+        : null,
+      status,
+      internalError,
+    };
+    this.searchDiagnostics.push(Object.freeze(record));
+    if (this.searchDiagnostics.length > SEARCH_DIAGNOSTIC_LIMIT)
+      this.searchDiagnostics.splice(
+        0,
+        this.searchDiagnostics.length - SEARCH_DIAGNOSTIC_LIMIT
+      );
+
+    const currentTime = this.now();
+    if (
+      currentTime < this.searchDiagnosticLogWindowStartedAt ||
+      currentTime - this.searchDiagnosticLogWindowStartedAt >=
+        SEARCH_DIAGNOSTIC_LOG_WINDOW_MS
+    ) {
+      this.searchDiagnosticLogWindowStartedAt = currentTime;
+      this.searchDiagnosticFailureLogCount = 0;
+      this.searchDiagnosticSuccessLogged = false;
+    }
+    if (typeof console.info !== 'function') return;
+    if (status === 'success') {
+      if (this.searchDiagnosticSuccessLogged) return;
+      this.searchDiagnosticSuccessLogged = true;
+    } else {
+      if (this.searchDiagnosticFailureLogCount >= SEARCH_DIAGNOSTIC_LOG_LIMIT)
+        return;
+      this.searchDiagnosticFailureLogCount++;
+    }
+    try {
+      console.info(`[KaraokeSearchDiagnostic] ${JSON.stringify(record)}`);
+    } catch (_) {
+      // Diagnostics must not interfere with the command response path.
+    }
+  }
+
   command(action, payload = {}) {
     this.expire();
     if (!this.owner) return Promise.reject(new Error('ROOM_ENDED'));
     if (this.pending.size >= 64) return Promise.reject(new Error('RATE_LIMIT'));
     const id = `web-${++this.sequence}`;
+    const searchDiagnostic =
+      action === 'catalog' && payload?.action === 'search'
+        ? {
+            requestId: id,
+            startedAt: this.now(),
+            dispatchedAt: null,
+          }
+        : null;
     return new Promise((resolve, reject) => {
       const timer = setTimeout(() => {
+        const entry = this.pending.get(id);
         this.pending.delete(id);
+        if (entry?.searchDiagnostic)
+          this.finishSearchDiagnostic(
+            entry.searchDiagnostic,
+            'timeout',
+            'COMMAND_TIMEOUT'
+          );
         reject(new Error('KTV_NOT_ACTIVE'));
-      }, 12000);
+      }, this.commandTimeoutMs);
       this.pending.set(id, {
-        command: { id, action, payload, expiresAt: this.now() + 12000 },
+        command: {
+          id,
+          action,
+          payload,
+          expiresAt: this.now() + this.commandTimeoutMs,
+        },
+        searchDiagnostic,
         resolve,
         reject,
         timer,
@@ -1085,6 +1191,13 @@ export default class KaraokeWebHost {
               if (entry.command.action !== 'catalog') continue;
               clearTimeout(entry.timer);
               this.pending.delete(id);
+              if (entry.searchDiagnostic)
+                this.finishSearchDiagnostic(
+                  entry.searchDiagnostic,
+                  'host_failure',
+                  'CATALOG_EPOCH_CHANGED',
+                  'host'
+                );
               entry.reject(new Error('CATALOG_EPOCH_CHANGED'));
             }
             this.owner.catalogEpoch = epoch;
@@ -1134,11 +1247,27 @@ export default class KaraokeWebHost {
           if (!entry) continue;
           clearTimeout(entry.timer);
           this.pending.delete(result.id);
+          if (entry.searchDiagnostic)
+            this.finishSearchDiagnostic(
+              entry.searchDiagnostic,
+              result.ok ? 'success' : 'main_screen_failure',
+              result.ok
+                ? null
+                : safeSearchDiagnosticError(result.error || 'KTV_NOT_ACTIVE')
+            );
           if (result.ok) entry.resolve(result.result);
           else entry.reject(new Error(result.error || 'KTV_NOT_ACTIVE'));
         }
         return this.json(response, 200, {
-          commands: [...this.pending.values()].map(entry => entry.command),
+          commands: [...this.pending.values()].map(entry => {
+            if (
+              entry.searchDiagnostic &&
+              entry.searchDiagnostic.dispatchedAt === null
+            ) {
+              entry.searchDiagnostic.dispatchedAt = this.now();
+            }
+            return entry.command;
+          }),
           reactions: this.recentReactions(),
           reactionEpoch: this.reactionEpoch,
           serverTime: this.now(),

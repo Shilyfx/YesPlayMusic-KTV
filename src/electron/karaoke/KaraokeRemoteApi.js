@@ -3,6 +3,8 @@ import http from 'http';
 
 const CLIENT_TTL = 5 * 60 * 60 * 1000;
 const CACHE_TTL = 5 * 60 * 1000;
+const SEARCH_CACHE_TTL = 15 * 1000;
+const RATE_LIMIT_WINDOW_MS = 10 * 1000;
 // Retain 128 catalog result sets and 4096 individual tracks/availability
 // results. 4096 covers over 200 pages of 20 tracks while bounding each map.
 const MAX_CATALOG_CACHE_ENTRIES = 128;
@@ -56,10 +58,11 @@ const toBase64Url = value =>
 const token = () => toBase64Url(crypto.randomBytes(32));
 const clientId = () => `guest-${crypto.randomBytes(6).toString('hex')}`;
 
-function json(response, status, body) {
+function json(response, status, body, headers = {}) {
   response.writeHead(status, {
     'Cache-Control': 'no-store',
     'Content-Type': 'application/json; charset=utf-8',
+    ...headers,
   });
   response.end(JSON.stringify(body));
   return true;
@@ -246,29 +249,25 @@ export class KaraokeCatalogService {
   async search(query) {
     const clean = String(query || '').trim();
     const key = `search:${clean}`;
-    const pending = this.catalogPromises.get(key);
-    if (pending) return pending;
-    const generation = this.catalogGeneration;
-    const request = (async () => {
-      if (this.hostCatalogBridge) {
-        const songs = await this.hostCatalogBridge('search', { query: clean });
-        return this.cacheTracks(songs, generation);
-      }
-      const data = await this.upstream(
-        `/search?keywords=${encodeURIComponent(clean)}&limit=15&type=1`
-      );
-      return this.cacheTracks(
-        (data.result && data.result.songs) || [],
-        generation
-      );
-    })();
-    this.catalogPromises.set(key, request);
-    try {
-      return await request;
-    } finally {
-      if (this.catalogPromises.get(key) === request)
-        this.catalogPromises.delete(key);
-    }
+    return this.cachedCatalog(
+      key,
+      async generation => {
+        if (this.hostCatalogBridge) {
+          const songs = await this.hostCatalogBridge('search', {
+            query: clean,
+          });
+          return this.cacheTracks(songs, generation);
+        }
+        const data = await this.upstream(
+          `/search?keywords=${encodeURIComponent(clean)}&limit=15&type=1`
+        );
+        return this.cacheTracks(
+          (data.result && data.result.songs) || [],
+          generation
+        );
+      },
+      { ttl: SEARCH_CACHE_TTL }
+    );
   }
 
   async artistSearch(query) {
@@ -625,13 +624,19 @@ class RateLimiter {
   check(key, limit) {
     const now = Date.now();
     const entry = this.entries.get(key) || { startedAt: now, count: 0 };
-    if (now - entry.startedAt > 10000) {
+    if (now - entry.startedAt >= RATE_LIMIT_WINDOW_MS) {
       entry.startedAt = now;
       entry.count = 0;
     }
     entry.count += 1;
     this.entries.set(key, entry);
     return entry.count <= limit;
+  }
+
+  retryAfterMs(key) {
+    const entry = this.entries.get(key);
+    if (!entry) return RATE_LIMIT_WINDOW_MS;
+    return Math.max(1, entry.startedAt + RATE_LIMIT_WINDOW_MS - Date.now());
   }
 
   clear() {
@@ -745,9 +750,11 @@ export class KaraokeRemoteService {
   }
 
   async search(client, query) {
-    if (!this.limiter.check(`search:${client.clientId}`, 10))
-      throw new Error('RATE_LIMIT');
-    if (!this.limiter.check('search:room', 80)) throw new Error('RATE_LIMIT');
+    const clientKey = `search:${client.clientId}`;
+    if (!this.limiter.check(clientKey, 10))
+      throw rateLimitError(this.limiter.retryAfterMs(clientKey));
+    if (!this.limiter.check('search:room', 80))
+      throw rateLimitError(this.limiter.retryAfterMs('search:room'));
     return this.withAvailability(await this.catalog.search(query));
   }
 
@@ -840,9 +847,10 @@ export class KaraokeRemoteService {
   }
 
   async availability(client, trackId) {
-    if (!this.limiter.check(`search:${client.clientId}`, 20))
+    if (!this.limiter.check(`availability:${client.clientId}`, 20))
       throw new Error('RATE_LIMIT');
-    if (!this.limiter.check('search:room', 120)) throw new Error('RATE_LIMIT');
+    if (!this.limiter.check('availability:room', 120))
+      throw new Error('RATE_LIMIT');
     return this.catalog.availability(trackId);
   }
 
@@ -956,6 +964,12 @@ export class KaraokeRemoteService {
     });
     return item ? this.sanitizeItem(item) : null;
   }
+}
+
+function rateLimitError(retryAfterMs) {
+  const exception = new Error('RATE_LIMIT');
+  exception.retryAfterMs = retryAfterMs;
+  return exception;
 }
 
 export class RemoteApiRouter {
@@ -1146,6 +1160,23 @@ export class RemoteApiRouter {
         502,
         'REMOTE_UNAVAILABLE',
       ];
+      if (
+        status === 429 &&
+        message === 'RATE_LIMIT' &&
+        Number.isSafeInteger(exception.retryAfterMs) &&
+        exception.retryAfterMs > 0
+      ) {
+        const retryAfterMs = Math.min(
+          RATE_LIMIT_WINDOW_MS,
+          exception.retryAfterMs
+        );
+        return json(
+          response,
+          status,
+          { error: message, retryAfterMs },
+          { 'Retry-After': String(Math.ceil(retryAfterMs / 1000)) }
+        );
+      }
       return error(response, status, message);
     }
   }
