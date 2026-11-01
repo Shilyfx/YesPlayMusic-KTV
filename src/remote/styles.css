@@ -407,21 +407,21 @@ button.request-ack {
 }
 .featured-artist-list {
   display: grid;
-  grid-template-columns: repeat(5, minmax(0, 1fr));
-  gap: 12px;
-  margin-top: 16px;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 9px;
+  margin-top: 14px;
 }
 .featured-artist-card {
-  display: grid;
+  display: flex;
   min-width: 0;
-  gap: 7px;
-  justify-items: center;
-  padding: 11px 9px 12px;
+  gap: 9px;
+  align-items: center;
+  padding: 8px 10px;
   border: 1px solid #ffffff1e;
-  border-radius: 17px;
+  border-radius: 13px;
   color: inherit;
   background: #ffffff0e;
-  text-align: center;
+  text-align: left;
 }
 .featured-artist-card:hover,
 .featured-artist-card.selected {
@@ -431,18 +431,23 @@ button.request-ack {
 .featured-artist-card img,
 .featured-artist-card .artist-placeholder {
   display: grid;
-  width: 74px;
-  height: 74px;
+  width: 40px;
+  height: 40px;
+  flex: 0 0 auto;
   place-items: center;
   overflow: hidden;
   border-radius: 50%;
   object-fit: cover;
   background: linear-gradient(135deg, #6653dc, #bb5aa0);
-  box-shadow: 0 8px 18px #0b0d1b33;
+  box-shadow: 0 4px 12px #0b0d1b33;
+}
+.featured-artist-card span:last-child {
+  display: grid;
+  min-width: 0;
+  gap: 3px;
 }
 .featured-artist-card strong,
 .featured-artist-card small {
-  max-width: 100%;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -590,6 +595,17 @@ button.request-ack {
 }
 .artist-area .section-heading {
   align-items: flex-end;
+}
+.artist-search-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-top: 16px;
+}
+.artist-search-bar .artist-search-box {
+  flex: 1;
+  min-width: 0;
+  margin-top: 0;
 }
 .artist-search-box {
   display: flex;
@@ -747,6 +763,31 @@ button.request-ack {
 .playlist-area .playlist-track-list {
   max-height: 880px;
 }
+.catalog-list-pagination,
+.catalog-page-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  color: #aeb4ca;
+  font-size: 12px;
+}
+.catalog-list-pagination {
+  min-height: 30px;
+  margin: -2px 0 10px;
+}
+.catalog-page-footer {
+  grid-column: 1 / -1;
+  padding: 5px 0 2px;
+}
+.catalog-page-footer small,
+.catalog-list-pagination small {
+  line-height: 1.5;
+}
+.catalog-page-footer button,
+.catalog-list-pagination button {
+  flex: 0 0 auto;
+}
 .playlist-track-card {
   padding: 12px 14px;
 }
@@ -865,6 +906,36 @@ button.request-ack {
 }
 .search-area {
   margin: 24px 0;
+}
+.search-bar {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+.search-bar .search-box {
+  flex: 1;
+  min-width: 0;
+}
+.search-btn {
+  flex-shrink: 0;
+  padding: 13px 22px;
+  border: 1px solid #6452e9;
+  border-radius: 16px;
+  background: #6452e9;
+  color: #fff;
+  font-size: 15px;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(100, 82, 233, 0.35);
+  transition: transform 0.15s ease, filter 0.15s ease;
+  white-space: nowrap;
+}
+.search-btn:hover {
+  filter: brightness(1.08);
+}
+.search-btn:active {
+  transform: scale(0.96);
+  filter: brightness(0.95);
 }
 .search-box {
   display: flex;
@@ -1034,10 +1105,9 @@ button.request-ack {
     grid-template-columns: repeat(3, minmax(0, 1fr));
     gap: 9px;
   }
-  .featured-artist-card img,
-  .featured-artist-card .artist-placeholder {
-    width: 58px;
-    height: 58px;
+  .featured-artist-card,
+  .artist-chip {
+    min-height: 48px;
   }
   .recommendation-copy {
     padding: 0 9px 10px;

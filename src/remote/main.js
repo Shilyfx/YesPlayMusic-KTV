@@ -3,6 +3,7 @@ import createRefreshScheduler from './refreshScheduler';
 import createCatalogPrefetchScheduler from './catalogPrefetchScheduler';
 import searchSchedulerModule from './searchScheduler.cjs';
 import invalidateRemoteCatalogState from './catalogEpoch';
+import { appendCatalogItems, catalogPageProgress } from './catalogPagination';
 import { loadEmotionBall, loadMoodMates } from '../karaoke/moodMates';
 import {
   ktvReactionChoices,
@@ -46,11 +47,26 @@ let searchGeneration = 0;
 let playlists = [];
 let playlistsLoaded = false;
 let playlistsPromise;
+let playlistsPagePromise;
 let playlistLoadGeneration = 0;
+const CATALOG_PAGE_SIZE = 100;
+const catalogRetryTimers = {};
+const createCatalogPageState = () => ({
+  nextOffset: 0,
+  hasMore: false,
+  total: null,
+  requestedCount: 0,
+  unavailableCount: 0,
+  loading: false,
+  error: null,
+  retryAfterMs: 0,
+});
+let playlistsPage = createCatalogPageState();
 let selectedPlaylistId = '';
 let playlistTracks = [];
 let playlistQuery = '';
 let playlistTrackGeneration = 0;
+let playlistTrackPage = createCatalogPageState();
 let localPlaylists = [];
 let selectedLocalPlaylistId = '';
 let localPlaylistTracks = [];
@@ -115,11 +131,31 @@ const featuredArtistDefaults = [
     coverUrl: '/artist-portraits/6066.jpg',
     albumCount: 18,
   },
+  {
+    id: '6472',
+    name: '张杰',
+    coverUrl: '/artist-portraits/6472.jpg',
+    albumCount: 150,
+  },
+  {
+    id: '14077324',
+    name: '黄霄雲',
+    coverUrl: '/artist-portraits/14077324.jpg',
+    albumCount: 75,
+  },
+  {
+    id: '5771',
+    name: '许嵩',
+    coverUrl: '/artist-portraits/5771.jpg',
+    albumCount: 58,
+  },
 ];
 let featuredArtists = featuredArtistDefaults.map(artist => ({ ...artist }));
 let selectedArtistId = '';
 let artistTracks = [];
+let artistRemoteTracks = [];
 let artistTrackGeneration = 0;
+let artistTrackPage = createCatalogPageState();
 let artistSelections = [];
 let selectedModule = 'search';
 let previewTrackId = '';
@@ -134,23 +170,47 @@ const catalogPrefetchScheduler = createCatalogPrefetchScheduler({
   shouldRun: () => !roomEnded && Boolean(client?.clientToken),
 });
 const searchScheduler = createSearchScheduler({
-  search: (query, { signal }) =>
-    api(`/search?q=${encodeURIComponent(query)}`, { signal }).then(
+  // 600ms：拼音逐字输入时减少落到上游的中间态请求（上游对搜索有 405 风控）。
+  debounceMs: 600,
+  search: async (query, { signal }) => {
+    if (!localPlaylistsLoaded) {
+      await loadLocalPlaylists().catch(() => {});
+    }
+    return api(`/search?q=${encodeURIComponent(query)}`, { signal }).then(
       response => response.results
-    ),
-  onSearching: () => renderResults(searchResults, { searching: true }),
-  onResults: (_query, results) => {
-    renderResults(Array.isArray(results) ? results : []);
+    );
+  },
+  onSearching: () => {
+    const localMatches = findLocalTracks(searchQuery);
+    if (localMatches.length > 0) {
+      renderResults(localMatches, { searching: true });
+    } else {
+      renderResults(searchResults, { searching: true });
+    }
+  },
+  onResults: (query, results) => {
+    const localMatches = findLocalTracks(query || searchQuery);
+    const combined = mergeSearchResults(
+      localMatches,
+      Array.isArray(results) ? results : []
+    );
+    renderResults(combined);
     clearSearchNotice(app.querySelector('[data-notice]'), () => setNotice(''));
   },
-  onError: (_query, error) => {
-    renderResults(searchResults);
-    setNotice(
-      error.code === 'SEARCH_TIMEOUT'
-        ? '搜索响应超时，请稍后重试。'
-        : '搜索暂时不可用，请稍后重试。',
-      'error'
-    );
+  onError: (query, error) => {
+    const localMatches = findLocalTracks(query || searchQuery);
+    if (localMatches.length > 0) {
+      renderResults(localMatches);
+      setNotice('远程搜索暂时受限，已优先展示本地匹配歌曲。', 'warning');
+    } else {
+      renderResults(searchResults);
+      setNotice(
+        error.code === 'SEARCH_TIMEOUT'
+          ? '搜索响应超时，请稍后重试。'
+          : '搜索暂时不可用，请稍后重试。',
+        'error'
+      );
+    }
   },
   onRateLimit: () => {
     renderResults(searchResults);
@@ -207,6 +267,78 @@ function setNotice(message = '', kind = '') {
   if (kind === 'success') {
     requestAnimationFrame(() => notice.classList.add('notice-pop'));
   }
+}
+
+function catalogPageFor(key) {
+  if (key === 'playlists') return playlistsPage;
+  if (key === 'playlistTracks') return playlistTrackPage;
+  if (key === 'artistTracks') return artistTrackPage;
+  return null;
+}
+
+function clearCatalogRetry(key) {
+  clearTimeout(catalogRetryTimers[key]);
+  catalogRetryTimers[key] = null;
+}
+
+function setCatalogPageError(key, pageState, error, render) {
+  clearCatalogRetry(key);
+  pageState.error = error || new Error('CATALOG_PAGE_FAILED');
+  pageState.retryAfterMs =
+    pageState.error.code === 'RATE_LIMIT'
+      ? Math.max(0, Math.min(30000, pageState.error.retryAfterMs || 0))
+      : 0;
+  if (pageState.retryAfterMs <= 0) return;
+  const timer = setTimeout(() => {
+    if (catalogRetryTimers[key] !== timer || catalogPageFor(key) !== pageState)
+      return;
+    catalogRetryTimers[key] = null;
+    pageState.retryAfterMs = 0;
+    render();
+  }, pageState.retryAfterMs);
+  catalogRetryTimers[key] = timer;
+}
+
+function renderCatalogPageControls(
+  container,
+  pageState,
+  key,
+  label,
+  loadedCount
+) {
+  if (!container) return;
+  const controlKey =
+    key === 'playlistTracks'
+      ? 'playlist-track'
+      : key === 'artistTracks'
+      ? 'artist-track'
+      : key;
+  const status = container.querySelector(`[data-${controlKey}-status]`);
+  const button = container.querySelector(`[data-${controlKey}-more]`);
+  if (!status || !button) return;
+
+  if (pageState.loading) status.textContent = `正在加载${label}…`;
+  else if (pageState.retryAfterMs > 0)
+    status.textContent = `请求较频繁，请在 ${Math.ceil(
+      pageState.retryAfterMs / 1000
+    )} 秒后重试。`;
+  else if (pageState.error)
+    status.textContent = `上一页加载失败，已显示内容仍可点歌。`;
+  else if (pageState.unavailableCount > 0)
+    status.textContent = `已显示 ${loadedCount} ${label}，其中 ${pageState.unavailableCount} 首无法获取详情。`;
+  else if (pageState.total != null)
+    status.textContent = `已显示 ${loadedCount} / ${pageState.total} ${label}。`;
+  else if (loadedCount > 0)
+    status.textContent = `已显示 ${loadedCount} ${label}。`;
+  else status.textContent = '';
+
+  button.hidden = !pageState.hasMore && !pageState.error;
+  button.disabled = pageState.loading || pageState.retryAfterMs > 0;
+  button.textContent = pageState.loading
+    ? '正在加载…'
+    : pageState.error
+    ? '重试'
+    : '加载更多';
 }
 
 function showRequestToast(message = '点歌成功', kind = 'success') {
@@ -291,7 +423,13 @@ function initializeModuleTabs() {
 function initializeShell() {
   const theme = localStorage.getItem('yesplaymusic-ktv-theme') || 'auto';
   document.documentElement.dataset.theme = theme;
-  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">LUMASING · LAN KTV</p><h1 data-room-name>LumaSing KTV</h1></div><div class="theme-picker" data-theme-picker role="group" aria-label="KTV 主题"><button type="button" data-theme-option="auto">自动</button><button type="button" data-theme-option="light"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>浅色</button><button type="button" data-theme-option="dark"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.807a6.5 6.5 0 0 0 8.268 8.268c.347-.215.829-.003.803.397"/></svg>深色</button></div></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div><div class="local-playlist-block"><div class="section-heading"><div><p class="section-label">主机本地目录</p><h3>本地歌单</h3></div><button class="quiet" type="button" data-local-playlists-refresh>刷新本地歌单</button></div><label>选择本地歌单<select data-local-playlist><option value="">正在加载本地歌单…</option></select></label><div class="playlist-track-list" data-local-playlist-tracks><div class="hint">主机尚未配置本地音乐目录。</div></div></div></section><section class="search-area"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" placeholder="搜索歌曲、歌手或专辑" /></label><div class="search-results" data-results><div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section></section></main>`;
+  app.innerHTML = `<main class="remote-page"><header class="topbar"><div><p class="eyebrow">LUMASING · LAN KTV</p><h1 data-room-name>LumaSing KTV</h1></div><div class="theme-picker" data-theme-picker role="group" aria-label="KTV 主题"><button type="button" data-theme-option="auto">自动</button><button type="button" data-theme-option="light"><svg aria-hidden="true" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2v2m0 16v2M4.93 4.93l1.42 1.42m11.3 11.3 1.42 1.42M2 12h2m16 0h2M4.93 19.07l1.42-1.42m11.3-11.3 1.42-1.42"/></svg>浅色</button><button type="button" data-theme-option="dark"><svg aria-hidden="true" viewBox="0 0 24 24"><path d="M20.985 12.486a9 9 0 1 1-9.473-9.472c.405-.022.617.46.402.807a6.5 6.5 0 0 0 8.268 8.268c.347-.215.829-.003.803.397"/></svg>深色</button></div></header><p class="notice" data-notice></p><section class="now-playing glass" data-now-playing></section><section class="history-area glass"><div class="section-heading"><div><p class="section-label">本场已唱</p><h2>已播放歌曲</h2></div><span data-history-count>0 首</span></div><div class="history-list" data-history-list><div class="empty">本场还没有已唱歌曲</div></div></section><section class="playlist-area glass"><div class="section-heading"><div><p class="section-label">当前账号歌单</p><h2>从歌单点歌</h2></div><button class="quiet playlist-refresh" type="button" data-playlists-refresh>刷新歌单</button></div><div class="playlist-picker"><label>选择歌单<select data-playlist><option value="">正在加载歌单…</option></select></label><label>筛选歌曲<input data-playlist-search maxlength="80" autocomplete="off" placeholder="在当前歌单中筛选" /></label></div><div class="playlist-track-list" data-playlist-tracks><div class="hint">正在加载当前账号的歌单。</div></div><div class="local-playlist-block"><div class="section-heading"><div><p class="section-label">主机本地目录</p><h3>本地歌单</h3></div><button class="quiet" type="button" data-local-playlists-refresh>刷新本地歌单</button></div><label>选择本地歌单<select data-local-playlist><option value="">正在加载本地歌单…</option></select></label><div class="playlist-track-list" data-local-playlist-tracks><div class="hint">主机尚未配置本地音乐目录。</div></div></div></section><section class="search-area"><div class="search-bar"><label class="search-box"><span>⌕</span><input data-search maxlength="80" autocomplete="off" enterkeyhint="search" placeholder="搜索歌曲、歌手或专辑" /></label><button type="button" class="search-btn" data-search-submit>搜索</button></div><div class="search-results" data-results><div class="hint">输入关键词后点击搜索或按回车点歌。</div></div></section><section class="queue-grid"><section class="queue-panel glass"><div class="section-heading"><div><p class="section-label">当前队列</p><h2>等待演唱</h2></div><span data-queue-count>0 首</span></div><div class="queue-list" data-queue-list><div class="empty">还没有待唱歌曲</div></div></section></section></main>`;
+  app
+    .querySelector('.playlist-picker')
+    ?.insertAdjacentHTML(
+      'afterend',
+      '<div class="catalog-list-pagination" data-playlists-footer><small data-playlists-status></small><button class="quiet" type="button" data-playlists-more hidden>加载更多歌单</button></div>'
+    );
   app.insertAdjacentHTML(
     'beforeend',
     '<div class="request-toast" data-request-toast role="status" aria-live="polite" hidden>点歌成功</div><div class="preview-float" data-preview-float hidden><button type="button" class="preview-float-toggle" data-preview-toggle="true" aria-label="播放试听" title="播放或暂停试听">▶</button><strong data-preview-title>试听</strong><button type="button" class="preview-float-close" data-preview-stop="true" aria-label="关闭试听" title="关闭试听">×</button><audio data-preview-audio preload="none"></audio></div>'
@@ -312,7 +450,7 @@ function initializeShell() {
     .querySelector('.history-area')
     .insertAdjacentHTML(
       'afterend',
-      '<section class="recommendation-area glass"><div class="section-heading"><div><p class="section-label">LUMASING 推荐</p><h2 data-chart-title>为你推荐</h2></div><div class="chart-actions"><button class="quiet chart-toggle" type="button" data-chart-toggle>排行榜</button></div></div><div class="recommendation-list" data-recommendations><div class="hint">正在加载推荐歌单…</div></div><div class="recommendation-track-list" data-recommendation-tracks><div class="hint">选择一个歌单查看歌曲。</div></div></section><section class="artist-area glass"><div class="section-heading"><div><p class="section-label">按歌手点歌</p><h2>找歌手</h2></div><span class="section-helper">选择一位歌手后，可继续添加其他歌手</span></div><div class="featured-artist-list" data-featured-artists><div class="hint">正在加载常用歌手…</div></div><label class="artist-search-box"><span>⌕</span><input data-artist-search maxlength="60" autocomplete="off" placeholder="搜索更多歌手，例如：周杰伦" /></label><div class="artist-picker" data-artists></div><div class="selected-artists" data-selected-artists></div><div class="artist-track-list" data-artist-tracks><div class="hint">选择歌手后显示热门歌曲。</div></div></section>'
+      '<section class="recommendation-area glass"><div class="section-heading"><div><p class="section-label">LUMASING 推荐</p><h2 data-chart-title>为你推荐</h2></div><div class="chart-actions"><button class="quiet chart-toggle" type="button" data-chart-toggle>排行榜</button></div></div><div class="recommendation-list" data-recommendations><div class="hint">正在加载推荐歌单…</div></div><div class="recommendation-track-list" data-recommendation-tracks><div class="hint">选择一个歌单查看歌曲。</div></div></section><section class="artist-area glass"><div class="section-heading"><div><p class="section-label">按歌手点歌</p><h2>找歌手</h2></div><span class="section-helper">选择一位歌手后，可继续添加其他歌手</span></div><div class="artist-search-bar"><label class="artist-search-box"><span>⌕</span><input data-artist-search maxlength="60" autocomplete="off" enterkeyhint="search" placeholder="搜索更多歌手，例如：周杰伦" /></label><button type="button" class="search-btn artist-search-btn" data-artist-search-submit>搜索</button></div><div class="featured-artist-list" data-featured-artists><div class="hint">正在加载常用歌手…</div></div><div class="artist-picker" data-artists></div><div class="selected-artists" data-selected-artists></div><div class="artist-track-list" data-artist-tracks><div class="hint">选择歌手后显示热门歌曲。</div></div></section>'
     );
   const playlistArea = app.querySelector('.playlist-area');
   const playlistHeading = playlistArea?.querySelector('.section-heading');
@@ -437,18 +575,40 @@ function initializeShell() {
     selectTheme(value);
   });
   const searchInput = app.querySelector('[data-search]');
-  searchInput.addEventListener('input', event =>
-    scheduleSearch(event.target.value)
-  );
-  searchInput.addEventListener('compositionstart', () => {
-    searchGeneration += 1;
-    searchScheduler.compositionStart();
-  });
-  searchInput.addEventListener('compositionend', event => {
-    searchQuery = event.target.value;
-    searchGeneration += 1;
-    searchScheduler.compositionEnd(event.target.value);
-  });
+  const searchSubmitBtn = app.querySelector('[data-search-submit]');
+
+  const triggerSearch = () => {
+    const query = searchInput ? searchInput.value.trim() : '';
+    if (query) {
+      scheduleSearch(query, { immediate: true, force: true });
+    } else {
+      scheduleSearch('');
+    }
+  };
+
+  searchSubmitBtn?.addEventListener('click', triggerSearch);
+
+  if (searchInput) {
+    searchInput.addEventListener('keydown', event => {
+      if (event.key === 'Enter') {
+        event.preventDefault();
+        triggerSearch();
+      }
+    });
+    searchInput.addEventListener('input', event => {
+      searchQuery = event.target.value;
+      if (!event.target.value.trim()) {
+        scheduleSearch('');
+      }
+    });
+    searchInput.addEventListener('compositionstart', () => {
+      searchGeneration += 1;
+      searchScheduler.compositionStart();
+    });
+    searchInput.addEventListener('compositionend', event => {
+      searchQuery = event.target.value;
+    });
+  }
   app
     .querySelector('[data-playlist]')
     .addEventListener('change', event => selectPlaylist(event.target.value));
@@ -463,11 +623,24 @@ function initializeShell() {
     .addEventListener('change', event =>
       selectLocalPlaylist(event.target.value)
     );
-  app
-    .querySelector('[data-artist-search]')
-    .addEventListener('input', event =>
-      scheduleArtistSearch(event.target.value)
-    );
+  const artistSearchInput = app.querySelector('[data-artist-search]');
+  const artistSearchSubmit = app.querySelector('[data-artist-search-submit]');
+  const triggerArtistSearch = () => {
+    const query = artistSearchInput?.value || '';
+    scheduleArtistSearch(query);
+  };
+  artistSearchInput?.addEventListener('input', event => {
+    artistQuery = event.target.value;
+  });
+  artistSearchInput?.addEventListener('keydown', event => {
+    if (event.key === 'Enter') {
+      event.preventDefault();
+      triggerArtistSearch();
+    }
+  });
+  artistSearchSubmit?.addEventListener('click', () => {
+    triggerArtistSearch();
+  });
   app.addEventListener('click', event => {
     const button = event.target.closest('button');
     if (!button) return;
@@ -518,6 +691,11 @@ function initializeShell() {
     else if (button.dataset.recommendation)
       selectRecommendation(button.dataset.recommendation);
     else if (button.dataset.artist) selectArtist(button.dataset.artist);
+    else if (button.hasAttribute('data-playlists-more')) loadMorePlaylists();
+    else if (button.hasAttribute('data-playlist-track-more'))
+      loadMorePlaylistTracks();
+    else if (button.hasAttribute('data-artist-track-more'))
+      loadMoreArtistTracks();
     else if (button.hasAttribute('data-playlists-refresh'))
       refreshPlaylistSource();
     else if (button.hasAttribute('data-playlist-source-toggle'))
@@ -677,7 +855,7 @@ function renderHistory() {
 
 function findTrack(trackId) {
   const id = String(trackId);
-  return [
+  const found = [
     ...searchResults,
     ...playlistTracks,
     ...localPlaylistTracks,
@@ -685,7 +863,15 @@ function findTrack(trackId) {
     ...toplistTracks,
     ...artistTracks,
     ...playedHistory,
-  ].find(track => String(track.trackId) === id);
+  ].find(track => String(track.trackId || track.id) === id);
+  if (found) return found;
+  for (const playlist of localPlaylists) {
+    const t = (playlist.tracks || []).find(
+      track => String(track.trackId || track.id) === id
+    );
+    if (t) return { ...t, source: 'local' };
+  }
+  return undefined;
 }
 
 function stopPreview() {
@@ -840,6 +1026,57 @@ function normalizeArtistName(value) {
     .replace(/\s+/g, '');
 }
 
+function findLocalTracks(query) {
+  const clean = normalizeArtistName(query);
+  if (!clean) return [];
+  const matches = [];
+  const seen = new Set();
+  localPlaylists.forEach(playlist => {
+    (playlist.tracks || []).forEach(track => {
+      const trackId = String(track.trackId || track.id || '');
+      if (!trackId || seen.has(trackId)) return;
+      const trackName = normalizeArtistName(track.name);
+      const trackArtists = (track.artists || track.ar || []).map(item =>
+        normalizeArtistName(typeof item === 'string' ? item : item?.name)
+      );
+      const trackAlbum = normalizeArtistName(track.album);
+
+      const nameMatch =
+        trackName && (trackName.includes(clean) || clean.includes(trackName));
+      const artistMatch = trackArtists.some(
+        name => name && (name.includes(clean) || clean.includes(name))
+      );
+      const albumMatch =
+        trackAlbum &&
+        (trackAlbum.includes(clean) || clean.includes(trackAlbum));
+
+      if (nameMatch || artistMatch || albumMatch) {
+        seen.add(trackId);
+        matches.push({ ...track, source: 'local' });
+      }
+    });
+  });
+  return matches;
+}
+
+function mergeSearchResults(localMatches, remoteResults) {
+  const seen = new Set();
+  const merged = [];
+  (localMatches || []).forEach(track => {
+    const trackId = String(track.trackId || track.id || '');
+    if (!trackId || seen.has(trackId)) return;
+    seen.add(trackId);
+    merged.push({ ...track, source: 'local' });
+  });
+  (remoteResults || []).forEach(track => {
+    const trackId = String(track.trackId || track.id || '');
+    if (!trackId || seen.has(trackId)) return;
+    seen.add(trackId);
+    merged.push(track);
+  });
+  return merged;
+}
+
 function localTracksForArtist(artistId) {
   const artist = [...artists, ...featuredArtists].find(
     item => String(item.id) === String(artistId)
@@ -855,7 +1092,16 @@ function localTracksForArtist(artistId) {
       const trackArtists = (track.artists || track.ar || []).map(item =>
         typeof item === 'string' ? item : item?.name
       );
-      if (!trackArtists.some(name => normalizeArtistName(name) === artistName))
+      if (
+        !trackArtists.some(name => {
+          const norm = normalizeArtistName(name);
+          return (
+            norm === artistName ||
+            norm.includes(artistName) ||
+            artistName.includes(norm)
+          );
+        })
+      )
         return;
       seen.add(trackId);
       matches.push({ ...track, source: 'local' });
@@ -865,7 +1111,8 @@ function localTracksForArtist(artistId) {
 }
 
 function mergeArtistTracks(remoteTracks, artistId) {
-  const merged = [...(remoteTracks || []), ...localTracksForArtist(artistId)];
+  const localTracks = localTracksForArtist(artistId);
+  const merged = [...localTracks, ...(remoteTracks || [])];
   const seen = new Set();
   return merged.filter(track => {
     const trackId = String(track.trackId || track.id || '');
@@ -1038,9 +1285,9 @@ function renderFeaturedArtists({ loading = false } = {}) {
           artist.coverUrl
             ? `<img src="${escape(artist.coverUrl)}" alt="" loading="lazy" />`
             : '<span class="artist-placeholder">♪</span>'
-        }<strong>${escape(
+        }<span><strong>${escape(
           artist.name
-        )}</strong><small>热门歌曲</small></button>`
+        )}</strong><small>热门歌曲</small></span></button>`
     )
     .join('');
 }
@@ -1071,22 +1318,61 @@ function renderSelectedArtists() {
 function renderArtistTracks({ loading = false } = {}) {
   const container = app.querySelector('[data-artist-tracks]');
   if (!container) return;
-  if (loading) {
-    container.innerHTML = '<div class="hint">正在加载歌手热门歌曲…</div>';
-    return;
-  }
-  if (!selectedArtistId) {
-    container.innerHTML = '<div class="hint">选择歌手后显示热门歌曲。</div>';
-    return;
-  }
-  if (!artistTracks.length) {
-    container.innerHTML = '<div class="hint">这个歌手暂无可展示歌曲。</div>';
-    return;
-  }
-  container.innerHTML = artistTracks
-    .slice(0, 30)
-    .map(track => trackRequestMarkup(track, 'artist-track-card'))
-    .join('');
+  const content =
+    loading || artistTrackPage.loading
+      ? '<div class="hint" data-catalog-empty>正在加载歌手歌曲…</div>'
+      : !selectedArtistId
+      ? '<div class="hint" data-catalog-empty>选择歌手后显示歌曲。</div>'
+      : artistTracks.length
+      ? artistTracks
+          .map(track => trackRequestMarkup(track, 'artist-track-card'))
+          .join('')
+      : artistTrackPage.error
+      ? '<div class="hint" data-catalog-empty>歌手歌曲加载失败，可重试。</div>'
+      : artistTrackPage.unavailableCount > 0
+      ? '<div class="hint" data-catalog-empty>这一页的歌曲详情暂时不可用。</div>'
+      : '<div class="hint" data-catalog-empty>这个歌手暂无可展示歌曲。</div>';
+  container.innerHTML = `${content}<div class="catalog-page-footer"><small data-artist-track-status></small><button class="quiet" type="button" data-artist-track-more hidden>加载更多</button></div>`;
+  renderCatalogPageControls(
+    container,
+    artistTrackPage,
+    'artistTracks',
+    '首',
+    artistRemoteTracks.length
+  );
+}
+
+function applyCatalogPageProgress(pageState, response, offset) {
+  const progress = catalogPageProgress(response, offset, CATALOG_PAGE_SIZE);
+  pageState.nextOffset = progress.nextOffset;
+  pageState.requestedCount += progress.requestedCount;
+  pageState.unavailableCount += progress.unavailableCount;
+  pageState.total = progress.total == null ? pageState.total : progress.total;
+  pageState.hasMore = progress.hasMore;
+  pageState.loading = false;
+  pageState.error = null;
+  pageState.retryAfterMs = 0;
+}
+
+function appendCatalogPageCards(container, footerSelector, tracks, cardClass) {
+  const footer = container?.querySelector(footerSelector);
+  if (!footer || !tracks.length) return;
+  container.querySelector('[data-catalog-empty]')?.remove();
+  footer.insertAdjacentHTML(
+    'beforebegin',
+    tracks.map(track => trackRequestMarkup(track, cardClass)).join('')
+  );
+}
+
+function playlistTracksMatchingQuery(tracks) {
+  const cleanQuery = playlistQuery.trim().toLowerCase();
+  return cleanQuery
+    ? tracks.filter(track =>
+        `${track.name} ${(track.artists || []).join(' ')} ${track.album || ''}`
+          .toLowerCase()
+          .includes(cleanQuery)
+      )
+    : tracks;
 }
 
 function renderResults(results, { searching = false } = {}) {
@@ -1099,7 +1385,7 @@ function renderResults(results, { searching = false } = {}) {
   if (!results.length) {
     container.innerHTML = searchQuery.trim()
       ? '<div class="hint">没有找到可展示的歌曲。</div>'
-      : '<div class="hint">输入关键词后即可点歌，主机负责开始演唱。</div>';
+      : '<div class="hint">输入关键词后点击搜索或按回车点歌。</div>';
     return;
   }
   container.innerHTML = results
@@ -1320,32 +1606,48 @@ function renderPlaylistPicker() {
     : '<option value="">暂无可用歌单</option>';
   select.value = selectedPlaylistId;
   select.disabled = !playlists.length;
+  renderCatalogPageControls(
+    app.querySelector('[data-playlists-footer]'),
+    playlistsPage,
+    'playlists',
+    '个歌单',
+    playlists.length
+  );
 }
 
 function renderPlaylistTracks({ loading = false } = {}) {
   const container = app.querySelector('[data-playlist-tracks]');
   if (!container) return;
-  if (loading) {
-    container.innerHTML = '<div class="hint">正在加载歌单歌曲…</div>';
-    return;
-  }
-  const cleanQuery = playlistQuery.trim().toLowerCase();
-  const visibleTracks = cleanQuery
-    ? playlistTracks.filter(track =>
-        `${track.name} ${(track.artists || []).join(' ')} ${track.album || ''}`
-          .toLowerCase()
-          .includes(cleanQuery)
-      )
-    : playlistTracks;
-  if (!visibleTracks.length) {
-    container.innerHTML = playlistTracks.length
-      ? '<div class="hint">这个歌单里没有匹配的歌曲。</div>'
-      : '<div class="hint">当前歌单暂无可展示歌曲。</div>';
-    return;
-  }
-  container.innerHTML = visibleTracks
-    .map(track => trackRequestMarkup(track, 'playlist-track-card'))
-    .join('');
+  const visibleTracks = playlistTracksMatchingQuery(playlistTracks);
+  let content;
+  if (loading || playlistTrackPage.loading)
+    content = '<div class="hint" data-catalog-empty>正在加载歌单歌曲…</div>';
+  else if (!selectedPlaylistId)
+    content = '<div class="hint" data-catalog-empty>选择歌单后显示歌曲。</div>';
+  else if (visibleTracks.length)
+    content = visibleTracks
+      .map(track => trackRequestMarkup(track, 'playlist-track-card'))
+      .join('');
+  else if (playlistTracks.length)
+    content =
+      '<div class="hint" data-catalog-empty>这个歌单里没有匹配的歌曲。</div>';
+  else if (playlistTrackPage.error)
+    content =
+      '<div class="hint" data-catalog-empty>歌单歌曲加载失败，可重试。</div>';
+  else if (playlistTrackPage.unavailableCount > 0)
+    content =
+      '<div class="hint" data-catalog-empty>这一页的歌曲详情暂时不可用。</div>';
+  else
+    content =
+      '<div class="hint" data-catalog-empty>当前歌单暂无可展示歌曲。</div>';
+  container.innerHTML = `${content}<div class="catalog-page-footer"><small data-playlist-track-status></small><button class="quiet" type="button" data-playlist-track-more hidden>加载更多</button></div>`;
+  renderCatalogPageControls(
+    container,
+    playlistTrackPage,
+    'playlistTracks',
+    '首',
+    playlistTracks.length
+  );
 }
 
 function renderLocalPlaylistPicker() {
@@ -1572,20 +1874,23 @@ function scheduleArtistSearch(query) {
   artistQuery = query;
   const generation = ++artistSearchGeneration;
   clearTimeout(artistSearchTimer);
+  artistTrackGeneration += 1;
+  clearCatalogRetry('artistTracks');
   if (artistSearchAbort) artistSearchAbort.abort();
   const clean = query.trim();
   artists = [];
   selectedArtistId = '';
   artistTracks = [];
+  artistRemoteTracks = [];
+  artistTrackPage = createCatalogPageState();
   renderFeaturedArtists();
   renderArtists();
   renderArtistTracks();
   if (!clean) return;
-  artistSearchTimer = setTimeout(async () => {
-    artistSearchAbort = new AbortController();
-    const container = app.querySelector('[data-artists]');
-    if (container)
-      container.innerHTML = '<div class="hint">正在查找歌手…</div>';
+  artistSearchAbort = new AbortController();
+  const container = app.querySelector('[data-artists]');
+  if (container) container.innerHTML = '<div class="hint">正在查找歌手…</div>';
+  (async () => {
     try {
       const response = await api(
         `/artists/search?q=${encodeURIComponent(clean)}`,
@@ -1607,61 +1912,248 @@ function scheduleArtistSearch(query) {
         setNotice('歌手搜索暂时不可用，请稍后重试。', 'error');
       }
     }
-  }, 300);
+  })();
 }
 
 async function selectArtist(artistId) {
-  selectedArtistId = artistId;
+  artistTrackGeneration += 1;
+  clearCatalogRetry('artistTracks');
+  selectedArtistId = String(artistId || '');
   const selected = [...artists, ...featuredArtists].find(
-    artist => artist.id === String(artistId)
+    artist => String(artist.id) === selectedArtistId
   );
-  if (selected && !artistSelections.some(artist => artist.id === selected.id))
+  if (
+    selected &&
+    !artistSelections.some(artist => String(artist.id) === String(selected.id))
+  )
     artistSelections.push(selected);
   renderSelectedArtists();
   artistTracks = [];
+  artistRemoteTracks = [];
+  artistTrackPage = createCatalogPageState();
   renderFeaturedArtists();
   renderArtists();
-  renderArtistTracks({ loading: Boolean(artistId) });
-  if (!artistId) return;
-  const generation = ++artistTrackGeneration;
+  if (!selectedArtistId) {
+    renderArtistTracks();
+    return;
+  }
+  if (!localPlaylistsLoaded) {
+    await loadLocalPlaylists().catch(() => {});
+  }
+  const localInitial = localTracksForArtist(selectedArtistId);
+  if (localInitial.length) {
+    artistTracks = [...localInitial];
+    renderArtistTracks();
+  } else {
+    renderArtistTracks({ loading: true });
+  }
+  await loadArtistTrackPage();
+}
+
+async function loadArtistTrackPage() {
+  if (!selectedArtistId || artistTrackPage.loading) return;
+  const artistId = selectedArtistId;
+  const pageState = artistTrackPage;
+  const generation = artistTrackGeneration;
+  const offset = pageState.nextOffset;
+  pageState.loading = true;
+  pageState.error = null;
+  pageState.retryAfterMs = 0;
+  clearCatalogRetry('artistTracks');
+  renderCatalogPageControls(
+    app.querySelector('[data-artist-tracks]'),
+    pageState,
+    'artistTracks',
+    '首',
+    artistRemoteTracks.length
+  );
   try {
     const response = await api(
-      `/artists/${encodeURIComponent(artistId)}/tracks`
+      `/artists/${encodeURIComponent(
+        artistId
+      )}/tracks?offset=${offset}&limit=${CATALOG_PAGE_SIZE}`
     );
-    if (generation !== artistTrackGeneration) return;
-    artistTracks = mergeArtistTracks(response.tracks || [], artistId);
-    renderArtistTracks();
-  } catch (_) {
-    if (generation !== artistTrackGeneration) return;
-    renderArtistTracks();
-    setNotice('歌手歌曲暂时无法加载，请稍后重试。', 'error');
+    if (
+      generation !== artistTrackGeneration ||
+      pageState !== artistTrackPage ||
+      artistId !== selectedArtistId
+    )
+      return;
+    const incoming = Array.isArray(response.tracks) ? response.tracks : [];
+    const previousIds = new Set(
+      artistRemoteTracks.map(track => String(track.trackId || track.id))
+    );
+    artistRemoteTracks = appendCatalogItems(artistRemoteTracks, incoming);
+    artistTracks = mergeArtistTracks(artistRemoteTracks, artistId);
+    applyCatalogPageProgress(pageState, response, offset);
+    if (offset === 0) renderArtistTracks();
+    else {
+      appendCatalogPageCards(
+        app.querySelector('[data-artist-tracks]'),
+        '.catalog-page-footer',
+        incoming.filter(
+          track => !previousIds.has(String(track.trackId || track.id))
+        ),
+        'artist-track-card'
+      );
+      renderCatalogPageControls(
+        app.querySelector('[data-artist-tracks]'),
+        pageState,
+        'artistTracks',
+        '首',
+        artistRemoteTracks.length
+      );
+    }
+  } catch (error) {
+    if (generation !== artistTrackGeneration || pageState !== artistTrackPage)
+      return;
+    pageState.loading = false;
+    setCatalogPageError('artistTracks', pageState, error, () => {
+      if (!artistTracks.length) renderArtistTracks();
+      else
+        renderCatalogPageControls(
+          app.querySelector('[data-artist-tracks]'),
+          pageState,
+          'artistTracks',
+          '首',
+          artistRemoteTracks.length
+        );
+    });
+    if (!artistTracks.length) renderArtistTracks();
+    else
+      renderCatalogPageControls(
+        app.querySelector('[data-artist-tracks]'),
+        pageState,
+        'artistTracks',
+        '首',
+        artistRemoteTracks.length
+      );
   }
 }
 
+function loadMoreArtistTracks() {
+  if (
+    artistTrackPage.loading ||
+    artistTrackPage.retryAfterMs > 0 ||
+    (!artistTrackPage.hasMore && !artistTrackPage.error)
+  )
+    return;
+  return loadArtistTrackPage();
+}
+
 async function selectPlaylist(playlistId) {
-  selectedPlaylistId = playlistId;
+  playlistTrackGeneration += 1;
+  clearCatalogRetry('playlistTracks');
+  selectedPlaylistId = String(playlistId || '');
   playlistTracks = [];
+  playlistTrackPage = createCatalogPageState();
   renderPlaylistPicker();
-  renderPlaylistTracks({ loading: Boolean(playlistId) });
-  if (!playlistId) return;
-  const generation = ++playlistTrackGeneration;
+  renderPlaylistTracks({ loading: Boolean(selectedPlaylistId) });
+  if (!selectedPlaylistId) return;
+  await loadPlaylistTrackPage();
+}
+
+async function loadPlaylistTrackPage() {
+  if (!selectedPlaylistId || playlistTrackPage.loading) return;
+  const playlistId = selectedPlaylistId;
+  const pageState = playlistTrackPage;
+  const generation = playlistTrackGeneration;
+  const offset = pageState.nextOffset;
+  pageState.loading = true;
+  pageState.error = null;
+  pageState.retryAfterMs = 0;
+  clearCatalogRetry('playlistTracks');
+  renderCatalogPageControls(
+    app.querySelector('[data-playlist-tracks]'),
+    pageState,
+    'playlistTracks',
+    '首',
+    playlistTracks.length
+  );
   try {
     const response = await api(
-      `/playlists/${encodeURIComponent(playlistId)}/tracks`
+      `/playlists/${encodeURIComponent(
+        playlistId
+      )}/tracks?offset=${offset}&limit=${CATALOG_PAGE_SIZE}`
     );
-    if (generation !== playlistTrackGeneration) return;
-    playlistTracks = response.tracks || [];
-    renderPlaylistTracks();
+    if (
+      generation !== playlistTrackGeneration ||
+      pageState !== playlistTrackPage ||
+      playlistId !== selectedPlaylistId
+    )
+      return;
+    const incoming = Array.isArray(response.tracks) ? response.tracks : [];
+    const previousIds = new Set(
+      playlistTracks.map(track => String(track.trackId || track.id))
+    );
+    playlistTracks = appendCatalogItems(playlistTracks, incoming);
+    applyCatalogPageProgress(pageState, response, offset);
+    if (offset === 0) renderPlaylistTracks();
+    else {
+      appendCatalogPageCards(
+        app.querySelector('[data-playlist-tracks]'),
+        '.catalog-page-footer',
+        playlistTracksMatchingQuery(
+          incoming.filter(
+            track => !previousIds.has(String(track.trackId || track.id))
+          )
+        ),
+        'playlist-track-card'
+      );
+      renderCatalogPageControls(
+        app.querySelector('[data-playlist-tracks]'),
+        pageState,
+        'playlistTracks',
+        '首',
+        playlistTracks.length
+      );
+    }
   } catch (error) {
-    if (generation !== playlistTrackGeneration) return;
-    renderPlaylistTracks();
+    if (
+      generation !== playlistTrackGeneration ||
+      pageState !== playlistTrackPage
+    )
+      return;
+    pageState.loading = false;
+    setCatalogPageError('playlistTracks', pageState, error, () => {
+      if (!playlistTracks.length) renderPlaylistTracks();
+      else
+        renderCatalogPageControls(
+          app.querySelector('[data-playlist-tracks]'),
+          pageState,
+          'playlistTracks',
+          '首',
+          playlistTracks.length
+        );
+    });
+    if (!playlistTracks.length) renderPlaylistTracks();
+    else
+      renderCatalogPageControls(
+        app.querySelector('[data-playlist-tracks]'),
+        pageState,
+        'playlistTracks',
+        '首',
+        playlistTracks.length
+      );
     setNotice(
       error.code === 'HOST_NOT_LOGGED_IN'
         ? '主机尚未登录网易云账号，暂时无法读取歌单。'
+        : error.code === 'RATE_LIMIT'
+        ? '歌单请求较频繁，请稍后重试。'
         : '歌单歌曲暂时无法加载，请稍后重试。',
       'error'
     );
   }
+}
+
+function loadMorePlaylistTracks() {
+  if (
+    playlistTrackPage.loading ||
+    playlistTrackPage.retryAfterMs > 0 ||
+    (!playlistTrackPage.hasMore && !playlistTrackPage.error)
+  )
+    return;
+  return loadPlaylistTrackPage();
 }
 
 async function loadPlaylists({ force = false, silent = false } = {}) {
@@ -1669,14 +2161,23 @@ async function loadPlaylists({ force = false, silent = false } = {}) {
   if (playlistsPromise) return playlistsPromise;
   if (playlistsLoaded && !force) return;
   const generation = ++playlistLoadGeneration;
+  clearCatalogRetry('playlists');
+  playlistsPage = createCatalogPageState();
+  playlistsPage.loading = true;
   const button = app.querySelector('[data-playlists-refresh]');
   if (button) button.disabled = true;
+  renderPlaylistPicker();
   playlistsPromise = (async () => {
     try {
-      const response = await api(force ? '/playlists?force=1' : '/playlists');
+      const response = await api(
+        `/playlists?offset=0&limit=${CATALOG_PAGE_SIZE}${
+          force ? '&force=1' : ''
+        }`
+      );
       if (generation !== playlistLoadGeneration) return;
       playlists = response.playlists || [];
-      playlistsLoaded = playlists.length > 0;
+      playlistsLoaded = true;
+      applyCatalogPageProgress(playlistsPage, response, 0);
       const hasSelected = playlists.some(
         playlist => playlist.id === selectedPlaylistId
       );
@@ -1694,11 +2195,12 @@ async function loadPlaylists({ force = false, silent = false } = {}) {
       }
     } catch (error) {
       if (generation !== playlistLoadGeneration) return;
-      playlists = [];
-      selectedPlaylistId = '';
+      playlistsPage.loading = false;
+      setCatalogPageError('playlists', playlistsPage, error, () =>
+        renderPlaylistPicker()
+      );
+      playlistsLoaded = playlists.length > 0;
       renderPlaylistPicker();
-      renderPlaylistTracks();
-      renderPlaylistSource();
       if (!silent && selectedModule === 'playlists') {
         setNotice(
           error.code === 'HOST_NOT_LOGGED_IN'
@@ -1717,6 +2219,61 @@ async function loadPlaylists({ force = false, silent = false } = {}) {
     }
   })();
   return playlistsPromise;
+}
+
+async function loadMorePlaylists() {
+  if (!client?.clientToken) return;
+  if (!playlists.length && !playlistsLoaded)
+    return loadPlaylists({ silent: false });
+  if (
+    playlistsPagePromise ||
+    playlistsPage.loading ||
+    playlistsPage.retryAfterMs > 0 ||
+    (!playlistsPage.hasMore && !playlistsPage.error)
+  )
+    return;
+
+  const pageState = playlistsPage;
+  const generation = playlistLoadGeneration;
+  const offset = pageState.nextOffset;
+  pageState.loading = true;
+  pageState.error = null;
+  pageState.retryAfterMs = 0;
+  clearCatalogRetry('playlists');
+  renderCatalogPageControls(
+    app.querySelector('[data-playlists-footer]'),
+    pageState,
+    'playlists',
+    '个歌单',
+    playlists.length
+  );
+  playlistsPagePromise = (async () => {
+    try {
+      const response = await api(
+        `/playlists?offset=${offset}&limit=${CATALOG_PAGE_SIZE}`
+      );
+      if (generation !== playlistLoadGeneration || pageState !== playlistsPage)
+        return;
+      playlists = appendCatalogItems(
+        playlists,
+        response.playlists || [],
+        playlist => playlist.id
+      );
+      applyCatalogPageProgress(pageState, response, offset);
+      renderPlaylistPicker();
+    } catch (error) {
+      if (generation !== playlistLoadGeneration || pageState !== playlistsPage)
+        return;
+      pageState.loading = false;
+      setCatalogPageError('playlists', pageState, error, () =>
+        renderPlaylistPicker()
+      );
+      renderPlaylistPicker();
+    } finally {
+      playlistsPagePromise = null;
+    }
+  })();
+  return playlistsPagePromise;
 }
 
 function scheduleSearch(query, { immediate = false } = {}) {
@@ -1805,6 +2362,7 @@ function handleCatalogEpoch(nextEpoch) {
         search: searchGeneration,
         playlists: playlistLoadGeneration,
         playlistTracks: playlistTrackGeneration,
+        artistTracks: artistTrackGeneration,
         recommendations: recommendationsGeneration,
         recommendationTracks: recommendationTrackGeneration,
         toplists: toplistsGeneration,
@@ -1820,19 +2378,29 @@ function handleCatalogEpoch(nextEpoch) {
   searchScheduler.invalidate();
   playlistLoadGeneration = invalidation.generations.playlists;
   playlistTrackGeneration = invalidation.generations.playlistTracks;
+  artistTrackGeneration = invalidation.generations.artistTracks;
   recommendationsGeneration = invalidation.generations.recommendations;
   recommendationTrackGeneration = invalidation.generations.recommendationTracks;
   toplistsGeneration = invalidation.generations.toplists;
   toplistTrackGeneration = invalidation.generations.toplistTracks;
 
   playlistsPromise = null;
+  playlistsPagePromise = null;
   recommendationsPromise = null;
+  clearCatalogRetry('playlists');
+  clearCatalogRetry('playlistTracks');
+  clearCatalogRetry('artistTracks');
+  playlistsPage = createCatalogPageState();
+  playlistTrackPage = createCatalogPageState();
+  artistTrackPage = createCatalogPageState();
 
   searchResults = invalidation.searchResults;
   playlists = invalidation.playlists;
   playlistsLoaded = invalidation.playlistsLoaded;
   selectedPlaylistId = invalidation.selectedPlaylistId;
   playlistTracks = invalidation.playlistTracks;
+  artistTracks = invalidation.artistTracks;
+  artistRemoteTracks = [];
   recommendations = invalidation.recommendations;
   recommendationsLoaded = invalidation.recommendationsLoaded;
   selectedRecommendationId = invalidation.selectedRecommendationId;
@@ -1846,6 +2414,7 @@ function handleCatalogEpoch(nextEpoch) {
   renderResults(searchResults);
   renderPlaylistPicker();
   renderPlaylistTracks();
+  renderArtistTracks();
   renderRecommendations();
   renderRecommendationTracks();
 
@@ -1853,6 +2422,8 @@ function handleCatalogEpoch(nextEpoch) {
     searchScheduler.schedule(searchQuery, { immediate: true, force: true });
   } else if (selectedModule === 'playlists' && playlistSource === 'user') {
     loadPlaylists();
+  } else if (selectedModule === 'artists' && selectedArtistId) {
+    loadArtistTrackPage();
   } else if (selectedModule === 'recommendations') {
     if (chartMode === 'toplists') loadToplists();
     else loadRecommendations();
@@ -1903,18 +2474,19 @@ function showEnded() {
   clearTimeout(refreshTimer);
   sessionStorage.removeItem(storageKey);
   app.innerHTML =
-    '<main class="ended"><p class="eyebrow">LUMASING · LAN KTV</p><h1>房间已结束</h1><p>请向主机重新获取新的二维码或加入链接。</p></main>';
+    '<main class="ended"><p class="eyebrow">LUMASING · LAN KTV</p><h1>未开启点歌</h1><p>主机尚未开启 KTV 房间，开启后刷新页面即可点歌。</p></main>';
 }
 
 async function joinRoom() {
   const joinToken = new URLSearchParams(window.location.hash.slice(1)).get(
     'token'
   );
-  if (!joinToken) return false;
+  const headers = joinToken ? { Authorization: `Bearer ${joinToken}` } : {};
   client = await api('/client-session', {
     method: 'POST',
-    headers: { Authorization: `Bearer ${joinToken}` },
+    headers,
   });
+  if (!client?.clientToken) return false;
   sessionStorage.setItem(storageKey, JSON.stringify(client));
   return true;
 }
@@ -1928,18 +2500,28 @@ async function bootstrap() {
     client = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
     if (!client?.clientToken) {
       if (!(await joinRoom())) return showEnded();
-      // Keep this room's complete invitation in the address bar so copying or
-      // reloading the joined page retains the same link until the room ends.
     }
     ensureModuleLoaded(selectedModule);
+    loadLocalPlaylists().catch(() => {});
     prefetchCatalogModules();
     await requestRefresh();
   } catch (error) {
-    if (
-      error?.code === 'INVALID_CLIENT_TOKEN' ||
-      error?.code === 'INVALID_JOIN_TOKEN' ||
-      error?.code === 'ROOM_ENDED'
-    ) {
+    if (error?.code === 'INVALID_CLIENT_TOKEN') {
+      sessionStorage.removeItem(storageKey);
+      client = null;
+      try {
+        if (await joinRoom()) {
+          ensureModuleLoaded(selectedModule);
+          loadLocalPlaylists().catch(() => {});
+          prefetchCatalogModules();
+          await requestRefresh();
+          return;
+        }
+      } catch (_) {
+        // Fall through to showEnded
+      }
+    }
+    if (error?.code === 'INVALID_JOIN_TOKEN' || error?.code === 'ROOM_ENDED') {
       showEnded();
       return;
     }

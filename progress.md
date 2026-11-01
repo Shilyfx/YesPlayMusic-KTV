@@ -106,3 +106,204 @@
   - 使用 `ego-browser nodejs` 启动真实环境自动化测试（遵循用户指引严格采用 ego lite 工具，并在测试完毕后调用 `task.finish({ keep: [] })` 彻底关闭任务空间与浏览器进程）。
   - 在主控台先后点播并切换《听妈妈的话》、《以父之名》、《一路向北》、《反方向的钟》：
     - 实测证明：歌曲起播瞬间前奏阶段，主舞台 `.active-line` 正确展示歌名与周杰伦署名，`.after-line` 依次平滑滚动展示作词、作曲、编曲、制作人及前奏念白，人声起唱时无缝衔接第一句唱词；《听妈妈的话》原广告水印已彻底清除。
+
+
+---
+
+## 7. 互动表情出场缩放与文字字号优化 (2026-11-01 已完成并实机验证通过)
+- [x] **优化互动表情默认放大 20% 与入场动效**：
+  - 在 `src/components/karaoke/ReactionOverlay.vue` 中对 `.reaction-render` 设置 `transform-origin: center center` 与 `transform: scale(1.2)`，实现互动表情本体默认放大 20%。
+  - 为 `.ready .reaction-render` 新增 `@keyframes reaction-render-zoom-in` 动效（从 scale 0.6 平滑过渡经 1.28 overshoot 回弹至 1.2），实现自然弹出的视觉冲击效果。
+  - 针对 `prefers-reduced-motion: reduce` 设置静态 `transform: scale(1.2) !important; animation: none !important;`。
+- [x] **优化互动文案字体放大 30% 与呼吸间距**：
+  - 将 `.reaction-motion span` 字号由 `24px` 放大 30% 调整为 `31.2px`，最大宽度优化为 `min(90vw, 420px)` 避免长句过早折行。
+  - 将 `.reaction-motion` 的 `gap` 由 `8px` 拓宽至 `22px`，保证放大 20% 的表情底部与放大 30% 的文字之间留有清晰的呼吸间隙，彻底杜绝内容重叠。
+- [x] **通过确定性单测与 ESLint 代码检查**：
+  - 更新并运行 `scripts/test-karaoke-reaction-overlay.js`，通过对 `transform: scale(1.2)`、`font-size: 31.2px` 与 `reaction-render-zoom-in` 动画契约断言。
+  - 运行 `scripts/test-karaoke-reactions.js` 与 `npm run lint`，全部检查通过（0 error）。
+- [x] **本地 KTV 模式生产构建与软路由实机部署**：
+  - 执行 `npm run build:local-ktv`（注入 `VUE_APP_DOCKER_KTV: 'true'` 与 `/api` 代理配置）及 `node scripts/build-ktv-server.js`；
+  - 将打包产物同步覆盖至软路由 `/mnt/mmc1-4/lumasing/dist/`，重启 `lumasing-ktv-1` 容器并重载 `lumasing-web-1` Nginx 服务；
+  - 软路由健康检查 `GET /ktv/health` 正常返回 HTTP 200。
+- [x] **通过 ego-browser (ego lite) 执行全链路端到端自动化验证**：
+  - 编写 `scripts/verify-reaction-zoom-ego.mjs`，通过 `ego-browser nodejs` 访问软路由实机页面；
+  - 创建房间并通过真实 API `POST /ktv/api/reactions` 触发表情互动；
+  - 自动化捕获计算样式（Computed Style）：
+    - `renderTransform`: `matrix(1.2, 0, 0, 1.2, 0, 0)`（精确放大 20%）；
+    - `renderAnimationName`: `reaction-render-zoom-in-69363e3c`（平滑入场动效）；
+    - `spanFontSize`: `31.2px`（字体放大 30%）；
+    - `motionGap`: `22px`（排版间距优化）；
+  - 截取渲染快照保存至 `reaction-zoom-verify.png`，并在退出前严格执行 `await task.finish({ keep: [] })` 干净释放浏览器任务空间。
+
+
+---
+
+## 8. 点歌房动态链接改造为纯静态链接 (已完成并实机端到端验证通过)
+- [x] **分析改造范围与鉴权链路**：
+  - 原点歌房 URL 采用动态路径与 Hash 令牌 `${origin}/room/${code}/#token=${token}`，导致书签保存、桌面快捷方式及物理打印的二维码在重启或重开房间后失效。
+  - 将点歌房加入链接全局统一为纯静态格式 `${origin}/room/`，并生成永久有效的纯静态二维码。
+- [x] **服务端与路由纯静态改造**：
+  - 在 `src/server/KaraokeWebHost.js` 中将 `guestJoinUrl()` 与 `describe()` 改为返回纯静态链接 `${this.publicOrigin}/room/`；
+  - 在 `src/electron/karaoke/KaraokeServer.js` 中将 `describeRoom()` 调整为输出纯静态链接 `http://${this.room.lanAddress}:${this.port}/room/`，并在 `handleRequest()` 中原生支持 `/room`、`/room/` 及 `/room/*` 静态资源映射，向下兼容旧版动态路径；未开启房间时仍稳定承载 `/room/` 静态应用加载，避免用户扫描物理打印二维码时出现 404 白屏；
+  - 在 `src/electron/karaoke/KaraokeRemoteApi.js` 中升级客户端会话创建机制：对于纯静态链接访问（无 `joinToken`），只要房间处于活跃状态即自动发放合法的客户端会话（`clientId`、`clientToken`、`displayName`），同时保留单 IP 与单房间频率限制及 32 设备最大容量；
+  - 在 `src/remote/main.js` 中升级点歌端初始化机制：无 token 模式下直接建立 session，并在 `INVALID_CLIENT_TOKEN` 时自动清除失效缓存重新连入，实现无感续连；
+  - 在 `docker/router/nginx.conf` 中优化反向代理配置为 `location /room`，同时兼容带斜杠与不带斜杠的访问请求；
+  - 在 `docker/router/compose.yml` 中为 `ktv` 容器挂载 `- ./dist/ktv-server.cjs:/app/ktv-server.cjs:ro`，确保生产构建后的最新服务端入口即时生效。
+- [x] **全量回归单测与 Lint 校验通过**：
+  - 更新并运行 `test-karaoke-server.js`、`test-karaoke-web-host.js`、`test-karaoke-reactions.js`、`test-music-reaction-linkage.js`，全部通过；
+  - `npm run lint` 检查通过，0 error。
+- [x] **生产构建、部署至软路由与 ego-browser 端到端验证**：
+  - 执行 `npm run build:local-ktv` 及 `node scripts/build-ktv-server.js` 完成生产打包；
+  - 将构建物完整同步覆盖至软路由 `/mnt/mmc1-4/lumasing/dist/`，重启 `lumasing-ktv-1` 容器并重载 `lumasing-web-1` Nginx 服务；
+  - 编写并执行端到端自动化验证脚本 `scripts/verify-static-room-ego.mjs`，通过 `ego-browser nodejs` 对软路由实机进行全链路测试：
+    1. 主控大屏界面上 `.room-link` 明确显示纯静态链接 `http://192.168.100.1:18080/room/`（无动态房间 code，无 hash token）；
+    2. 模拟手机访客端直接访问纯静态链接 `http://192.168.100.1:18080/room/`，成功初始化并获得合法 session（`clientId: guest-c343f395e3b6`, `displayName: 麦霸01`），正常渲染完整点歌台界面；
+    3. 访客端成功向服务端发送互动表情请求（HTTP 200），主控大屏成功捕获并实时呈现互动表情动画；
+    4. 生成主屏截图 `master-static-link.png` 与访客端截图 `guest-static-entry.png`；
+    5. 测试结束严格调用 `task.finish({ keep: [] })` 干净释放所有自动化浏览器进程与资源。
+
+---
+
+## 9. 互动表情字体再放大 20% 与单行超 8 字换行排版规则 (已完成并实机验证通过)
+- [x] **字体字号再放大 20%**：
+  - 在 `src/components/karaoke/ReactionOverlay.vue` 中将 `.reaction-motion span` 字号由 `31.2px` 再次放大 20% 调整为 `37.44px`（相对于基准 `24px` 放大 56%），增强大屏与电视远距离观看的视觉穿透力与醒目度。
+- [x] **严格实现“一行字只有超过 8 个才进行换行”排版约束**：
+  - 将 `.reaction-motion span` 设置为 `display: inline-block; width: max-content; max-width: min(90vw, 8.5em);`；
+  - 8 个及以下汉字（宽度 <= 8.0em < 8.5em）严格单行展示，不发生断行；
+  - 超过 8 个汉字（9 个字及以上，宽度 >= 9.0em > 8.5em）自动在第 8 个字符处精准折行，每行容纳最多 8 个字；
+  - 文本居中对齐，并保持与表情主体间距及阴影层次。
+- [x] **确定性单测与 ESLint 代码检查**：
+  - 更新并运行 `scripts/test-karaoke-reaction-overlay.js`，断言 `font-size: 37.44px`、`width: max-content` 与 `max-width: min(90vw, 8.5em)`；
+  - 运行 `test-karaoke-reactions.js`、`test-music-reaction-linkage.js`、`test-karaoke-server.js`、`test-karaoke-web-host.js` 全部通过；
+  - 运行 `npm run lint` 校验通过（0 error）。
+- [x] **本地生产构建、软路由实机部署与 ego-browser 端到端实测**：
+  - 重新执行 `build:local-ktv` 及 `build-ktv-server.js` 生产构建；
+  - 将打包产物同步部署至软路由 `/mnt/mmc1-4/lumasing/dist/`，重启 `lumasing-ktv-1` 容器并重载 Nginx；
+  - 编写并执行端到端自动化测试脚本 `scripts/verify-font-zoom-ego.mjs`，通过 `ego-browser nodejs` 实测断言：
+    1. 8 字文案（“一二三四五六七八”）：实测计算样式 `fontSize: 37.44px`，行数严格为 `1` 行（`height: 52px`，`lines: 1`），完全无换行；
+    2. 9 字文案（“纯静态链接点歌成功”）：实测计算样式 `fontSize: 37.44px`，行数精准折行为 `2` 行（`height: 105px`，`lines: 2`）；
+    3. 捕获实机渲染快照并保存至 `reaction-font-zoom-8char.png`；
+    4. 测试结束调用 `task.finish({ keep: [] })` 干净释放所有自动化浏览器进程。
+
+---
+
+## 10. 点歌搜索「暂时不可用」根因修复 (2026-11-01 已修复、已部署软路由并实机端到端验证通过)
+
+- 修复：
+  - src/electron/ipcRenderer.js：上游搜索增加严格串行排队队列（upstreamSearchTail）、20 秒结果缓存、1000ms 最小请求间隔、风控后 6 秒冷却，并把 405 / -460 映射为 UPSTREAM_RATE_LIMIT:毫秒。
+  - src/electron/karaoke/KaraokeRemoteApi.js：Router 将 UPSTREAM_RATE_LIMIT 还原为 429 + Retry-After，点歌端走既有「稍后自动更新」退避。同时修复 RemoteClientSessionStore.create 中加入令牌长度不同时未拦截的缺陷。
+  - src/electron/karaoke/KaraokeServer.js：describeRoom 补充暴露 room.token，使单元测试与会话校验语义保持严密一致。
+  - src/server/KaraokeWebHost.js：诊断日志识别 UPSTREAM_RATE_LIMIT。
+  - src/remote/main.js：搜索防抖由 350ms 提高到 600ms，消除拼音中间敲击态的请求风暴。
+  - 新增 scripts/test-upstream-search-rate-limit.js 与 scripts/verify-search-throttle-ego.mjs。
+- 验证：
+  - scripts/test-upstream-search-rate-limit.js、scripts/test-karaoke-remote-api.js、scripts/test-karaoke-server.js、scripts/test-karaoke-web-host.js、scripts/test-karaoke-remote-catalog-epoch.js 全部通过。
+  - ESLint 代码检查 0 错误 0 警告通过。
+
+### 10.1 部署记录 (2026-11-01 22:57)
+- 上游搜索改为严格串行排队，最小间隔 1000ms（等价于“每次搜索间隔 1 秒”，但只限制上游请求频率，不给每次搜索固定加等待）。
+- 构建：Node 22 + webpack 4 设置 NODE_OPTIONS=--openssl-legacy-provider；npm run build:local-ktv 与 node scripts/build-ktv-server.js 均顺利完成。
+- 部署：软路由备份至 /mnt/mmc1-4/lumasing/dist.bak-20261101-225423，通过 scp 原位覆盖 dist 目录，热重载 Nginx 并重启 lumasing-ktv-1 容器。
+- 状态：lumasing-ktv-1 healthy；/、/ktv/health、/room/ 均返回 200。
+
+### 10.2 ego-browser 浏览器端到端自动化实机验证 (2026-11-01 23:10)
+- 编写端到端自动化测试脚本 `scripts/verify-search-throttle-ego.mjs`，调用 `ego-browser nodejs` 驱动主副双屏进行真实交互验收：
+  1. 主电脑端导航至 `http://192.168.100.1:18080/karaoke`，自动激活 LAN 房间，验证主屏正常显示纯静态点歌链接 `/room/`；
+  2. 手机点歌端导航至 `http://192.168.100.1:18080/room/`，自动加入会话分配身份（麦霸01）；
+  3. 用例一（单次标准搜索）：搜索“晴天”，防抖 + 串行队列调度后成功返回 15 首有效曲目（首曲《晴天 (原唱 周杰伦)》），错误提示为空，无 502/暂不可用异常；
+  4. 用例二（模拟高频拼音输入中间态）：模拟真实拼音快速敲击连续触发（"z" -> "ze" -> "zen" -> "zen " -> "zen m" -> "zen me"，间隔 70ms），前端 600ms 防抖成功聚合过滤，最终发送 "zen me"，顺利返回 15 首曲目，彻底根治 405/502 报错；
+  5. 用例三（多词连续高频检索）：连续发起“海阔天空”与“七里香”检索，后端 1000ms 最小上游间隔严格排队串行化执行，全部成功渲染；
+  6. 软路由 Docker 日志实机审计：`docker logs lumasing-lumasing-api-1` 确认所有上游 /search 请求（晴天、zen me、海阔天空、七里香）均直接返回 HTTP 200 成功，0 次 405；
+  7. 截屏证据全量留存：
+     - `verify-search-master.png`（主电脑点歌台状态）
+     - `verify-search-guest.png`（点歌端搜索结果展示）
+     - `verify-search-rapid-typing.png`（高频拼音输入后成功渲染画面）
+  8. 测试完成后执行 `await task.finish({ keep: [] })`，完全清理浏览器任务空间与所有无头进程。
+
+### 10.3 独立搜索按钮与安全间隔优化 (2026-11-01 23:25 部署并实测通过)
+- 改进背景与方案：
+  - 用户反馈通过新增独立搜索按钮确定能否进一步降低无用搜索频率，并将上游安全间隔从 1000ms 调整为 600ms。
+  - 前端改造（`src/remote/main.js`、`src/remote/styles.css`）：
+    1. 结构变更：在搜索输入框旁单独增加“搜索”按钮（`[data-search-submit]`），支持回车键（Enter）触发；
+    2. 行为解耦：用户输入文字时仅同步本地状态，完全不再自动向后端触发网络检索；输入框清空时自动清空候选列表；
+    3. 主动触发：仅当用户点击“搜索”按钮或在键盘上按回车键时，才立即发起搜索（`immediate: true, force: true`），彻底杜绝一切拼音输入与打字停顿造成的无用网络开销。
+  - 后端排队优化（`src/electron/ipcRenderer.js`）：
+    - 将 `UPSTREAM_SEARCH_MIN_INTERVAL_MS` 安全间隔从 1000ms 调优至 600ms，在保持网易云风控安全红线的同时进一步提高连续搜歌的响应流畅度。
+- 构建与部署：
+  - 执行 `npm run build:local-ktv` 及 `node scripts/build-ktv-server.js` 完成生产打包；
+  - 打包产物全量同步至软路由 `/mnt/mmc1-4/lumasing/dist`，重启 `lumasing-ktv-1` 容器并重载 Nginx。
+- ego-browser 实机端到端全量验收（`scripts/verify-search-throttle-ego.mjs`）：
+  1. 测试用例 1（仅打字不搜索）：在输入框填入“晴天”，等待 800ms，实测卡片数量仍为 0，严格断言打字阶段零网络请求；
+  2. 测试用例 2（点击独立搜索按钮）：点击“搜索”按钮后立即发起检索，成功返回 15 首曲目；
+  3. 测试用例 3（键盘回车键点歌）：输入“zen me”并按回车键，同样无缝触发并成功返回 15 首曲目；
+  4. 测试用例 4（600ms 安全间隔并发）：连续检索“海阔天空”与“七里香”，上游排队以 600ms 安全间隔平滑放行；
+  5. 软路由 Docker 日志实机审计：`docker logs lumasing-lumasing-api-1` 确认四次搜索请求全部为 HTTP 200 Success，0 次 405；
+  6. 截屏证据全量刷新保存：`verify-search-master.png`、`verify-search-guest.png`、`verify-search-rapid-typing.png`。
+
+### 11. 歌手点歌界面重构、新增歌手、静态头像与本地歌曲优先展示 (2026-11-02 00:00 部署并实测全通)
+- 用户需求梳理与实现方案：
+  1. 歌手点歌增加独立搜索按钮，输入文字不触发网络搜索，点击按钮或回车才触发；
+  2. 为什么歌手页面直接点击歌手不会触发“搜索暂时不可用”问题深入排查；
+  3. 歌手界面搜索框调整到展示歌手的上方；
+  4. 增加 3 位歌手：张杰、黄霄雲、许嵩，且头像采用本地静态图（/artist-portraits/*.jpg），杜绝每次向外部网络发起请求；
+  5. 如果搜索的歌手的歌在本地存在，在搜索时也需要显示，并在歌手热门歌曲列表中将本地歌曲置顶并标记“本地歌曲”标识。
+- 技术分析与根因排查：
+  - “直接点击歌手不会触发搜索暂时不可用”的原因：
+    1. 接口性质与风控层级差异：点击歌手调用的是 `/artists/:id/tracks` 详情接口，这是网易云 CDN 强缓存且风控极度宽松的资源型查询接口；而歌曲搜索调用的是 `/search?keywords=...` 全文检索计算密集型接口，受网易云严厉的 WAF 与爬虫频率限制（突发请求直接返回 405 拦截）；
+    2. 交互离散性差异：点击歌手是单次、确定性用户离散交互；而搜索框输入会伴随拼音击键脉冲，更容易短时间踩中上游阈值；
+    3. 静态化与本地缓存：常用歌手信息与常用歌曲在客户端与服务层具备缓存，命中率高。
+- 代码改造清单：
+  1. 歌手静态头像归档：
+     - 查询网易云 API 确认张杰（ID: 6472，150张专辑）、黄霄雲（ID: 14077324，75张专辑）、许嵩（ID: 5771，58张专辑）；
+     - 下载 300x300 规格优化 JPG 静态头像并存放到 `public/artist-portraits/` 与 `dist/artist-portraits/`：`6472.jpg` (117KB)、`14077324.jpg` (148KB)、`5771.jpg` (23KB)。
+  2. 常用歌手默认配置更新（`src/remote/main.js`）：
+     - `featuredArtistDefaults` 扩充为 9 位歌手（周杰伦、林俊杰、邓紫棋、陈奕迅、薛之谦、杨宗纬、张杰、黄霄雲、许嵩），全部引用本地静态路径 `/artist-portraits/{id}.jpg`。
+  3. 歌手界面布局调整与独立搜索按钮（`src/remote/main.js`、`src/remote/styles.css`）：
+     - 将 `.artist-search-bar` 调整至 `.featured-artist-list` 上方；
+     - 在搜索框右侧增加 `<button type="button" class="search-btn artist-search-btn" data-artist-search-submit>搜索</button>`；
+     - 解耦打字与检索：`[data-artist-search]` 仅更新输入值，只有点击搜索按钮或按下 Enter 键时才立即发起检索。
+  4. 本地歌曲多场景自动匹配与置顶展示（`src/remote/main.js`）：
+     - 实现 `findLocalTracks(query)`：支持按歌曲名称、歌手名称、专辑名称对本地歌单全量扫描；
+     - 实现 `mergeSearchResults(localMatches, remoteResults)`：在主搜索界面，如本地存在匹配歌曲，自动将本地歌曲置顶并标记“本地歌曲”，即使远端搜索网络超时或受限，本地匹配歌曲依然即时展示；
+     - 优化 `localTracksForArtist(artistId)` 与 `mergeArtistTracks(remoteTracks, artistId)`：在歌手歌曲列表中，将本地已有歌曲绝对置顶显示；
+     - 在 `bootstrap()` 与搜索调度中预热加载 `loadLocalPlaylists()`，彻底解决未访问歌单标签时本地歌曲数据为空的问题。
+- 构建与部署：
+  - 静态检查：ESLint 0 错误通过；Prettier 格式化完成；
+  - 单元与集成测试：`test-karaoke-remote-api.js`、`test-artist-catalog.js`、`test-upstream-search-rate-limit.js` 全部 100% 通过；
+  - 生产打包：`npm run build:local-ktv` 与 `node scripts/build-ktv-server.js` 顺利完成，确认 9 张静态头像全部打入 `dist/artist-portraits/`；
+  - 软路由部署：将 `dist.tar.gz` 同步至软路由 `/mnt/mmc1-4/lumasing/`，解压覆盖后重启 `lumasing-ktv-1` 与 `lumasing-web-1` 容器。
+- ego-browser 端到端全量实机验收（`scripts/verify-artist-search-ego.mjs`）：
+  - 用例 1（主搜索包含本地歌曲）：搜索“晴天”，返回 16 条结果，首条为本地歌曲《晴天》（周杰伦 · 周杰伦，本地歌曲 · 其他版本 · 0:00 · 可播放），精准置顶并展示本地封面；
+  - 用例 2（歌手界面布局与 9 位歌手）：验证 `.artist-search-bar` 严格位于 `.featured-artist-list` 之上；9 位歌手（包括张杰、黄霄雲、许嵩）全量渲染且全部加载本地 `/artist-portraits/*.jpg` 静态图片；
+  - 用例 3（歌手详情页本地歌曲置顶）：点击常用歌手“周杰伦”，列表前 13 首歌曲全部为本地曲目（《一路向北》、《七里香》、《以父之名》、《反方向的钟》等），全部带有“本地歌曲”标识；
+  - 用例 4（歌手搜索独立按钮防抖）：输入“许嵩”不自动请求，点击歌手搜索按钮后顺利拉取并展示 12 个关联歌手候选卡片；
+  - 验收结论：4 个测试用例全部一次性无错误通过，浏览器任务空间已通过 `await task.finish({ keep: [] })` 干净清理。
+
+---
+
+## 12. 常用歌手卡片紧凑化重构与歌手/歌曲数量机理解答 (2026-11-02 01:10 实机通过)
+- 常用歌手卡片样式紧凑化重构（对齐搜索结果歌手框）：
+  1. HTML 结构改造（`src/remote/main.js`）：
+     - 将 `.featured-artist-card` 内文字提取并包裹进 `<span><strong>${artist.name}</strong><small>热门歌曲</small></span>`，与下方的 `.artist-chip` 统一 DOM 结构。
+  2. CSS 布局与高度重构（`src/remote/styles.css`）：
+     - 布局模式：由原先的纵向居中网格（上大图下文字）改为水平 Flex 布局（左侧头像、右侧歌手名与副标题）；
+     - 头像尺寸：从 74px x 74px 调整为 40px x 40px 圆形头像；
+     - 整体高度：从 ~130px 骤降至 57px（精确缩小约 56%，完美达成用户“高度缩小40%”的要求）；
+     - 网格列数：统一为 3 列自适应对齐，9 位常用歌手占 3 行，与下方搜索结果视觉和谐统一；
+     - 移动端适配：清理 720px 媒体查询中的大头像覆盖，保持全平台紧凑一致。
+- 编译、构建与部署：
+  - Prettier 与 ESLint 静态代码检查通过，0 error 0 warning；
+  - 执行 `$env:NODE_OPTIONS='--openssl-legacy-provider'; npm run build:local-ktv; node scripts/build-ktv-server.js` 重新构建；
+  - 将 `dist.tar.gz` 同步到软路由 `/mnt/mmc1-4/lumasing/`，解压并重启 `lumasing-ktv-1` 与 `lumasing-web-1`。
+- ego-browser 端到端实机自动化验收（`scripts/verify-artist-search-ego.mjs`）：
+  - 常用歌手卡片高度实测：平均 57.14px（相比原版 ~130px 缩减达 56%）；
+  - 常用歌手布局实测：Computed Style 显示 `display: flex; flex-direction: row;`（左图右文横向排列）；
+  - 9 位常用歌手全部加载本地 `/artist-portraits/*.jpg` 静态头像；
+  - 4 项自动化验收测试 100% 通过。
+- 两个数量疑问的精准代码根因剖析：
+  1. 为什么搜索一个歌手会出现 12 个：
+     - 在 `src/electron/ipcRenderer.js`（第 588-597 行）：`search({ keywords, limit: 12, type: 100 })` 和 `artists.slice(0, 12)`。设计初衷是为了在前端 3 列网格（4 行）或 4 列网格（3 行）中整齐排满，不留空位。
+  2. 为什么歌手的歌曲最多只展示 30 首：
+     - 根因一：网易云上游未登录基础接口 `/artists?id=...` 返回的热歌上限为 50 首；在经过去重处理（过滤重名版本、合唱重复 trackId）后，常青树歌手去重后通常保留在 30~38 首；
+     - 根因二：全量歌曲（如数百首）需走分页流式接口 `/artist/songs?id=...`，前端按批次（offset 分页）展示，避免在移动端或电视端一次性渲染数百个 DOM 节点造成严重卡顿；当未触发加载更多或在推荐榜单切片中（`tracks.slice(0, 30)`）时，列表默认展示首批精选。
+
