@@ -1,34 +1,26 @@
 /* eslint-disable no-console */
 
-import { register } from 'register-service-worker';
-
-if (!process.env.IS_ELECTRON) {
-  register(`${process.env.BASE_URL}service-worker.js`, {
-    ready() {
-      // console.log(
-      //   "App is being served from cache by a service worker.\n" +
-      //     "For more details, visit https://goo.gl/AFskqB"
-      // );
-    },
-    registered() {
-      // console.log("Service worker has been registered.");
-    },
-    cached() {
-      // console.log("Content has been cached for offline use.");
-    },
-    updatefound() {
-      // console.log("New content is downloading.");
-    },
-    updated() {
-      // console.log("New content is available; please refresh.");
-    },
-    offline() {
-      // console.log(
-      //   "No internet connection found. App is running in offline mode."
-      // );
-    },
-    error(error) {
-      console.error('Error during service worker registration:', error);
-    },
-  });
+if (
+  !process.env.IS_ELECTRON &&
+  typeof window !== 'undefined' &&
+  'serviceWorker' in navigator
+) {
+  navigator.serviceWorker
+    .getRegistrations()
+    .then(registrations => {
+      registrations.forEach(registration => {
+        registration.unregister().catch(() => {});
+      });
+    })
+    .catch(() => {});
+  if ('caches' in window) {
+    window.caches
+      .keys()
+      .then(keys => {
+        keys.forEach(key => {
+          window.caches.delete(key).catch(() => {});
+        });
+      })
+      .catch(() => {});
+  }
 }

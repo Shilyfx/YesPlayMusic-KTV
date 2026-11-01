@@ -405,6 +405,9 @@ button.request-ack {
     transform: translateY(0);
   }
 }
+.featured-artist-list[hidden] {
+  display: none;
+}
 .featured-artist-list {
   display: grid;
   grid-template-columns: repeat(3, minmax(0, 1fr));

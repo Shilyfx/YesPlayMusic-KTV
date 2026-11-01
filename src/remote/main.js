@@ -631,6 +631,9 @@ function initializeShell() {
   };
   artistSearchInput?.addEventListener('input', event => {
     artistQuery = event.target.value;
+    if (!artistQuery.trim() && artists.length) {
+      scheduleArtistSearch('');
+    }
   });
   artistSearchInput?.addEventListener('keydown', event => {
     if (event.key === 'Enter') {
@@ -1267,6 +1270,11 @@ function renderArtists() {
 function renderFeaturedArtists({ loading = false } = {}) {
   const container = app.querySelector('[data-featured-artists]');
   if (!container) return;
+  if (artists.length > 0) {
+    container.hidden = true;
+    return;
+  }
+  container.hidden = false;
   if (loading) {
     container.innerHTML = '<div class="hint">正在加载常用歌手…</div>';
     return;
@@ -1901,6 +1909,7 @@ function scheduleArtistSearch(query) {
       if (generation !== artistSearchGeneration || clean !== artistQuery.trim())
         return;
       artists = response.artists || [];
+      renderFeaturedArtists();
       renderArtists();
     } catch (error) {
       if (
@@ -1908,6 +1917,7 @@ function scheduleArtistSearch(query) {
         generation === artistSearchGeneration
       ) {
         artists = [];
+        renderFeaturedArtists();
         renderArtists();
         setNotice('歌手搜索暂时不可用，请稍后重试。', 'error');
       }

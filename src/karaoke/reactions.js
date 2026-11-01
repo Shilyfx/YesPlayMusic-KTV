@@ -1,4 +1,4 @@
-export const REACTION_UI_REVISION = 'centered-effects-v7';
+export const REACTION_UI_REVISION = 'centered-effects-v8';
 export const reactionChoices = [
   {
     kind: 'applause',

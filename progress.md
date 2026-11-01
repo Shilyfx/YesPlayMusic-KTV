@@ -307,3 +307,38 @@
      - 根因一：网易云上游未登录基础接口 `/artists?id=...` 返回的热歌上限为 50 首；在经过去重处理（过滤重名版本、合唱重复 trackId）后，常青树歌手去重后通常保留在 30~38 首；
      - 根因二：全量歌曲（如数百首）需走分页流式接口 `/artist/songs?id=...`，前端按批次（offset 分页）展示，避免在移动端或电视端一次性渲染数百个 DOM 节点造成严重卡顿；当未触发加载更多或在推荐榜单切片中（`tracks.slice(0, 30)`）时，列表默认展示首批精选。
 
+---
+
+## 13. 歌手搜索后隐藏默认歌手及歌手/歌单“加载更多”分页全面修复 (2026-11-02 01:50 实机通过)
+- 用户反馈问题清单：
+  1. 歌手搜索成功后，默认展示的 9 位常用歌手不应该继续显示；
+  2. 在歌手搜索后的歌曲显示列表底部，没有看到“加载更多”按钮（且歌曲最多只显示了 30 首）；
+  3. “我的歌单”虽然有“加载更多”按钮，但点击后没有任何反应。
+- 深度根因诊断（问题 2 与问题 3 的共同真实根因）：
+  - 在软路由实机在线排查后确认：上游网易云 API 容器（`lumasing-lumasing-api-1`）的 `/artist/songs?id=6452&offset=0&limit=100`（共 587 首）和 `/playlist/detail?id=2257870572`（共 671 首）均完全正常；
+  - 真正导致问题 2 和问题 3 的原因是：**主屏浏览器页面（`/karaoke`）被旧版 Workbox Service Worker 缓存锁死在了分页功能上线前的旧版 JS bundle（`index.876a7186.js`）**。
+    - 当手机点歌端请求 `/ktv/api/artists/:id/tracks?offset=0&limit=100` 或 `/ktv/api/playlists/:id/tracks?offset=100&limit=100` 时，服务端通过 `hostCatalogBridge` 将分页参数 `{ offset, limit }` 转发给主屏浏览器执行；
+    - 旧版主屏 `index.876a7186.js` 尚未实现分页逻辑：
+      1. 对于歌手歌曲 (`artistTracks`)：旧版主屏忽略 `offset/limit`，直接调用 `/artists?id=...` 并固定截取返回 30 首歌的纯数组。服务端 `catalogPageFallback` 看到返回长度 30 < 100，判定 `hasMore: false`，因此点歌端只显示 30 首且隐藏了“加载更多”按钮；
+      2. 对于用户歌单 (`playlistTracks`)：旧版主屏忽略 `offset/limit`，固定调用 `resolvePlaylistCatalogTracks(playlistId, 100)`，无论请求第几页永远只返回前 100 首。第 1 页返回 100 首使 `hasMore: true`（显示了“加载更多”按钮），但点击“加载更多”请求 `offset=100` 时，旧版主屏再次把前 100 首原样返回，点歌端去重（`previousIds`）后新增歌曲为 0 首，导致点击“加载更多”没有任何反应！
+- 代码修复方案与改造清单：
+  1. 歌手搜索成功后自动隐藏默认常用歌手（`src/remote/main.js`、`src/remote/styles.css`）：
+     - 在 `src/remote/styles.css` 中增加 `.featured-artist-list[hidden] { display: none; }`（防止 `.featured-artist-list` 的 `display: grid` 覆盖 HTML `hidden` 属性）；
+     - 在 `src/remote/main.js` 的 `renderFeaturedArtists()` 中：当搜索结果 `artists.length > 0` 时设置 `container.hidden = true` 隐藏常用歌手；当 `artists.length === 0` 时恢复 `container.hidden = false`；
+     - 在 `scheduleArtistSearch()` 搜索完成回调中同步调用 `renderFeaturedArtists()`，并在搜索框 `input` 事件被清空时自动重置恢复默认歌手显示。
+  2. 彻底清除旧版 Service Worker 缓存锁死并强制校验主屏版本（`src/registerServiceWorker.js`、`scripts/isolate-remote-assets.js`、`src/karaoke/reactions.js`）：
+     - 将 `src/registerServiceWorker.js` 改造为主动注销所有已注册 Service Worker 并清理 `window.caches` 缓存；
+     - 在 `scripts/isolate-remote-assets.js` 中，将构建产物 `dist/service-worker.js` 生成为零外部依赖（不依赖 Google CDN）的自毁型 Service Worker（安装后立即 `skipWaiting`、清空全部 Cache Storage、自我注销并自动刷新客户端页面）；
+     - 将 `src/karaoke/reactions.js` 中的 `REACTION_UI_REVISION` 从 `'centered-effects-v7'` 升级为 `'centered-effects-v8'`，确保任何未刷新的旧版主屏页面在连接房间时被服务端直接拦截提示刷新，杜绝新旧代码混跑。
+- 构建与软路由干净部署：
+  - Prettier、ESLint 及 5 套核心单元/集成测试（`test-artist-catalog.js`, `test-playlist-catalog-pagination.js`, `test-karaoke-remote-api.js`, `test-karaoke-reactions.js`, `test-karaoke-web-bridge.js`）全部通过；
+  - 执行 `npm run build:local-ktv` 与 `node scripts/build-ktv-server.js` 构建；
+  - 清空软路由 `/mnt/mmc1-4/lumasing/dist/*` 所有历史旧 hash 残留文件，解压最新产物，并通过 `docker compose up -d --force-recreate ktv web` 刷新容器文件挂载（确认 `/ktv/health` 返回 `uiRevision: "centered-effects-v8"`）。
+- ego-browser 端到端实机验证结果（`scripts/verify-artist-search-ego.mjs`）：
+  1. 歌手搜索后隐藏默认歌手：搜索“汪苏泷”返回 12 个歌手芯片后，`[data-featured-artists]` 的 `hidden === true` 且 `display === "none"`；清空搜索框后默认 9 位歌手立即恢复 `display === "grid"`；
+  2. 歌手歌曲分页与“加载更多”按钮：
+     - 点击常用歌手“周杰伦”：首屏加载 113 首（13 首本地歌曲 + 100 首在线歌曲），底部清晰显示 `已显示 100 / 587 首。` 与“加载更多”按钮；点击“加载更多”后列表增长至 213 首（`已显示 200 / 587 首。`）；
+     - 点击搜索结果歌手“汪苏泷”：首屏加载 100 首，底部清晰显示 `已显示 100 / 725 首。` 与“加载更多”按钮；
+  3. 歌单歌曲“加载更多”按钮：选择多页大歌单（671 首），首屏显示 100 首（`已显示 100 / 671 首。`），点击“加载更多”按钮后列表立即追加第 2 页至 200 首（`已显示 200 / 671 首。`）。
+
+
