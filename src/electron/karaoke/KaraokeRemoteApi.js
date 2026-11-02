@@ -11,7 +11,50 @@ const MAX_CATALOG_CACHE_ENTRIES = 128;
 const MAX_TRACK_CACHE_ENTRIES = 4096;
 const MAX_AVAILABILITY_CACHE_ENTRIES = 4096;
 const CACHE_EXPIRY_SWEEP_INTERVAL = 30 * 1000;
+const DEFAULT_CATALOG_PAGE_SIZE = 100;
+const MAX_CATALOG_PAGE_SIZE = 100;
 const cacheSweepTimes = new WeakMap();
+
+function hasCatalogPageOptions(options) {
+  return (
+    options &&
+    (Object.prototype.hasOwnProperty.call(options, 'offset') ||
+      Object.prototype.hasOwnProperty.call(options, 'limit'))
+  );
+}
+
+function catalogPageFallback(source, offset, limit, mapTracks) {
+  if (source && !Array.isArray(source) && Array.isArray(source.tracks)) {
+    const tracks = mapTracks(source.tracks);
+    return {
+      ...source,
+      tracks,
+      offset: Number.isSafeInteger(source.offset) ? source.offset : offset,
+      nextOffset: Number.isSafeInteger(source.nextOffset)
+        ? source.nextOffset
+        : offset + tracks.length,
+      requestedCount: Number.isSafeInteger(source.requestedCount)
+        ? source.requestedCount
+        : tracks.length,
+      unavailableCount: Number.isSafeInteger(source.unavailableCount)
+        ? source.unavailableCount
+        : 0,
+      hasMore:
+        typeof source.hasMore === 'boolean'
+          ? source.hasMore
+          : tracks.length >= limit,
+    };
+  }
+  const tracks = mapTracks(Array.isArray(source) ? source : []);
+  return {
+    tracks,
+    offset,
+    nextOffset: offset + tracks.length,
+    requestedCount: tracks.length,
+    unavailableCount: 0,
+    hasMore: tracks.length >= limit,
+  };
+}
 
 function pruneExpiredCache(cache, now, force = false) {
   const lastSweep = cacheSweepTimes.get(cache);
@@ -284,12 +327,25 @@ export class KaraokeCatalogService {
   async artistTracks(artistId) {
     if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
     const id = String(artistId);
-    return this.cachedCatalog(`artistTracks:${id}`, async generation => {
-      const tracks = await this.hostCatalogBridge('artistTracks', {
-        artistId: id,
-      });
-      return this.cacheTracks(tracks, generation);
+    const generation = this.catalogGeneration;
+    const tracks = await this.hostCatalogBridge('artistTracks', {
+      artistId: id,
     });
+    return this.cacheTracks(tracks, generation);
+  }
+
+  async artistTracksPage(artistId, { offset, limit }) {
+    if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    const id = String(artistId);
+    const generation = this.catalogGeneration;
+    const source = await this.hostCatalogBridge('artistTracks', {
+      artistId: id,
+      offset,
+      limit,
+    });
+    return catalogPageFallback(source, offset, limit, tracks =>
+      this.cacheTracks(tracks, generation)
+    );
   }
 
   async getTrack(trackId) {
@@ -325,8 +381,45 @@ export class KaraokeCatalogService {
     });
   }
 
-  async playlists({ force = false } = {}) {
+  async playlists({ force = false, offset, limit } = {}) {
     if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
+    if (Number.isSafeInteger(offset) || Number.isSafeInteger(limit)) {
+      const pageOffset = Number.isSafeInteger(offset) ? offset : 0;
+      const pageLimit = Number.isSafeInteger(limit)
+        ? limit
+        : DEFAULT_CATALOG_PAGE_SIZE;
+      const source = await this.hostCatalogBridge('playlists', {
+        force,
+        offset: pageOffset,
+        limit: pageLimit,
+      });
+      if (source && !Array.isArray(source) && Array.isArray(source.playlists)) {
+        return {
+          ...source,
+          playlists: source.playlists,
+          offset: Number.isSafeInteger(source.offset)
+            ? source.offset
+            : pageOffset,
+          nextOffset: Number.isSafeInteger(source.nextOffset)
+            ? source.nextOffset
+            : pageOffset + source.playlists.length,
+          total: Number.isSafeInteger(source.total) ? source.total : undefined,
+          hasMore:
+            typeof source.hasMore === 'boolean'
+              ? source.hasMore
+              : source.playlists.length >= pageLimit,
+        };
+      }
+      const playlists = Array.isArray(source) ? source : [];
+      const page = playlists.slice(pageOffset, pageOffset + pageLimit);
+      return {
+        playlists: page,
+        offset: pageOffset,
+        nextOffset: pageOffset + page.length,
+        total: playlists.length,
+        hasMore: pageOffset + page.length < playlists.length,
+      };
+    }
     if (force) {
       for (const key of this.catalogCache.keys()) {
         if (key.startsWith('playlistTracks:')) this.catalogCache.delete(key);
@@ -443,18 +536,21 @@ export class KaraokeCatalogService {
     );
   }
 
-  async playlistTracks(playlistId) {
+  async playlistTracks(playlistId, options = null) {
     if (!this.hostCatalogBridge) throw new Error('HOST_NOT_LOGGED_IN');
     const id = String(playlistId);
-    return this.cachedCatalog(
-      `playlistTracks:${id}`,
-      async generation => {
-        const source = await this.hostCatalogBridge('playlistTracks', {
-          playlistId: id,
-        });
-        return this.cacheTracks(source, generation);
-      },
-      { ttl: 60 * 1000 }
+    const generation = this.catalogGeneration;
+    const pageRequested = hasCatalogPageOptions(options);
+    const source = await this.hostCatalogBridge('playlistTracks', {
+      playlistId: id,
+      ...(pageRequested ? options : {}),
+    });
+    if (!pageRequested) return this.cacheTracks(source, generation);
+    return catalogPageFallback(
+      source,
+      options.offset || 0,
+      options.limit || 100,
+      tracks => this.cacheTracks(tracks, generation)
     );
   }
 
@@ -568,14 +664,19 @@ export class RemoteClientSessionStore {
 
   create(joinToken) {
     this.purgeExpired();
-    const received = Buffer.from(joinToken || '');
-    const expected = this.room && Buffer.from(this.room.joinToken);
-    if (
-      !this.room ||
-      received.length !== expected.length ||
-      !crypto.timingSafeEqual(received, expected)
-    ) {
-      throw new Error('INVALID_JOIN_TOKEN');
+    if (!this.room) {
+      throw new Error('ROOM_ENDED');
+    }
+    if (joinToken) {
+      const received = Buffer.from(joinToken);
+      const expected = Buffer.from(this.room.joinToken || '');
+      if (
+        expected.length > 0 &&
+        (received.length !== expected.length ||
+          !crypto.timingSafeEqual(received, expected))
+      ) {
+        throw new Error('INVALID_JOIN_TOKEN');
+      }
     }
     const id = clientId();
     const session = {
@@ -759,10 +860,11 @@ export class KaraokeRemoteService {
   }
 
   async playlists(client, options = {}) {
-    if (!this.limiter.check(`playlists:${client.clientId}`, 12))
-      throw new Error('RATE_LIMIT');
+    const clientKey = `playlists:${client.clientId}`;
+    if (!this.limiter.check(clientKey, 12))
+      throw rateLimitError(this.limiter.retryAfterMs(clientKey));
     if (!this.limiter.check('playlists:room', 48))
-      throw new Error('RATE_LIMIT');
+      throw rateLimitError(this.limiter.retryAfterMs('playlists:room'));
     return this.catalog.playlists(options);
   }
 
@@ -827,23 +929,40 @@ export class KaraokeRemoteService {
   }
 
   async artistTracks(client, artistId) {
-    if (!this.limiter.check(`artistTracks:${client.clientId}`, 20))
-      throw new Error('RATE_LIMIT');
+    const clientKey = `artistTracks:${client.clientId}`;
+    if (!this.limiter.check(clientKey, 20))
+      throw rateLimitError(this.limiter.retryAfterMs(clientKey));
     if (!this.limiter.check('artistTracks:room', 120))
-      throw new Error('RATE_LIMIT');
+      throw rateLimitError(this.limiter.retryAfterMs('artistTracks:room'));
     if (!/^\d{1,20}$/.test(String(artistId)))
       throw new Error('ARTIST_NOT_FOUND');
     return this.withAvailability(await this.catalog.artistTracks(artistId));
   }
 
-  async playlistTracks(client, playlistId) {
-    if (!this.limiter.check(`playlistTracks:${client.clientId}`, 20))
-      throw new Error('RATE_LIMIT');
+  async artistTracksPage(client, artistId, pageOptions) {
+    const clientKey = `artistTracks:${client.clientId}`;
+    if (!this.limiter.check(clientKey, 20))
+      throw rateLimitError(this.limiter.retryAfterMs(clientKey));
+    if (!this.limiter.check('artistTracks:room', 120))
+      throw rateLimitError(this.limiter.retryAfterMs('artistTracks:room'));
+    if (!/^\d{1,20}$/.test(String(artistId)))
+      throw new Error('ARTIST_NOT_FOUND');
+    const page = await this.catalog.artistTracksPage(artistId, pageOptions);
+    return { ...page, tracks: await this.withAvailability(page.tracks) };
+  }
+
+  async playlistTracks(client, playlistId, pageOptions = null) {
+    const clientKey = `playlistTracks:${client.clientId}`;
+    if (!this.limiter.check(clientKey, 20))
+      throw rateLimitError(this.limiter.retryAfterMs(clientKey));
     if (!this.limiter.check('playlistTracks:room', 120))
-      throw new Error('RATE_LIMIT');
+      throw rateLimitError(this.limiter.retryAfterMs('playlistTracks:room'));
     if (!/^\d{1,20}$/.test(String(playlistId)))
       throw new Error('PLAYLIST_NOT_FOUND');
-    return this.withAvailability(await this.catalog.playlistTracks(playlistId));
+    const tracks = await this.catalog.playlistTracks(playlistId, pageOptions);
+    return Array.isArray(tracks)
+      ? await this.withAvailability(tracks)
+      : { ...tracks, tracks: await this.withAvailability(tracks.tracks) };
   }
 
   async availability(client, trackId) {
@@ -972,6 +1091,35 @@ function rateLimitError(retryAfterMs) {
   return exception;
 }
 
+function parseCatalogPageRequest(url) {
+  const hasOffset = url.searchParams.has('offset');
+  const hasLimit = url.searchParams.has('limit');
+  if (!hasOffset && !hasLimit)
+    return { valid: true, paginated: false, options: null };
+
+  const parseInteger = (value, fallback) => {
+    if (value == null) return fallback;
+    if (!/^\d+$/.test(value)) return null;
+    const number = Number(value);
+    return Number.isSafeInteger(number) ? number : null;
+  };
+  const offset = parseInteger(url.searchParams.get('offset'), 0);
+  const limit = parseInteger(
+    url.searchParams.get('limit'),
+    DEFAULT_CATALOG_PAGE_SIZE
+  );
+  if (
+    offset == null ||
+    limit == null ||
+    limit < 1 ||
+    limit > MAX_CATALOG_PAGE_SIZE ||
+    offset + limit > Number.MAX_SAFE_INTEGER
+  ) {
+    return { valid: false, paginated: true, options: null };
+  }
+  return { valid: true, paginated: true, options: { offset, limit } };
+}
+
 export class RemoteApiRouter {
   constructor(service) {
     this.service = service;
@@ -1007,11 +1155,31 @@ export class RemoteApiRouter {
         });
       }
       if (url.pathname === '/ktv/api/playlists' && request.method === 'GET') {
-        return json(response, 200, {
-          playlists: await this.service.playlists(client, {
-            force: url.searchParams.get('force') === '1',
-          }),
+        const pageRequest = parseCatalogPageRequest(url);
+        if (!pageRequest.valid)
+          return error(response, 400, 'INVALID_PAGINATION');
+        const result = await this.service.playlists(client, {
+          force: url.searchParams.get('force') === '1',
+          ...(pageRequest.options || {}),
         });
+        if (!pageRequest.paginated)
+          return json(response, 200, {
+            playlists: Array.isArray(result) ? result : result.playlists || [],
+          });
+        if (Array.isArray(result)) {
+          const page = result.slice(
+            pageRequest.options.offset,
+            pageRequest.options.offset + pageRequest.options.limit
+          );
+          return json(response, 200, {
+            playlists: page,
+            offset: pageRequest.options.offset,
+            nextOffset: pageRequest.options.offset + page.length,
+            total: result.length,
+            hasMore: pageRequest.options.offset + page.length < result.length,
+          });
+        }
+        return json(response, 200, result);
       }
       if (
         url.pathname === '/ktv/api/local-playlists' &&
@@ -1068,17 +1236,47 @@ export class RemoteApiRouter {
         /^\/ktv\/api\/artists\/(\d{1,20})\/tracks$/
       );
       if (artistTracks && request.method === 'GET') {
-        return json(response, 200, {
-          tracks: await this.service.artistTracks(client, artistTracks[1]),
-        });
+        const pageRequest = parseCatalogPageRequest(url);
+        if (!pageRequest.valid)
+          return error(response, 400, 'INVALID_PAGINATION');
+        if (!pageRequest.paginated)
+          return json(response, 200, {
+            tracks: await this.service.artistTracks(client, artistTracks[1]),
+          });
+        return json(
+          response,
+          200,
+          await this.service.artistTracksPage(
+            client,
+            artistTracks[1],
+            pageRequest.options
+          )
+        );
       }
       const playlistTracks = url.pathname.match(
         /^\/ktv\/api\/playlists\/(\d{1,20})\/tracks$/
       );
       if (playlistTracks && request.method === 'GET') {
-        return json(response, 200, {
-          tracks: await this.service.playlistTracks(client, playlistTracks[1]),
-        });
+        const pageRequest = parseCatalogPageRequest(url);
+        if (!pageRequest.valid)
+          return error(response, 400, 'INVALID_PAGINATION');
+        if (!pageRequest.paginated)
+          return json(response, 200, {
+            tracks: await this.service.playlistTracks(
+              client,
+              playlistTracks[1]
+            ),
+          });
+        const page = await this.service.playlistTracks(
+          client,
+          playlistTracks[1],
+          pageRequest.options
+        );
+        return json(
+          response,
+          200,
+          Array.isArray(page) ? { tracks: page } : page
+        );
       }
       const availability = url.pathname.match(
         /^\/ktv\/api\/track\/((?:\d{1,20}|local-[a-f0-9]{16}))\/availability$/i
@@ -1155,7 +1353,17 @@ export class RemoteApiRouter {
         WAITING_ITEM_NOT_FOUND: [404, 'WAITING_ITEM_NOT_FOUND'],
         BODY_TOO_LARGE: [413, 'BODY_TOO_LARGE'],
         INVALID_JSON: [400, 'INVALID_JSON'],
+        INVALID_PAGINATION: [400, 'INVALID_PAGINATION'],
       };
+      // 上游（网易云）风控经主屏桥接后只剩消息文本，这里还原为 429 + 等待时间，
+      // 让点歌端走“稍后自动更新”的退避路径，而不是笼统的 502。
+      const upstreamLimit = /^UPSTREAM_RATE_LIMIT(?::(\d+))?$/.exec(
+        exception.message || ''
+      );
+      if (upstreamLimit) {
+        exception.message = 'RATE_LIMIT';
+        exception.retryAfterMs = Number(upstreamLimit[1]) || 6000;
+      }
       const [status, message] = messages[exception.message] || [
         502,
         'REMOTE_UNAVAILABLE',

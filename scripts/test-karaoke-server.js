@@ -100,7 +100,8 @@ async function run() {
   assert.equal(room.name, 'LumaSing KTV');
   const roomUrl = new URL(room.url);
   assert.equal(roomUrl.hostname, '192.168.8.20');
-  const roomToken = roomUrl.hash.slice('#token='.length);
+  assert.equal(roomUrl.pathname, '/room/');
+  const roomToken = server.room.token;
   assert.match(roomToken, /^[A-Za-z0-9_-]{40,}$/);
   const localAudioPath = path.join(remoteDistPath, 'local-test.mp3');
   const localCoverPath = path.join(remoteDistPath, 'local-test.jpg');
@@ -208,11 +209,17 @@ async function run() {
   await assert.rejects(() => request(serverPort, roomUrl.pathname));
   assert.equal(await server.describeRoom(), null);
 
-  const restarted = await server.startRoom({ sessionId: 'session-test-2' });
-  assert.notEqual(restarted.url, room.url);
-  assert.equal((await request(serverPort, roomUrl.pathname)).status, 404);
+  const restarted = await server.startRoom({
+    sessionId: 'session-test-2',
+    lanAddress: '192.168.8.20',
+  });
+  assert.equal(restarted.url, room.url);
   assert.equal(
-    (await request(serverPort, new URL(restarted.url).pathname)).status,
+    (await request(serverPort, '/room/')).status,
+    200
+  );
+  assert.equal(
+    (await request(serverPort, '/room')).status,
     200
   );
   await server.stopRoom();

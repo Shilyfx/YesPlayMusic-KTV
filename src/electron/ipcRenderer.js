@@ -55,6 +55,173 @@ function safeArtist(artist) {
 }
 
 const userPlaylistCache = createUserPlaylistCache();
+const HOST_CATALOG_PAGE_SIZE = 100;
+const HOST_CATALOG_PAGE_MAX_BYTES = 512 * 1024;
+const HOST_CATALOG_PAGE_TTL = 45 * 1000;
+const MAX_HOST_CATALOG_PAGE_CACHE_ENTRIES = 256;
+const MAX_USER_PLAYLIST_ALLOWLIST_IDS =
+  HOST_CATALOG_PAGE_SIZE * MAX_HOST_CATALOG_PAGE_CACHE_ENTRIES;
+const hostCatalogPageCache = new Map();
+const userPlaylistAllowlistById = new Map();
+const artistCatalogPageSignatures = new Map();
+
+function hasCatalogPageRequest(payload = {}) {
+  return (
+    Object.prototype.hasOwnProperty.call(payload, 'offset') ||
+    Object.prototype.hasOwnProperty.call(payload, 'limit')
+  );
+}
+
+function catalogPageOptions(payload = {}) {
+  const offset = Number(payload.offset ?? 0);
+  const limit = Number(payload.limit ?? HOST_CATALOG_PAGE_SIZE);
+  if (
+    !Number.isSafeInteger(offset) ||
+    offset < 0 ||
+    !Number.isSafeInteger(limit) ||
+    limit < 1 ||
+    limit > HOST_CATALOG_PAGE_SIZE ||
+    offset + limit > Number.MAX_SAFE_INTEGER
+  ) {
+    throw new Error('INVALID_PAGINATION');
+  }
+  return { offset, limit };
+}
+
+function trimHostCatalogPageCache() {
+  while (hostCatalogPageCache.size > MAX_HOST_CATALOG_PAGE_CACHE_ENTRIES)
+    hostCatalogPageCache.delete(hostCatalogPageCache.keys().next().value);
+}
+
+function cachedHostCatalogPage(key, fetchPage) {
+  const cached = hostCatalogPageCache.get(key);
+  if (cached?.promise) return cached.promise;
+  if (cached && cached.expiresAt > Date.now()) {
+    hostCatalogPageCache.delete(key);
+    hostCatalogPageCache.set(key, cached);
+    return Promise.resolve(cached.value);
+  }
+  if (cached) hostCatalogPageCache.delete(key);
+
+  const entry = { promise: null, expiresAt: 0 };
+  const request = Promise.resolve().then(fetchPage);
+  entry.promise = request;
+  hostCatalogPageCache.set(key, entry);
+  return request.then(
+    value => {
+      if (hostCatalogPageCache.get(key) === entry) {
+        hostCatalogPageCache.set(key, {
+          value,
+          expiresAt: Date.now() + HOST_CATALOG_PAGE_TTL,
+        });
+        trimHostCatalogPageCache();
+      }
+      return value;
+    },
+    error => {
+      if (hostCatalogPageCache.get(key) === entry)
+        hostCatalogPageCache.delete(key);
+      throw error;
+    }
+  );
+}
+
+function clearUserPlaylistPageCache(userId) {
+  const userPrefix = `${String(userId)}:userPlaylists:`;
+  const trackPrefix = `${String(userId)}:playlist:`;
+  for (const key of hostCatalogPageCache.keys()) {
+    if (key.startsWith(userPrefix) || key.startsWith(trackPrefix))
+      hostCatalogPageCache.delete(key);
+  }
+  userPlaylistAllowlistById.delete(String(userId));
+}
+
+function rememberUserPlaylistIds(userId, playlists, offset) {
+  const key = String(userId);
+  let entry = userPlaylistAllowlistById.get(key);
+  if (!entry) {
+    entry = { ids: new Map(), pageSignatures: new Map() };
+    userPlaylistAllowlistById.set(key, entry);
+  }
+  const expiresAt = Date.now() + HOST_CATALOG_PAGE_TTL;
+  (playlists || []).forEach(playlist => {
+    const id = String(playlist?.id || '');
+    if (!/^\d{1,20}$/.test(id)) return;
+    if (!entry.ids.has(id) && entry.ids.size >= MAX_USER_PLAYLIST_ALLOWLIST_IDS)
+      entry.ids.delete(entry.ids.values().next().value);
+    entry.ids.delete(id);
+    entry.ids.set(id, { offset, expiresAt });
+  });
+  if (Number.isSafeInteger(offset)) {
+    const signature = (playlists || [])
+      .map(playlist => String(playlist?.id || ''))
+      .join(',');
+    entry.pageSignatures.set(offset, { signature, expiresAt });
+    while (entry.pageSignatures.size > MAX_HOST_CATALOG_PAGE_CACHE_ENTRIES)
+      entry.pageSignatures.delete(entry.pageSignatures.keys().next().value);
+  }
+  return entry;
+}
+
+function getUserPlaylistIdRecord(userId, playlistId) {
+  const key = String(userId);
+  const entry = userPlaylistAllowlistById.get(key);
+  return entry?.ids.get(String(playlistId)) || null;
+}
+
+function userPlaylistIdIsAllowed(userId, playlistId) {
+  const record = getUserPlaylistIdRecord(userId, playlistId);
+  return Boolean(record && record.expiresAt > Date.now());
+}
+
+function pageSignatureSeenAtAnotherOffset(userId, offset, page) {
+  const entry = userPlaylistAllowlistById.get(String(userId));
+  if (!entry) return false;
+  const now = Date.now();
+  const signature = page.map(playlist => String(playlist?.id || '')).join(',');
+  for (const [knownOffset, record] of entry.pageSignatures) {
+    if (record.expiresAt <= now) {
+      entry.pageSignatures.delete(knownOffset);
+      continue;
+    }
+    if (knownOffset !== offset && record.signature === signature) return true;
+  }
+  return false;
+}
+
+function assertArtistCatalogPageProgress(userId, artistId, page) {
+  const key = `${String(userId)}:${String(artistId)}`;
+  let signatures = artistCatalogPageSignatures.get(key);
+  if (!signatures) {
+    signatures = new Map();
+    artistCatalogPageSignatures.set(key, signatures);
+  }
+  const now = Date.now();
+  const signature = [
+    page.requestedCount,
+    page.unavailableCount,
+    page.tracks.map(track => String(track.id)).join(','),
+  ].join(':');
+  for (const [offset, record] of signatures) {
+    if (record.expiresAt <= now) {
+      signatures.delete(offset);
+      continue;
+    }
+    if (offset !== page.offset && record.signature === signature)
+      throw new Error('ARTIST_PAGINATION_STALLED');
+  }
+  signatures.delete(page.offset);
+  signatures.set(page.offset, {
+    signature,
+    expiresAt: now + HOST_CATALOG_PAGE_TTL,
+  });
+  while (signatures.size > MAX_HOST_CATALOG_PAGE_CACHE_ENTRIES)
+    signatures.delete(signatures.keys().next().value);
+  if (artistCatalogPageSignatures.size > MAX_HOST_CATALOG_PAGE_CACHE_ENTRIES)
+    artistCatalogPageSignatures.delete(
+      artistCatalogPageSignatures.keys().next().value
+    );
+}
 
 const FEATURED_ARTIST_FALLBACKS = [
   { id: '6452', name: '周杰伦', coverUrl: '', albumCount: 38, mvCount: 0 },
@@ -65,71 +232,354 @@ const FEATURED_ARTIST_FALLBACKS = [
   { id: '6066', name: '杨宗纬', coverUrl: '', albumCount: 18, mvCount: 0 },
 ];
 
-async function resolvePlaylistCatalogTracks(playlistId, limit = 100) {
+async function resolvePlaylistCatalogPage(playlistId, { offset, limit }) {
   const detail = await getPlaylistDetail(playlistId, false);
-  const trackIds = (detail?.playlist?.trackIds || [])
-    .map(track => String(track.id || track))
-    .filter(trackId => /^\d{1,20}$/.test(trackId));
+  const trackIds = (detail?.playlist?.trackIds || []).map(track =>
+    String(track && typeof track === 'object' ? track.id : track)
+  );
   const initialTracks = Array.isArray(detail?.playlist?.tracks)
     ? detail.playlist.tracks
     : [];
-  const targetCount = Math.min(trackIds.length || initialTracks.length, limit);
-  let tracks = initialTracks;
-  const hasCompleteInitial =
-    initialTracks.length >= targetCount &&
-    initialTracks
-      .slice(0, targetCount)
-      .every(
-        track =>
-          track?.id && track?.name && Array.isArray(track.ar || track.artists)
-      );
-  if (!hasCompleteInitial && trackIds.length) {
-    const data = await getTrackDetail(trackIds.slice(0, limit).join(','));
-    tracks = data?.songs || initialTracks;
-  }
+  const sourceIds = trackIds.length
+    ? trackIds
+    : initialTracks.map(track => String(track?.id || ''));
+  const requestedIds = sourceIds.slice(offset, offset + limit);
+  const detailIds = requestedIds.filter(trackId => /^\d{1,20}$/.test(trackId));
+  const data = detailIds.length
+    ? await getTrackDetail(detailIds.join(','))
+    : { songs: [] };
   const tracksById = new Map(
-    tracks.filter(track => track?.id).map(track => [String(track.id), track])
+    (data?.songs || [])
+      .filter(track => track?.id != null)
+      .map(track => [String(track.id), track])
   );
-  const orderedTracks = (
-    trackIds.length ? trackIds : tracks.map(track => String(track.id))
-  )
-    .map(trackId => tracksById.get(trackId))
-    .filter(Boolean)
-    .slice(0, limit);
-  return orderedTracks.map(safeCatalogTrack);
+  const tracks = [];
+  let consumed = 0;
+  let unavailableCount = 0;
+  let serializedBytes = 2;
+  const encoder = new TextEncoder();
+
+  for (let index = 0; index < requestedIds.length; index += 1) {
+    const trackId = requestedIds[index];
+    const sourceTrack = /^\d{1,20}$/.test(trackId)
+      ? tracksById.get(trackId)
+      : null;
+    if (!sourceTrack) {
+      unavailableCount += 1;
+      consumed = index + 1;
+      continue;
+    }
+    const track = safeCatalogTrack(sourceTrack);
+    const trackBytes = encoder.encode(JSON.stringify(track)).byteLength;
+    const nextBytes = serializedBytes + trackBytes + (tracks.length ? 1 : 0);
+    if (nextBytes > HOST_CATALOG_PAGE_MAX_BYTES) {
+      if (!tracks.length) throw new Error('CATALOG_TRACK_TOO_LARGE');
+      break;
+    }
+    tracks.push(track);
+    serializedBytes = nextBytes;
+    consumed = index + 1;
+  }
+
+  const total = sourceIds.length;
+  const nextOffset = offset + consumed;
+  return {
+    tracks,
+    offset,
+    nextOffset,
+    requestedCount: consumed,
+    unavailableCount,
+    total,
+    hasMore: nextOffset < total,
+  };
+}
+
+async function resolvePlaylistCatalogTracks(playlistId, limit = 100) {
+  const page = await resolvePlaylistCatalogPage(playlistId, {
+    offset: 0,
+    limit: Math.min(limit, HOST_CATALOG_PAGE_SIZE),
+  });
+  return page.tracks;
 }
 
 async function getUserPlaylistAllowlist(store, { force = false } = {}) {
   if (!isAccountLoggedIn()) throw new Error('HOST_NOT_LOGGED_IN');
   const uid = store?.state?.data?.user?.userId;
   if (!uid) throw new Error('HOST_NOT_LOGGED_IN');
-  return userPlaylistCache({
+  const playlists = await userPlaylistCache({
     userId: uid,
     force,
     fetchPlaylists: async () => {
-      const preloaded = store?.state?.liked?.playlists;
-      if (!force && Array.isArray(preloaded) && preloaded.length > 0) {
-        return preloaded.map(safePlaylist);
+      const playlists = [];
+      const seenIDs = new Set();
+      const pageSignatures = new Set();
+      let offset = 0;
+      let hasMore = true;
+
+      while (hasMore) {
+        const data = await userPlaylist({
+          uid,
+          limit: HOST_CATALOG_PAGE_SIZE,
+          offset,
+          timestamp: Date.now(),
+        });
+        if (String(store?.state?.data?.user?.userId || '') !== String(uid))
+          throw new Error('CATALOG_IDENTITY_CHANGED');
+        const page = Array.isArray(data?.playlist) ? data.playlist : [];
+        const signature = page
+          .map(playlist => String(playlist?.id || ''))
+          .join(',');
+        if (page.length && pageSignatures.has(signature))
+          throw new Error('PLAYLIST_PAGINATION_STALLED');
+        if (page.length) pageSignatures.add(signature);
+
+        page.forEach(playlist => {
+          const id = String(playlist?.id || '');
+          if (!/^\d{1,20}$/.test(id) || seenIDs.has(id)) return;
+          seenIDs.add(id);
+          playlists.push(safePlaylist(playlist));
+        });
+
+        offset += page.length;
+        hasMore =
+          data?.more === true ||
+          (data?.more !== false && page.length === HOST_CATALOG_PAGE_SIZE);
+        if (hasMore && !page.length)
+          throw new Error('PLAYLIST_PAGINATION_STALLED');
       }
-      const data = await userPlaylist({
-        uid,
-        limit: 2000,
-        timestamp: Date.now(),
-      });
-      return (data?.playlist || []).map(safePlaylist);
+
+      return playlists;
     },
   });
+  if (String(store?.state?.data?.user?.userId || '') !== String(uid))
+    throw new Error('CATALOG_IDENTITY_CHANGED');
+  rememberUserPlaylistIds(uid, playlists);
+  return playlists;
+}
+
+async function getUserPlaylistCatalogPage(store, { offset, limit }) {
+  if (!isAccountLoggedIn()) throw new Error('HOST_NOT_LOGGED_IN');
+  const uid = store?.state?.data?.user?.userId;
+  if (!uid) throw new Error('HOST_NOT_LOGGED_IN');
+
+  const page = await cachedHostCatalogPage(
+    `${String(uid)}:userPlaylists:${offset}:${limit}`,
+    async () => {
+      const data = await userPlaylist({
+        uid,
+        limit,
+        offset,
+        timestamp: Date.now(),
+      });
+      if (String(store?.state?.data?.user?.userId || '') !== String(uid))
+        throw new Error('CATALOG_IDENTITY_CHANGED');
+
+      const source = Array.isArray(data?.playlist) ? data.playlist : [];
+      const page = source
+        .filter(playlist => /^\d{1,20}$/.test(String(playlist?.id || '')))
+        .map(safePlaylist);
+      const hasMore =
+        data?.more === true ||
+        (data?.more !== false && source.length === limit);
+      if (hasMore && source.length === 0)
+        throw new Error('PLAYLIST_PAGINATION_STALLED');
+
+      if (
+        offset > 0 &&
+        page.length &&
+        pageSignatureSeenAtAnotherOffset(uid, offset, page)
+      )
+        throw new Error('PLAYLIST_PAGINATION_STALLED');
+
+      const total = Number.isSafeInteger(data?.count)
+        ? data.count
+        : Number.isSafeInteger(data?.total)
+        ? data.total
+        : undefined;
+      return {
+        playlists: page,
+        offset,
+        nextOffset: offset + source.length,
+        ...(total === undefined ? {} : { total }),
+        hasMore,
+      };
+    }
+  );
+  if (String(store?.state?.data?.user?.userId || '') !== String(uid))
+    throw new Error('CATALOG_IDENTITY_CHANGED');
+  rememberUserPlaylistIds(uid, page.playlists, offset);
+  return page;
+}
+
+async function ensureUserPlaylistAllowed(store, playlistId) {
+  const userId = store?.state?.data?.user?.userId;
+  if (userPlaylistIdIsAllowed(userId, playlistId)) return true;
+  const previousRecord = getUserPlaylistIdRecord(userId, playlistId);
+  if (!previousRecord || !Number.isSafeInteger(previousRecord.offset))
+    return false;
+  const page = await getUserPlaylistCatalogPage(store, {
+    offset: previousRecord.offset,
+    limit: HOST_CATALOG_PAGE_SIZE,
+  });
+  const stillAllowed = page.playlists.some(
+    playlist => String(playlist.id) === String(playlistId)
+  );
+  if (!stillAllowed) {
+    userPlaylistAllowlistById
+      .get(String(userId))
+      ?.ids.delete(String(playlistId));
+  }
+  return stillAllowed;
+}
+
+function resolveArtistCatalogPage(artistId, pageOptions) {
+  return getArtist(artistId, pageOptions).then(data => {
+    const songs = Array.isArray(data?.songs) ? data.songs : [];
+    if (data?.more === true && songs.length === 0)
+      throw new Error('ARTIST_PAGINATION_STALLED');
+
+    const tracks = [];
+    const seenIDs = new Set();
+    const encoder = new TextEncoder();
+    let serializedBytes = 2;
+    let consumed = 0;
+    let unavailableCount = 0;
+
+    for (let index = 0; index < songs.length; index += 1) {
+      const song = songs[index];
+      if (song?.id == null) {
+        unavailableCount += 1;
+        consumed = index + 1;
+        continue;
+      }
+      const id = String(song.id);
+      if (seenIDs.has(id)) {
+        consumed = index + 1;
+        continue;
+      }
+      const track = safeCatalogTrack(song);
+      const trackBytes = encoder.encode(JSON.stringify(track)).byteLength;
+      const nextBytes = serializedBytes + trackBytes + (tracks.length ? 1 : 0);
+      if (nextBytes > HOST_CATALOG_PAGE_MAX_BYTES) {
+        if (!tracks.length) throw new Error('CATALOG_TRACK_TOO_LARGE');
+        break;
+      }
+      tracks.push(track);
+      seenIDs.add(id);
+      serializedBytes = nextBytes;
+      consumed = index + 1;
+    }
+
+    const nextOffset = pageOptions.offset + consumed;
+    const total =
+      Number.isSafeInteger(data?.total) && data.total >= 0
+        ? data.total
+        : undefined;
+    const hasMore =
+      nextOffset < pageOptions.offset + songs.length ||
+      (total !== undefined
+        ? nextOffset < total
+        : typeof data?.more === 'boolean'
+        ? data.more
+        : songs.length >= pageOptions.limit);
+
+    return {
+      tracks,
+      offset: pageOptions.offset,
+      nextOffset,
+      requestedCount: consumed,
+      unavailableCount,
+      ...(total === undefined ? {} : { total }),
+      hasMore,
+    };
+  });
+}
+
+// 上游（网易云）对搜索有频率风控，返回 405「操作频繁」。拼音逐字输入会密集
+// 触发该风控，因此在主屏侧对上游搜索做：相同词合并/短缓存、最小间隔、
+// 风控后冷却，并把风控显式映射为 UPSTREAM_RATE_LIMIT，而不是笼统的 502。
+const UPSTREAM_SEARCH_MIN_INTERVAL_MS = 600;
+const UPSTREAM_SEARCH_COOLDOWN_MS = 6000;
+const UPSTREAM_SEARCH_CACHE_TTL_MS = 20000;
+const UPSTREAM_SEARCH_CACHE_MAX = 64;
+const upstreamSearchCache = new Map();
+const upstreamSearchInFlight = new Map();
+let upstreamSearchTail = Promise.resolve();
+let upstreamSearchLastAt = 0;
+let upstreamSearchCooldownUntil = 0;
+
+function upstreamRateLimitError(retryAfterMs) {
+  const wait = Math.max(1000, Math.ceil(retryAfterMs));
+  // 桥接层只传递 error.message，因此把等待时间编码进消息。
+  const exception = new Error(`UPSTREAM_RATE_LIMIT:${wait}`);
+  exception.retryAfterMs = wait;
+  return exception;
+}
+
+function isUpstreamBusy(error) {
+  const status = error?.response?.status ?? error?.status;
+  const code = error?.response?.data?.code ?? error?.code;
+  return status === 405 || code === 405 || code === -460;
+}
+
+async function doUpstreamSearch(key, query) {
+  try {
+    const data = await search({ keywords: query, limit: 15, type: 1 });
+    const songs = (data.result?.songs || data.result?.song?.songs || [])
+      .slice(0, 15)
+      .map(safeCatalogTrack);
+    upstreamSearchCache.set(key, {
+      songs,
+      expiresAt: Date.now() + UPSTREAM_SEARCH_CACHE_TTL_MS,
+    });
+    while (upstreamSearchCache.size > UPSTREAM_SEARCH_CACHE_MAX)
+      upstreamSearchCache.delete(upstreamSearchCache.keys().next().value);
+    return songs;
+  } catch (error) {
+    if (isUpstreamBusy(error)) {
+      upstreamSearchCooldownUntil = Date.now() + UPSTREAM_SEARCH_COOLDOWN_MS;
+      throw upstreamRateLimitError(UPSTREAM_SEARCH_COOLDOWN_MS);
+    }
+    throw error;
+  }
+}
+
+async function guardedUpstreamSearch(query) {
+  const key = query.trim().toLowerCase();
+  const cached = upstreamSearchCache.get(key);
+  if (cached && cached.expiresAt > Date.now()) return cached.songs;
+  if (upstreamSearchInFlight.has(key)) return upstreamSearchInFlight.get(key);
+
+  const run = (async () => {
+    // 严格串行：上一个上游搜索结束并间隔满 MIN_INTERVAL 后才发下一个。
+    const previous = upstreamSearchTail;
+    let release;
+    upstreamSearchTail = new Promise(resolve => (release = resolve));
+    await previous;
+    try {
+      const cooldownLeft = upstreamSearchCooldownUntil - Date.now();
+      if (cooldownLeft > 0) throw upstreamRateLimitError(cooldownLeft);
+      const gap =
+        upstreamSearchLastAt + UPSTREAM_SEARCH_MIN_INTERVAL_MS - Date.now();
+      if (gap > 0) await new Promise(resolve => setTimeout(resolve, gap));
+      return await doUpstreamSearch(key, query);
+    } finally {
+      upstreamSearchLastAt = Date.now();
+      release();
+    }
+  })();
+  upstreamSearchInFlight.set(key, run);
+  const cleanup = () => {
+    if (upstreamSearchInFlight.get(key) === run)
+      upstreamSearchInFlight.delete(key);
+  };
+  run.then(cleanup, cleanup);
+  return run;
 }
 
 export async function hostCatalog(action, payload = {}, store = null) {
   if (action === 'search') {
-    const data = await search({
-      keywords: String(payload.query || ''),
-      limit: 15,
-      type: 1,
-    });
-    const songs = data.result?.songs || data.result?.song?.songs || [];
-    return songs.slice(0, 15).map(safeCatalogTrack);
+    return guardedUpstreamSearch(String(payload.query || ''));
   }
   if (action === 'artistSearch') {
     const keywords = String(payload.query || '').trim();
@@ -156,8 +606,16 @@ export async function hostCatalog(action, payload = {}, store = null) {
   if (action === 'artistTracks') {
     const artistId = String(payload.artistId || '');
     if (!/^\d{1,20}$/.test(artistId)) throw new Error('ARTIST_NOT_FOUND');
-    const data = await getArtist(artistId);
-    return (data?.hotSongs || []).slice(0, 30).map(safeCatalogTrack);
+    const pageOptions = catalogPageOptions(payload);
+    const userId = String(store?.state?.data?.user?.userId || 'anonymous');
+    const page = await cachedHostCatalogPage(
+      `${userId}:artist:${artistId}:${pageOptions.offset}:${pageOptions.limit}`,
+      () => resolveArtistCatalogPage(artistId, pageOptions)
+    );
+    if (userId !== String(store?.state?.data?.user?.userId || 'anonymous'))
+      throw new Error('CATALOG_IDENTITY_CHANGED');
+    assertArtistCatalogPageProgress(userId, artistId, page);
+    return hasCatalogPageRequest(payload) ? page : page.tracks;
   }
   if (action === 'recommendations') {
     let playlists;
@@ -198,17 +656,35 @@ export async function hostCatalog(action, payload = {}, store = null) {
     return safeCatalogTrack(track);
   }
   if (action === 'playlists') {
-    return getUserPlaylistAllowlist(store, { force: Boolean(payload.force) });
+    const userId = store?.state?.data?.user?.userId;
+    if (payload.force) clearUserPlaylistPageCache(userId);
+    if (hasCatalogPageRequest(payload)) {
+      const pageOptions = catalogPageOptions(payload);
+      return getUserPlaylistCatalogPage(store, pageOptions);
+    }
+    const playlists = await getUserPlaylistAllowlist(store, {
+      force: Boolean(payload.force),
+    });
+    return playlists;
   }
   if (action === 'playlistTracks') {
     const playlistId = String(payload.playlistId || '');
     if (!/^\d{1,20}$/.test(playlistId)) throw new Error('PLAYLIST_NOT_FOUND');
-    const playlists = await getUserPlaylistAllowlist(store);
-    const allowed = playlists.some(
-      playlist => String(playlist.id) === playlistId
-    );
+    const pageOptions = catalogPageOptions(payload);
+    const allowed = hasCatalogPageRequest(payload)
+      ? await ensureUserPlaylistAllowed(store, playlistId)
+      : (await getUserPlaylistAllowlist(store)).some(
+          playlist => String(playlist.id) === playlistId
+        );
     if (!allowed) throw new Error('PLAYLIST_NOT_FOUND');
-    return resolvePlaylistCatalogTracks(playlistId, 100);
+    const userId = String(store?.state?.data?.user?.userId || '');
+    const page = await cachedHostCatalogPage(
+      `${userId}:playlist:${playlistId}:${pageOptions.offset}:${pageOptions.limit}`,
+      () => resolvePlaylistCatalogPage(playlistId, pageOptions)
+    );
+    if (userId !== String(store?.state?.data?.user?.userId || ''))
+      throw new Error('CATALOG_IDENTITY_CHANGED');
+    return hasCatalogPageRequest(payload) ? page : page.tracks;
   }
   if (action === 'availability') {
     const data = await getMP3(String(payload.trackId));

@@ -228,7 +228,7 @@ export class KaraokeServer {
 
   async describeRoom() {
     if (!this.room) return null;
-    const url = `http://${this.room.lanAddress}:${this.port}/room/${this.room.code}/#token=${this.room.token}`;
+    const url = `http://${this.room.lanAddress}:${this.port}/room/`;
     let qrDataUrl = null;
     let qrError = null;
     try {
@@ -242,6 +242,7 @@ export class KaraokeServer {
     return {
       code: this.room.code,
       name: this.room.name,
+      token: this.room.token,
       url,
       joinUrl: url,
       candidates: this.room.candidates,
@@ -334,18 +335,37 @@ export class KaraokeServer {
       return this.sendLocalCover(resolved.coverPath, response);
     }
 
-    const roomPath = `/room/${this.room && this.room.code}`;
-    if (
-      !this.room ||
-      (requestUrl.pathname !== roomPath &&
-        !requestUrl.pathname.startsWith(`${roomPath}/`))
-    ) {
-      return this.notFound(response);
+    // Support pure static room URL: /room or /room/
+    if (requestUrl.pathname === '/room' || requestUrl.pathname === '/room/') {
+      return this.sendRemoteAsset('/index.html', response);
     }
 
-    const requestedPath = requestUrl.pathname.slice(roomPath.length);
-    const relativePath = requestedPath === '/' ? '/index.html' : requestedPath;
-    return this.sendRemoteAsset(relativePath, response);
+    // Support static assets under /room/... (e.g. /room/js/..., /room/css/...)
+    // Also backward compatible with legacy dynamic room path: /room/<code/...
+    const legacyRoomPrefix = this.room ? `/room/${this.room.code}` : null;
+    let relativePath = null;
+    if (
+      legacyRoomPrefix &&
+      (requestUrl.pathname === legacyRoomPrefix ||
+        requestUrl.pathname === `${legacyRoomPrefix}/`)
+    ) {
+      relativePath = '/index.html';
+    } else if (
+      legacyRoomPrefix &&
+      requestUrl.pathname.startsWith(`${legacyRoomPrefix}/`)
+    ) {
+      relativePath = requestUrl.pathname.slice(legacyRoomPrefix.length);
+    } else if (requestUrl.pathname.startsWith('/room/')) {
+      relativePath = requestUrl.pathname.slice('/room'.length);
+    }
+
+    if (relativePath) {
+      if (relativePath === '/' || relativePath === '')
+        relativePath = '/index.html';
+      return this.sendRemoteAsset(relativePath, response);
+    }
+
+    return this.notFound(response);
   }
 
   async sendRemoteAsset(relativePath, response) {

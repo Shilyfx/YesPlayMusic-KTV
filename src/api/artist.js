@@ -3,12 +3,33 @@ import { mapTrackPlayableStatus } from '@/utils/common';
 import { isAccountLoggedIn } from '@/utils/auth';
 import { getTrackDetail } from '@/api/track';
 
+const ARTIST_SONGS_PAGE_TIMEOUT_MS = 3000;
+
 /**
  * 获取歌手单曲
  * 说明 : 调用此接口 , 传入歌手 id, 可获得歌手部分信息和热门歌曲
  * @param {number} id - 歌手 id, 可由搜索接口获得
+ * @param {Object=} options - 提供 offset/limit 时读取歌手歌曲的一页
  */
-export function getArtist(id) {
+export function getArtist(id, options = {}) {
+  if (
+    Object.prototype.hasOwnProperty.call(options, 'offset') ||
+    Object.prototype.hasOwnProperty.call(options, 'limit')
+  ) {
+    return request({
+      url: '/artist/songs',
+      method: 'get',
+      params: {
+        id,
+        order: 'hot',
+        limit: options.limit || 100,
+        offset: options.offset || 0,
+        timestamp: Date.now(),
+      },
+      timeout: ARTIST_SONGS_PAGE_TIMEOUT_MS,
+    });
+  }
+
   return request({
     url: '/artists',
     method: 'get',

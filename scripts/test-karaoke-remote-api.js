@@ -291,10 +291,10 @@ async function run() {
   });
   assert.equal(bad.status, 401);
   const guestA = await request(port, 'POST', '/ktv/api/client-session', {
-    token: new URL(room.url).hash.slice(7),
+    token: room.token,
   });
   const guestB = await request(port, 'POST', '/ktv/api/client-session', {
-    token: new URL(room.url).hash.slice(7),
+    token: room.token,
   });
   assert.equal(guestA.status, 200);
   assert.match(guestA.body.clientToken, /^[A-Za-z0-9_-]{40,}$/);
@@ -624,10 +624,10 @@ async function run() {
   assert.throws(() => service.client(staleToken), /ROOM_ENDED/);
   const restarted = await server.startRoom({ sessionId: 'session-restarted' });
   const oldJoin = await request(port, 'POST', '/ktv/api/client-session', {
-    token: new URL(room.url).hash.slice(7),
+    token: room.token,
   });
   assert.equal(oldJoin.status, 401);
-  assert.notEqual(restarted.url, room.url);
+  assert.notEqual(restarted.token, room.token);
   await server.stopRoom();
   fs.rmSync(remoteDistPath, { recursive: true, force: true });
   console.log('KTV remote API integration tests passed');
