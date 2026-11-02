@@ -45,6 +45,8 @@ const SEARCH_DIAGNOSTIC_ERRORS = new Set([
 ]);
 
 function safeSearchDiagnosticError(error) {
+  if (typeof error === 'string' && error.startsWith('UPSTREAM_RATE_LIMIT'))
+    return 'UPSTREAM_RATE_LIMIT';
   return typeof error === 'string' && SEARCH_DIAGNOSTIC_ERRORS.has(error)
     ? error
     : 'UNKNOWN_MAIN_SCREEN_ERROR';
@@ -52,7 +54,8 @@ function safeSearchDiagnosticError(error) {
 
 export default class KaraokeWebHost {
   constructor({
-    publicOrigin,
+    publicOrigin = '',
+    allowedHosts = [],
     remoteDistPath = '',
     now = Date.now,
     commandTimeoutMs = 12000,
@@ -63,7 +66,12 @@ export default class KaraokeWebHost {
     localIndexPath = null,
     assetDirectory = null,
   } = {}) {
-    this.publicOrigin = new URL(publicOrigin).origin;
+    this.publicOrigin = publicOrigin ? new URL(publicOrigin).origin : null;
+    this.allowedHosts = new Set(
+      (Array.isArray(allowedHosts) ? allowedHosts : [allowedHosts])
+        .filter(Boolean)
+        .map(h => String(h).trim().toLowerCase())
+    );
     this.now = now;
     this.commandTimeoutMs = commandTimeoutMs;
     this.requiredUiRevision = requiredUiRevision;
@@ -319,11 +327,91 @@ export default class KaraokeWebHost {
     return this.reactions;
   }
 
-  guestJoinUrl() {
+  isAllowedHost(hostname) {
+    if (!hostname || typeof hostname !== 'string') return false;
+    const host = hostname.toLowerCase().split(':')[0];
+    if (host === 'localhost' || host === '127.0.0.1' || host === '::1')
+      return true;
+    if (
+      host.startsWith('10.') ||
+      host.startsWith('192.168.') ||
+      /^172\.(1[6-9]|2\d|3[01])\./.test(host)
+    )
+      return true;
+    if (
+      host.endsWith('.home') ||
+      host.endsWith('.lan') ||
+      host.endsWith('.local') ||
+      host.endsWith('.internal')
+    )
+      return true;
+    if (this.publicOrigin) {
+      try {
+        if (new URL(this.publicOrigin).hostname.toLowerCase() === host)
+          return true;
+      } catch (_) {
+        /* invalid publicOrigin URL */
+      }
+    }
+    if (this.allowedHosts && this.allowedHosts.has(host)) return true;
+    return false;
+  }
+
+  getTrustedOrigin(request) {
+    if (!request) return this.publicOrigin || '';
+    const originHeader = request.headers?.origin;
+    if (originHeader) {
+      try {
+        const originUrl = new URL(originHeader);
+        if (this.isAllowedHost(originUrl.hostname)) {
+          return originUrl.origin;
+        }
+      } catch (_) {
+        /* malformed Origin header */
+      }
+    }
+    return this.resolveRequestOrigin(request) || this.publicOrigin || '';
+  }
+
+  resolveRequestOrigin(request) {
+    if (!request) return this.publicOrigin || '';
+    const forwardedHost = request.headers?.['x-forwarded-host'];
+    const hostHeader = forwardedHost || request.headers?.host;
+    if (!hostHeader) return this.publicOrigin || '';
+    const host = String(hostHeader).trim();
+    const hostname = host.split(':')[0];
+    if (!this.isAllowedHost(hostname)) return this.publicOrigin || '';
+    const forwardedProto = request.headers?.['x-forwarded-proto'];
+    const proto = forwardedProto === 'https' ? 'https:' : 'http:';
+    return `${proto}//${host}`;
+  }
+
+  isValidOrigin(request) {
+    const originHeader = request.headers?.origin;
+    if (!originHeader) return true;
+    let originUrl;
+    try {
+      originUrl = new URL(originHeader);
+    } catch (_) {
+      return false;
+    }
+    if (!this.isAllowedHost(originUrl.hostname)) return false;
+    if (this.publicOrigin && originUrl.origin === this.publicOrigin)
+      return true;
+    const reqOrigin = this.resolveRequestOrigin(request);
+    if (reqOrigin && originUrl.origin === reqOrigin) return true;
+    if (this.owner?.origin && originUrl.origin === this.owner.origin) {
+      return true;
+    }
+    return false;
+  }
+
+  guestJoinUrl(request) {
     const room = this.roomServer.room;
-    return room
-      ? `${this.publicOrigin}/room/${room.code}/#token=${room.token}`
-      : '';
+    if (!room) return '';
+    const base =
+      this.owner?.origin || this.getTrustedOrigin(request) || this.publicOrigin;
+    return base ? `${base}/room/` : '/room/';
   }
 
   nextDisplayTrack() {
@@ -552,21 +640,34 @@ export default class KaraokeWebHost {
     };
   }
 
-  async describe() {
+  async describe(request) {
     const room = this.roomServer.room;
     if (!room) return null;
-    const url = this.guestJoinUrl();
+    const origin =
+      this.owner?.origin ||
+      this.getTrustedOrigin(request) ||
+      this.publicOrigin ||
+      '';
+    const url = this.guestJoinUrl(request);
+    let hostname = 'localhost';
+    if (origin) {
+      try {
+        hostname = new URL(origin).hostname;
+      } catch (_) {
+        /* invalid origin */
+      }
+    }
     return {
       code: room.code,
       name: room.name,
       url,
       joinUrl: url,
       qrDataUrl: await QRCode.toDataURL(url, { margin: 3, width: 520 }),
-      selectedAddress: new URL(this.publicOrigin).hostname,
+      selectedAddress: hostname,
       candidates: [
         {
-          address: new URL(this.publicOrigin).hostname,
-          interfaceName: 'Docker 服务',
+          address: hostname,
+          interfaceName: 'KTV 服务',
         },
       ],
     };
@@ -882,7 +983,10 @@ export default class KaraokeWebHost {
 
   async handle(request, response) {
     this.expire();
-    const url = new URL(request.url, this.publicOrigin);
+    const url = new URL(
+      request.url,
+      this.getTrustedOrigin(request) || this.publicOrigin || 'http://127.0.0.1'
+    );
     const route = url.pathname;
     if (route.startsWith('/ktv/display/visual-assets/')) {
       if (request.method !== 'GET')
@@ -923,7 +1027,7 @@ export default class KaraokeWebHost {
               appearanceRevision: owner.appearanceRevision,
               pvLyricsRevision: owner.pvLyrics?.revision ?? null,
               pvLyricsItemId: owner.pvLyrics?.itemId ?? null,
-              joinUrl: this.guestJoinUrl(),
+              joinUrl: this.guestJoinUrl(request),
               nextTrack: this.nextDisplayTrack(),
               reactions: this.recentReactions(),
               reactionEpoch: this.reactionEpoch,
@@ -980,7 +1084,7 @@ export default class KaraokeWebHost {
     if (route === '/ktv/api/reactions') {
       if (request.method !== 'POST')
         return this.json(response, 405, { error: 'METHOD_NOT_ALLOWED' });
-      if (request.headers.origin !== this.publicOrigin)
+      if (!this.isValidOrigin(request))
         return this.json(response, 403, { error: 'FORBIDDEN' });
       if (!/^application\/json/.test(request.headers['content-type'] || ''))
         return this.json(response, 415, { error: 'JSON_REQUIRED' });
@@ -1055,10 +1159,7 @@ export default class KaraokeWebHost {
         return this.json(response, 502, { error: 'REMOTE_UNAVAILABLE' });
       }
     }
-    if (
-      request.method !== 'POST' ||
-      request.headers.origin !== this.publicOrigin
-    )
+    if (request.method !== 'POST' || !this.isValidOrigin(request))
       return this.json(response, 403, { error: 'FORBIDDEN' });
     if (route === '/ktv/host/visual-assets') {
       const token = (request.headers.authorization || '').replace(
@@ -1127,6 +1228,7 @@ export default class KaraokeWebHost {
           presentation
         );
         this.owner = {
+          origin: this.getTrustedOrigin(request) || this.publicOrigin || '',
           uiRevision: body.uiRevision || '',
           token: secret(),
           snapshot: body.snapshot,
@@ -1159,7 +1261,7 @@ export default class KaraokeWebHost {
         this.updateAutomaticReactions(body.snapshot, presentation);
         return this.json(response, 200, {
           hostToken: this.owner.token,
-          room: await this.describe(),
+          room: await this.describe(request),
         });
       }
       if (route === '/ktv/host/close') {
@@ -1169,7 +1271,7 @@ export default class KaraokeWebHost {
       if (route === '/ktv/host/status')
         return this.json(response, 200, {
           ok: true,
-          room: await this.describe(),
+          room: await this.describe(request),
         });
       if (route === '/ktv/host/exchange') {
         if (Object.prototype.hasOwnProperty.call(body, 'catalogEpoch')) {

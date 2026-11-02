@@ -374,7 +374,17 @@ export default class KaraokeLocalLibrary {
   async walk(directory, entriesByDirectory = new Map()) {
     const results = [];
     let entries;
-    entries = await fs.readdir(directory, { withFileTypes: true });
+    try {
+      entries = await fs.readdir(directory, { withFileTypes: true });
+    } catch (error) {
+      if (
+        error.code === 'ENOENT' ||
+        error.code === 'ENOTDIR' ||
+        error.code === 'EACCES'
+      )
+        return [];
+      throw error;
+    }
     const directoryKey = pathKey(normalizePath(directory));
     const siblingEntries = new Map();
     entries.forEach(entry => {

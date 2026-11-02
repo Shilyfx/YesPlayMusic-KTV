@@ -8,7 +8,11 @@ const defaultLocalDirs = (process.env.KTV_LOCAL_MUSIC_DIRS || '/music/周杰伦'
   .filter(Boolean);
 
 const host = new KaraokeWebHost({
-  publicOrigin: process.env.KTV_PUBLIC_ORIGIN,
+  publicOrigin: process.env.KTV_PUBLIC_ORIGIN || '',
+  allowedHosts: (process.env.KTV_ALLOWED_HOSTS || '')
+    .split(/[,;]/)
+    .map(item => item.trim())
+    .filter(Boolean),
   remoteDistPath: process.env.KTV_REMOTE_DIST || '/app/remote',
   requiredUiRevision: REACTION_UI_REVISION,
   localDirectories: defaultLocalDirs,

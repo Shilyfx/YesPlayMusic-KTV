@@ -22,11 +22,11 @@ services:
       dockerfile: Dockerfile.ktv
     image: lumasing-router-ktv:0.4.10
     restart: unless-stopped
-    environment:
-      KTV_PUBLIC_ORIGIN: http://192.168.100.1:18080
     volumes:
+      - ./dist/ktv-server.cjs:/app/ktv-server.cjs:ro
       - ./dist/remote:/app/remote:ro
-      - ./data/ktv:/data
+      - ./local-music:/music:ro
+      - ./data:/data
     mem_limit: 192m
     cpus: 1.0
     healthcheck:
@@ -39,6 +39,7 @@ services:
     image: nginx:stable-alpine
     restart: unless-stopped
     ports:
+      - "192.168.100.8:80:80"
       - "192.168.100.1:18080:80"
     volumes:
       - ./dist:/usr/share/nginx/html:ro

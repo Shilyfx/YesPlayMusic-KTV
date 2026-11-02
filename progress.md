@@ -341,4 +341,45 @@
      - 点击搜索结果歌手“汪苏泷”：首屏加载 100 首，底部清晰显示 `已显示 100 / 725 首。` 与“加载更多”按钮；
   3. 歌单歌曲“加载更多”按钮：选择多页大歌单（671 首），首屏显示 100 首（`已显示 100 / 671 首。`），点击“加载更多”按钮后列表立即追加第 2 页至 200 首（`已显示 200 / 671 首。`）。
 
+---
+
+## 14. 内网自定义域名 ktv.home 免端口访问与零 IP 硬绑定解耦改造 (2026-11-02 已完成并通过软路由实机与 ego-browser 全量验证)
+- 用户需求目标：
+  1. 在局域网内使用自定义域名 `ktv.home` 代替输入 IP，且实现免端口访问（直接访问 80 端口，无需附带 `:18080`）；
+  2. 彻底去除程序代码与配置中对 IP 的硬绑定，预防未来更换软路由、IP、迁移至其他机器或直接运行于电脑端/Electron 模式时发生失效；
+  3. 保留原有的 IP 访问方式（`http://192.168.100.1:18080/`），实现双轨并存。
+- 实施方案与技术实现：
+  1. 路由器网络与 80 端口冲突化解：
+     - iStoreOS / OpenWrt 默认由 `uhttpd`（管理后台 LuCI）监听全局 `0.0.0.0:80`，与 Docker Nginx 占用冲突；
+     - 在软路由 `br-lan` 网桥配置永久辅助 IP（LAN Alias）`192.168.100.8/24`（通过 `/etc/config/network` 持久化）；
+     - 将 `uhttpd` 的监听地址从全局 `0.0.0.0:80` 精确收敛到 `192.168.100.1:80`、`127.0.0.1:80` 与 `10.222.222.1:80`，彻底将 `192.168.100.8:80` 释放给 Docker 独占，完全不影响软路由原生管理后台（LuCI 仍以 `192.168.100.1` 正常访问）；
+     - 在路由器内网 DNS（`dnsmasq` 与 `AdGuardHome`）中配置静态域名解析 `ktv.home -> 192.168.100.8`；
+     - 网络与服务配置文件已备份至 `/mnt/mmc1-4/lumasing/config_backup/`。
+  2. Docker 端口与双轨反向代理配置：
+     - `docker/router/compose.yml`：
+       - 端口绑定为 `"192.168.100.8:80:80"`（免端口访问）与 `"192.168.100.1:18080:80"`（旧 IP 端口兼容）；
+       - 彻底移除 `KTV_PUBLIC_ORIGIN` 硬编码环境变量；
+       - 补全 `./local-music:/music:ro` 与 `./data:/data` 容器数据持久化挂载卷。
+     - `docker/router/nginx.conf`：
+       - 将代理头 `Host $host` 更新为 `Host $http_host`，并增加 `proxy_set_header X-Forwarded-Host $http_host;` 与 `proxy_set_header X-Forwarded-Proto $scheme;`，确保无论客户端通过 `ktv.home` 还是 `192.168.100.1:18080` 进入，上游 Node 服务端均能精准识别其原始访问域名和端口。
+  3. 程序代码全面解耦硬绑定 IP，实现全动态多源信任：
+     - `src/server/KaraokeWebHost.js`：
+       - `publicOrigin` 改为可选；支持通过配置/环境变量 `KTV_ALLOWED_HOSTS` 扩展白名单；
+       - 内置 `isAllowedHost(hostname)` 通配信任校验：自动放行本地回环（`localhost`、`127.0.0.1`）、内网私有网段（`10.0.0.0/8`、`172.16.0.0/12`、`192.168.0.0/16`）、常用局域网/内网域名后缀（`.home`、`.lan`、`.local`、`.internal`）；
+       - 动态解析来源 `resolveRequestOrigin(request)` 与 `getTrustedOrigin(request)`：优先以合法请求的 `Host` / `X-Forwarded-Host` 及经过校验的 `Origin` 头动态计算 `origin`；
+       - 将 `/ktv/api/reactions` 和 `/ktv/host/*` 中的强硬 `origin === this.publicOrigin` 校验替换为 `isValidOrigin(request)`，在保证抵御外网恶意 CSRF / DNS 重绑定攻击的同时，无缝支持任何内网 IP 或自定义域名访问；
+       - 扫码点歌链接与二维码生成 `guestJoinUrl(request)`、`describe(request)`：动态使用当前请求来源的基础 URL（例如主电脑访问 `http://ktv.home/karaoke` 时，二维码自动展示 `http://ktv.home/room/`；访问 `http://192.168.100.1:18080/karaoke` 时自动展示 `http://192.168.100.1:18080/room/`）。
+     - `src/electron/karaoke/KaraokeLocalLibrary.js`：
+       - 对本地音乐扫描目录增加安全 `try/catch` 容错，捕获 `ENOENT`/`ENOTDIR`，防止音乐目录未挂载时 Node 服务端异常退出。
+     - `src/karaoke/reactions.js`：
+       - 升级 `REACTION_UI_REVISION` 至 `'centered-effects-v9'`，保证新旧主屏与服务端版本严格协同。
+- 验证结果：
+  - 自动化单元与集成测试（`scripts/test-karaoke-web-host.js`）：多源动态解析测试全部通过；
+  - ego-browser 端到端实机验证（`scripts/verify-domain-access-ego.mjs`）：
+    1. 主机通过域名免端口访问 `http://ktv.home/karaoke` 顺利开房，二维码直接加入链接动态显示为 `http://ktv.home/room/`；
+    2. 手机端 1 通过域名免端口访问 `http://ktv.home/room/`，搜索“晴天”返回 16 首，发送表情互动成功（提示“表情已送出”，无任何 CSRF 报错）；
+    3. 手机端 2 通过 IP 访问 `http://192.168.100.1:18080/room/`，发送表情互动成功（提示“已加入排队”，双轨并存完全正常）；
+    4. 软路由原生 LuCI 管理后台（`http://192.168.100.1/`）访问完全不受影响（HTTP 200）。
+
+
 

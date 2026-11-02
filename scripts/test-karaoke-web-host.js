@@ -443,15 +443,14 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
     );
     assert.equal(oversizedDisplay.presentation.coverUrl, '');
     assert.equal(display.joinUrl, room.joinUrl);
-    assert.ok(display.joinUrl.includes(`/room/${room.code}/#token=`));
+    assert.equal(display.joinUrl, `${origin}/room/`);
     assert.deepEqual(display.nextTrack, {
       title: '下一首测试',
       artists: ['测试歌手'],
     });
     assert.ok(!JSON.stringify(display).includes(hostToken));
     assert.equal((await call('/ktv/host/open', { snapshot })).status, 409);
-    const joinToken = new URL(display.joinUrl).hash.slice(7);
-    const guest = await call('/ktv/api/client-session', {}, joinToken);
+    const guest = await call('/ktv/api/client-session', {});
     assert.equal(guest.status, 200);
     assert.ok(!JSON.stringify(guest.body).includes(hostToken));
     assert.equal(
@@ -820,7 +819,7 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
       assert.equal(status.body.room.qrDataUrl, room.qrDataUrl);
     }
     assert.equal(
-      (await call('/ktv/api/client-session', {}, joinToken)).status,
+      (await call('/ktv/api/client-session', {})).status,
       200,
       'the original invitation still admits new devices after queue changes'
     );
@@ -869,11 +868,11 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
       409,
       'room generation prevents an old appearance revision from resolving'
     );
-    assert.notEqual(replacement.body.room.joinUrl, room.joinUrl);
+    assert.equal(replacement.body.room.joinUrl, room.joinUrl);
     assert.equal(
-      (await call('/ktv/api/client-session', {}, joinToken)).status,
-      401,
-      'an ended room invitation cannot enter the next room'
+      (await call('/ktv/api/client-session', {})).status,
+      200,
+      'the static room URL admits devices in the replacement room'
     );
     const orphan = host.command('snapshot').catch(e => e.message);
     assert.equal(
@@ -927,6 +926,82 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
       newHost.body.hostToken,
       snapshot
     );
+    await call('/ktv/host/close', {}, newHost.body.hostToken);
+
+    // Test dynamic origin without publicOrigin set (zero hardcoded IP)
+    const dynamicHost = new KaraokeWebHost({ now: () => now });
+    const dynamicServer = http.createServer((req, res) =>
+      dynamicHost.handle(req, res)
+    );
+    await new Promise(resolve => dynamicServer.listen(0, '127.0.0.1', resolve));
+    const dynamicBase = `http://127.0.0.1:${dynamicServer.address().port}`;
+    try {
+      const dynamicCall = async (
+        path,
+        body,
+        token = '',
+        requestOrigin = 'http://ktv.home'
+      ) => {
+        const res = await fetch(dynamicBase + path, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Origin: requestOrigin,
+            'X-Forwarded-Host': new URL(requestOrigin).host,
+            Authorization: `Bearer ${token}`,
+          },
+          body: JSON.stringify(body),
+        });
+        return { status: res.status, body: await res.json() };
+      };
+
+      // 1. ktv.home domain access
+      const homeOpen = await dynamicCall('/ktv/host/open', { snapshot });
+      assert.equal(homeOpen.status, 200);
+      assert.equal(homeOpen.body.room.url, 'http://ktv.home/room/');
+      assert.equal(homeOpen.body.room.selectedAddress, 'ktv.home');
+      assert.ok(
+        homeOpen.body.room.qrDataUrl.startsWith('data:image/png;base64,')
+      );
+
+      // 2. Reject evil origin
+      const evilOpen = await dynamicCall(
+        '/ktv/host/open',
+        { snapshot },
+        '',
+        'http://evil.com'
+      );
+      assert.equal(evilOpen.status, 403);
+
+      await dynamicCall(
+        '/ktv/host/close',
+        {},
+        homeOpen.body.hostToken,
+        'http://ktv.home'
+      );
+
+      // 3. Private IP access (e.g. 192.168.100.8 or arbitrary router IP)
+      const ipOpen = await dynamicCall(
+        '/ktv/host/open',
+        { snapshot },
+        '',
+        'http://192.168.100.8'
+      );
+      assert.equal(ipOpen.status, 200);
+      assert.equal(ipOpen.body.room.url, 'http://192.168.100.8/room/');
+      assert.equal(ipOpen.body.room.selectedAddress, '192.168.100.8');
+
+      await dynamicCall(
+        '/ktv/host/close',
+        {},
+        ipOpen.body.hostToken,
+        'http://192.168.100.8'
+      );
+    } finally {
+      dynamicHost.close();
+      await new Promise(resolve => dynamicServer.close(resolve));
+    }
+
     console.log('KTV web host HTTP/token/QR/mailbox/expiry tests passed');
   } finally {
     host.close();
