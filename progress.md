@@ -381,5 +381,27 @@
     3. 手机端 2 通过 IP 访问 `http://192.168.100.1:18080/room/`，发送表情互动成功（提示“已加入排队”，双轨并存完全正常）；
     4. 软路由原生 LuCI 管理后台（`http://192.168.100.1/`）访问完全不受影响（HTTP 200）。
 
+---
+
+## 15. 路由启动持久化保护、备用 IP 一键加入与剪贴板容错增强 (2026-11-02 已完成并全量验证)
+- 隐患排查与解决清单：
+  1. **路由器开机启动顺序守护（`/etc/rc.local`）**：
+     - 在软路由系统初始化脚本 `/etc/rc.local` 中增加网络别名轮询检测逻辑（最多等待 30 秒检测 `br-lan` 上的 `192.168.100.8` 就绪后启动 `lumasing-web-1` 容器），彻底规避软路由重启时 Docker 提早启动导致端口绑定失败的问题；原始配置已备份至 `/mnt/mmc1-4/lumasing/config_backup/rc.local.bak`。
+  2. **手机端 DoH / 私有 DNS 备用地址直接显示与一键复制**：
+     - 主屏幕房间面板（`src/views/karaoke.vue`）新增「备用加入链接（如手机开启加密DNS无法解析域名请用此链接）」，直接展示对应 IP 地址（`http://192.168.100.1:18080/room/`）；
+     - 服务端（`src/server/KaraokeWebHost.js`）在 `describe()` 接口中动态下发 `backupJoinUrl`；
+     - 主屏提供独立的 `copyBackupLink` 一键复制按钮与已复制状态提示。
+  3. **非安全上下文（HTTP）剪贴板 API 强容错**：
+     - 完善 `copyLanLink` 与 `copyBackupLink`：在 `http://` 域名访问（非安全上下文）导致 `navigator.clipboard` 为空或写权限被拒时，自动平滑降级使用 `document.execCommand('copy')` 与隐藏只读 `textarea`，杜绝静默失败与控制台报错。
+  4. **严格主机隔离模式支持（`strictHosts` 与 `KTV_STRICT_HOSTS`）**：
+     - 在 `src/server/KaraokeWebHost.js` 中新增严格模式开关，在保留默认局域网免配置自适应的前提下，满足未来公网或私有集群下的严格白名单隔离需求。
+  5. **代码库与测试脚本全量提交审计**：
+     - 将此前未提交的分页特性、搜索限流、测试脚本及高清歌手头像分 3 批次（`13f1a61`, `9906a03`, `dc5d48f`）规范纳入 Git 版本历史，确保构建一致性与可追溯性。
+- 验证结果：
+  - 自动化单元与集成测试（`test-karaoke-web-host.js`, `test-artist-catalog.js`, `test-playlist-catalog-pagination.js`, `test-karaoke-remote-api.js`, `test-karaoke-server.js`）全量通过；
+  - 重新构建生产产物与服务并在软路由平滑部署完成；
+  - 无头浏览器（ego-browser）端到端验证通过，主屏弹窗清晰呈现直接加入链接与备用加入链接，双轨访问与互动表情均正常工作。
+
+
 
 
