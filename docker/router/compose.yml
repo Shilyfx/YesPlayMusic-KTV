@@ -22,6 +22,10 @@ services:
       dockerfile: Dockerfile.ktv
     image: lumasing-router-ktv:0.4.10
     restart: unless-stopped
+    environment:
+      # Optional alternate access URLs shown as backup join links (comma separated).
+      # The first one whose hostname differs from the current visit host is used.
+      KTV_ALT_ORIGINS: "http://ktv.home,http://192.168.100.1:18080"
     volumes:
       - ./dist/ktv-server.cjs:/app/ktv-server.cjs:ro
       - ./dist/remote:/app/remote:ro

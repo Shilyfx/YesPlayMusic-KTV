@@ -929,7 +929,10 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
     await call('/ktv/host/close', {}, newHost.body.hostToken);
 
     // Test dynamic origin without publicOrigin set (zero hardcoded IP)
-    const dynamicHost = new KaraokeWebHost({ now: () => now });
+    const dynamicHost = new KaraokeWebHost({
+      now: () => now,
+      altOrigins: ['http://ktv.home', 'http://10.9.8.7:18080'],
+    });
     const dynamicServer = http.createServer((req, res) =>
       dynamicHost.handle(req, res)
     );
@@ -962,7 +965,12 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
       assert.equal(homeOpen.body.room.selectedAddress, 'ktv.home');
       assert.equal(
         homeOpen.body.room.backupJoinUrl,
-        'http://192.168.100.1:18080/room/'
+        'http://10.9.8.7:18080/room/'
+      );
+      assert.equal(
+        new KaraokeWebHost({}).altOrigins.length,
+        0,
+        'no backup url without configuration'
       );
       assert.ok(
         homeOpen.body.room.qrDataUrl.startsWith('data:image/png;base64,')
@@ -1005,6 +1013,7 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
       assert.equal(ipOpen.status, 200);
       assert.equal(ipOpen.body.room.url, 'http://192.168.100.8/room/');
       assert.equal(ipOpen.body.room.selectedAddress, '192.168.100.8');
+      assert.equal(ipOpen.body.room.backupJoinUrl, 'http://ktv.home/room/');
 
       await dynamicCall(
         '/ktv/host/close',

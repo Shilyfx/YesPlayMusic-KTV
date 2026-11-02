@@ -66,7 +66,11 @@ export default class KaraokeWebHost {
     localIndexPath = null,
     assetDirectory = null,
     strictHosts = Boolean(process.env.KTV_STRICT_HOSTS === '1'),
+    altOrigins = [],
   } = {}) {
+    this.altOrigins = (Array.isArray(altOrigins) ? altOrigins : [altOrigins])
+      .filter(Boolean)
+      .map(item => String(item).trim());
     this.publicOrigin = publicOrigin ? new URL(publicOrigin).origin : null;
     this.allowedHosts = new Set(
       (Array.isArray(allowedHosts) ? allowedHosts : [allowedHosts])
@@ -672,14 +676,17 @@ export default class KaraokeWebHost {
         /* invalid origin */
       }
     }
+    const currentHost = hostname.toLowerCase();
     let backupUrl = null;
-    if (hostname.toLowerCase() === 'ktv.home') {
-      backupUrl = 'http://192.168.100.1:18080/room/';
-    } else if (
-      origin.includes('192.168.100.1:18080') ||
-      origin.includes('192.168.100.8')
-    ) {
-      backupUrl = 'http://ktv.home/room/';
+    for (const alt of this.altOrigins) {
+      try {
+        if (new URL(alt).hostname.toLowerCase() !== currentHost) {
+          backupUrl = `${new URL(alt).origin}/room/`;
+          break;
+        }
+      } catch (_) {
+        /* ignore invalid alt origin */
+      }
     }
     return {
       code: room.code,
@@ -694,17 +701,6 @@ export default class KaraokeWebHost {
           address: hostname,
           interfaceName: 'KTV 服务',
         },
-        ...(backupUrl
-          ? [
-              {
-                address:
-                  hostname.toLowerCase() === 'ktv.home'
-                    ? '192.168.100.1:18080'
-                    : 'ktv.home',
-                interfaceName: '备用访问',
-              },
-            ]
-          : []),
       ],
     };
   }

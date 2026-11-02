@@ -14,6 +14,10 @@ const host = new KaraokeWebHost({
     .map(item => item.trim())
     .filter(Boolean),
   remoteDistPath: process.env.KTV_REMOTE_DIST || '/app/remote',
+  altOrigins: (process.env.KTV_ALT_ORIGINS || '')
+    .split(/[,;]/)
+    .map(item => item.trim())
+    .filter(Boolean),
   requiredUiRevision: REACTION_UI_REVISION,
   localDirectories: defaultLocalDirs,
   localDirsPath:
