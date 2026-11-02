@@ -414,3 +414,12 @@
   3. 移除下拉框中的"备用访问"条目。
   4. `scripts/test-karaoke-web-host.js` 改用测试专用地址验证域名到 IP、IP 到域名两个方向，并验证未配置时无备用链接。
 - 验证：web-host 测试与 ESLint 通过；软路由 `ktv.home`、`192.168.100.1:18080`、LuCI 均返回 200；ego-browser 端到端全部通过。
+
+---
+
+## 17. 工作区未提交文档全量纳入版本管理 (2026-11-02 已完成)
+- 审计排查：检查工作区内残留的未跟踪文件，确认 `KTV_Project/` 目录下的 Phase 4 项目需求书与工作流报告属于项目核心规格文档，无任何敏感信息或语法错误。
+- 提交落地：
+  - `0a29732`: `docs(ktv): track Phase 4 project specifications and workflow reports`（纳入全部 Phase 4 项目书与提示词报告文档）；
+  - 当前工作区状态（`git status`）为完全干净状态（`working tree clean`），后续所有功能与文档改动均保持即刻归档提交，确保多 Agent 协作时对变更上下文 100% 透明可查。
+
