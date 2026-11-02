@@ -850,7 +850,7 @@ export default {
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 8px;
+  gap: 22px;
   color: var(--ktv-text-primary);
   opacity: 0;
   pointer-events: auto;
@@ -862,15 +862,36 @@ export default {
 .reaction-render {
   width: 100%;
   aspect-ratio: 1;
+  transform-origin: center center;
+  transform: scale(1.2);
+}
+.ready .reaction-render {
+  animation: reaction-render-zoom-in 0.65s cubic-bezier(0.16, 1.2, 0.38, 1) both;
+}
+@keyframes reaction-render-zoom-in {
+  0% {
+    transform: scale(0.6);
+  }
+  45% {
+    transform: scale(1.28);
+  }
+  70% {
+    transform: scale(1.18);
+  }
+  100% {
+    transform: scale(1.2);
+  }
 }
 .reaction-motion span {
-  font-size: 24px;
+  display: inline-block;
+  font-size: 37.44px;
   font-weight: 700;
-  max-width: 100%;
+  width: max-content;
+  max-width: min(90vw, 8.5em);
   white-space: normal;
   overflow-wrap: anywhere;
   text-align: center;
-  line-height: 1.45;
+  line-height: 1.4;
   text-shadow: 0 1px 6px var(--ktv-bg-base);
 }
 .ready .reaction-motion {
@@ -1252,6 +1273,10 @@ export default {
     animation: none !important;
     opacity: 1;
     transform: none;
+  }
+  .reaction-shot.ready .reaction-render {
+    animation: none !important;
+    transform: scale(1.2) !important;
   }
   .reaction-dock {
     animation: none;

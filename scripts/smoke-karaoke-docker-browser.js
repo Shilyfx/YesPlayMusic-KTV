@@ -38,6 +38,7 @@ const { chromium } = require(process.env.LUMASING_PLAYWRIGHT_MODULE ||
     await guest.goto(joinUrl, { waitUntil: 'domcontentloaded' });
     await guest.locator('[data-search]').waitFor({ timeout: 15000 });
     await guest.locator('[data-search]').fill('Jay Chou');
+    await guest.locator('[data-search-submit]').click();
     await guest
       .locator('[data-results] [data-request]')
       .first()
