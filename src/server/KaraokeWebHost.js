@@ -65,6 +65,7 @@ export default class KaraokeWebHost {
     localDirsPath = null,
     localIndexPath = null,
     assetDirectory = null,
+    strictHosts = Boolean(process.env.KTV_STRICT_HOSTS === '1'),
   } = {}) {
     this.publicOrigin = publicOrigin ? new URL(publicOrigin).origin : null;
     this.allowedHosts = new Set(
@@ -72,6 +73,7 @@ export default class KaraokeWebHost {
         .filter(Boolean)
         .map(h => String(h).trim().toLowerCase())
     );
+    this.strictHosts = Boolean(strictHosts);
     this.now = now;
     this.commandTimeoutMs = commandTimeoutMs;
     this.requiredUiRevision = requiredUiRevision;
@@ -330,6 +332,19 @@ export default class KaraokeWebHost {
   isAllowedHost(hostname) {
     if (!hostname || typeof hostname !== 'string') return false;
     const host = hostname.toLowerCase().split(':')[0];
+    if (this.strictHosts) {
+      if (host === 'localhost' || host === '127.0.0.1' || host === '::1')
+        return true;
+      if (this.publicOrigin) {
+        try {
+          if (new URL(this.publicOrigin).hostname.toLowerCase() === host)
+            return true;
+        } catch (_) {
+          /* invalid publicOrigin URL */
+        }
+      }
+      return Boolean(this.allowedHosts && this.allowedHosts.has(host));
+    }
     if (host === 'localhost' || host === '127.0.0.1' || host === '::1')
       return true;
     if (
@@ -657,11 +672,21 @@ export default class KaraokeWebHost {
         /* invalid origin */
       }
     }
+    let backupUrl = null;
+    if (hostname.toLowerCase() === 'ktv.home') {
+      backupUrl = 'http://192.168.100.1:18080/room/';
+    } else if (
+      origin.includes('192.168.100.1:18080') ||
+      origin.includes('192.168.100.8')
+    ) {
+      backupUrl = 'http://ktv.home/room/';
+    }
     return {
       code: room.code,
       name: room.name,
       url,
       joinUrl: url,
+      backupJoinUrl: backupUrl,
       qrDataUrl: await QRCode.toDataURL(url, { margin: 3, width: 520 }),
       selectedAddress: hostname,
       candidates: [
@@ -669,6 +694,17 @@ export default class KaraokeWebHost {
           address: hostname,
           interfaceName: 'KTV 服务',
         },
+        ...(backupUrl
+          ? [
+              {
+                address:
+                  hostname.toLowerCase() === 'ktv.home'
+                    ? '192.168.100.1:18080'
+                    : 'ktv.home',
+                interfaceName: '备用访问',
+              },
+            ]
+          : []),
       ],
     };
   }

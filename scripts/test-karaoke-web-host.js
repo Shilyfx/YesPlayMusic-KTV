@@ -960,9 +960,24 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
       assert.equal(homeOpen.status, 200);
       assert.equal(homeOpen.body.room.url, 'http://ktv.home/room/');
       assert.equal(homeOpen.body.room.selectedAddress, 'ktv.home');
+      assert.equal(
+        homeOpen.body.room.backupJoinUrl,
+        'http://192.168.100.1:18080/room/'
+      );
       assert.ok(
         homeOpen.body.room.qrDataUrl.startsWith('data:image/png;base64,')
       );
+
+      // Verify strict mode host isolation
+      assert.equal(dynamicHost.isAllowedHost('ktv.home'), true);
+      const strictHost = new KaraokeWebHost({
+        allowedHosts: ['myktv.com'],
+        strictHosts: true,
+      });
+      assert.equal(strictHost.isAllowedHost('localhost'), true);
+      assert.equal(strictHost.isAllowedHost('myktv.com'), true);
+      assert.equal(strictHost.isAllowedHost('ktv.home'), false);
+      assert.equal(strictHost.isAllowedHost('192.168.1.100'), false);
 
       // 2. Reject evil origin
       const evilOpen = await dynamicCall(

@@ -43,10 +43,14 @@ devenv.local.nix
 .pre-commit-config.yaml
 
 # Generated lyric-stage browser QA captures
-/artifacts/lyric-stages/
+artifacts/
 
 # Original Folia runtime bundles are rebuilt from the vendored source.
 /public/pv/
+
+# Scratch and transient task files
+scratch/
+task-live-*.md
 
 # Local preview library index and machine-specific directories.
 /.local-ktv/

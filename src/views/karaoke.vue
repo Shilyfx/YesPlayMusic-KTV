@@ -129,6 +129,21 @@
             </button>
           </div>
         </div>
+        <div v-if="lanRoom && lanRoom.backupJoinUrl" class="room-link-block">
+          <span class="room-link-label"
+            >备用加入链接（如手机开启加密DNS无法解析域名请用此链接）</span
+          >
+          <div class="room-link-row">
+            <code class="room-link">{{ lanRoom.backupJoinUrl }}</code>
+            <button
+              type="button"
+              class="room-link-copy"
+              @click="copyBackupLink"
+            >
+              {{ copyBackupLinkLabel }}
+            </button>
+          </div>
+        </div>
         <p v-else>服务会监听全部网络；你选择的网卡只决定二维码中的访问地址。</p>
         <label v-if="lanCandidates.length">
           网卡地址
@@ -690,6 +705,8 @@ export default {
       lanSelfTest: 'idle',
       copyLinkState: 'idle',
       copyLinkTimer: null,
+      copyBackupLinkState: 'idle',
+      copyBackupLinkTimer: null,
       lyricFontSizeDraft: '45',
       lyricOffsetDraft: '0.0',
       appearancePreferences: readMasterAppearancePreferences(undefined, {
@@ -924,6 +941,9 @@ export default {
     },
     copyLinkLabel() {
       return this.copyLinkState === 'copied' ? '已复制' : '一键复制';
+    },
+    copyBackupLinkLabel() {
+      return this.copyBackupLinkState === 'copied' ? '已复制' : '一键复制';
     },
     stageLyrics() {
       const activeIndex = this.activeLyricIndex;
@@ -2065,6 +2085,7 @@ export default {
       this.showRoomCode = false;
       this.lanSelfTest = 'idle';
       this.copyLinkState = 'idle';
+      this.copyBackupLinkState = 'idle';
     },
     async restartLanRoom() {
       await this.stopLanRoom();
@@ -2098,24 +2119,77 @@ export default {
     async copyLanLink() {
       if (!this.lanRoom) return;
       const value = this.lanRoom.joinUrl || this.lanRoom.url;
-      try {
-        await navigator.clipboard.writeText(value);
-      } catch (_) {
-        const input = document.createElement('textarea');
-        input.value = value;
-        input.setAttribute('readonly', '');
-        input.style.position = 'fixed';
-        input.style.opacity = '0';
-        document.body.appendChild(input);
-        input.select();
-        document.execCommand('copy');
-        document.body.removeChild(input);
+      let copied = false;
+      if (
+        window.isSecureContext &&
+        navigator.clipboard &&
+        navigator.clipboard.writeText
+      ) {
+        try {
+          await navigator.clipboard.writeText(value);
+          copied = true;
+        } catch (_) {
+          /* fallback to execCommand */
+        }
+      }
+      if (!copied) {
+        try {
+          const input = document.createElement('textarea');
+          input.value = value;
+          input.setAttribute('readonly', '');
+          input.style.position = 'fixed';
+          input.style.opacity = '0';
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand('copy');
+          document.body.removeChild(input);
+        } catch (_) {
+          /* ignore copy errors */
+        }
       }
       this.$store.dispatch('showToast', 'KTV 加入链接已复制');
       this.copyLinkState = 'copied';
       window.clearTimeout(this.copyLinkTimer);
       this.copyLinkTimer = window.setTimeout(() => {
         this.copyLinkState = 'idle';
+      }, 1800);
+    },
+    async copyBackupLink() {
+      if (!this.lanRoom || !this.lanRoom.backupJoinUrl) return;
+      const value = this.lanRoom.backupJoinUrl;
+      let copied = false;
+      if (
+        window.isSecureContext &&
+        navigator.clipboard &&
+        navigator.clipboard.writeText
+      ) {
+        try {
+          await navigator.clipboard.writeText(value);
+          copied = true;
+        } catch (_) {
+          /* fallback to execCommand */
+        }
+      }
+      if (!copied) {
+        try {
+          const input = document.createElement('textarea');
+          input.value = value;
+          input.setAttribute('readonly', '');
+          input.style.position = 'fixed';
+          input.style.opacity = '0';
+          document.body.appendChild(input);
+          input.select();
+          document.execCommand('copy');
+          document.body.removeChild(input);
+        } catch (_) {
+          /* ignore copy errors */
+        }
+      }
+      this.$store.dispatch('showToast', '备用加入链接已复制');
+      this.copyBackupLinkState = 'copied';
+      window.clearTimeout(this.copyBackupLinkTimer);
+      this.copyBackupLinkTimer = window.setTimeout(() => {
+        this.copyBackupLinkState = 'idle';
       }, 1800);
     },
     async enterKtvFullscreen() {
