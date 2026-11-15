@@ -411,3 +411,7 @@ SHA256 `d82970f810e855764bea2a63991d00f4015806f05d91f4116eb295dd706c5f80`。
 资源包 `2a76a295978ca5c0a1d229114ae832eb2095d9b6184ed623f2189dabaef8f850`；
 索引 `4d03eaa71d95dbb886da0dc4ddd23ed74c713b798d7847aabdcaf8c150d43a62`；
 对应源码包 `a9161de713149e51a3faca01face76eee9f376cae67111e049c108a0edc980e3`。
+
+## 公网点歌
+
+公网入口的启用、换主机、换域名和回退步骤见 [公网点歌部署与迁移](PUBLIC-KTV.md)。

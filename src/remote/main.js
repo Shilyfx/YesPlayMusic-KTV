@@ -19,7 +19,12 @@ const { clearSearchNotice, createSearchScheduler, getRetryAfterMs } =
 const app = document.querySelector('#remote-app');
 const apiRoot = '/ktv/api';
 const roomCode = window.location.pathname.split('/').filter(Boolean).pop();
-const storageKey = `yesplaymusic-ktv:${roomCode}`;
+const roomLinkParams = new URLSearchParams(window.location.hash.slice(1));
+const publicGuest = roomLinkParams.get('public') === '1';
+const joinToken = roomLinkParams.get('token') || '';
+const storageKey = `yesplaymusic-ktv:${roomCode}${
+  publicGuest ? ':public' : ''
+}`;
 let client;
 function shuffleEffects(list) {
   const copy = [...list];
@@ -1475,6 +1480,7 @@ function ensureModuleLoaded(module) {
 function prefetchCatalogModules() {
   if (!client?.clientToken) return;
   loadFeaturedArtists();
+  if (publicGuest) return;
   const currentCatalog =
     selectedModule === 'recommendations'
       ? 'recommendations'
@@ -1947,7 +1953,7 @@ async function selectArtist(artistId) {
     renderArtistTracks();
     return;
   }
-  if (!localPlaylistsLoaded) {
+  if (!publicGuest && !localPlaylistsLoaded) {
     await loadLocalPlaylists().catch(() => {});
   }
   const localInitial = localTracksForArtist(selectedArtistId);
@@ -2488,16 +2494,16 @@ function showEnded() {
 }
 
 async function joinRoom() {
-  const joinToken = new URLSearchParams(window.location.hash.slice(1)).get(
-    'token'
-  );
-  const headers = joinToken ? { Authorization: `Bearer ${joinToken}` } : {};
+  const headers = { Authorization: joinToken ? `Bearer ${joinToken}` : '' };
   client = await api('/client-session', {
     method: 'POST',
     headers,
   });
   if (!client?.clientToken) return false;
-  sessionStorage.setItem(storageKey, JSON.stringify(client));
+  sessionStorage.setItem(
+    storageKey,
+    JSON.stringify(publicGuest ? { ...client, joinToken } : client)
+  );
   return true;
 }
 
@@ -2506,13 +2512,18 @@ async function bootstrap() {
   // failure must not leave the remote page as an empty gradient background;
   // the user should still see the room controls and a useful status notice.
   initializeShell();
+  app.classList.toggle('public-guest', publicGuest);
   try {
     client = JSON.parse(sessionStorage.getItem(storageKey) || 'null');
-    if (!client?.clientToken) {
+    if (
+      !client?.clientToken ||
+      (publicGuest && client.joinToken !== joinToken)
+    ) {
+      client = null;
       if (!(await joinRoom())) return showEnded();
     }
     ensureModuleLoaded(selectedModule);
-    loadLocalPlaylists().catch(() => {});
+    if (!publicGuest) loadLocalPlaylists().catch(() => {});
     prefetchCatalogModules();
     await requestRefresh();
   } catch (error) {
@@ -2522,7 +2533,7 @@ async function bootstrap() {
       try {
         if (await joinRoom()) {
           ensureModuleLoaded(selectedModule);
-          loadLocalPlaylists().catch(() => {});
+          if (!publicGuest) loadLocalPlaylists().catch(() => {});
           prefetchCatalogModules();
           await requestRefresh();
           return;

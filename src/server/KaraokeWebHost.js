@@ -55,6 +55,7 @@ function safeSearchDiagnosticError(error) {
 export default class KaraokeWebHost {
   constructor({
     publicOrigin = '',
+    publicGuestOrigin = '',
     allowedHosts = [],
     remoteDistPath = '',
     now = Date.now,
@@ -72,6 +73,20 @@ export default class KaraokeWebHost {
       .filter(Boolean)
       .map(item => String(item).trim());
     this.publicOrigin = publicOrigin ? new URL(publicOrigin).origin : null;
+    this.publicGuestOrigin = '';
+    if (publicGuestOrigin) {
+      const origin = new URL(publicGuestOrigin);
+      if (
+        origin.protocol !== 'https:' ||
+        origin.username ||
+        origin.password ||
+        origin.pathname !== '/' ||
+        origin.search ||
+        origin.hash
+      )
+        throw new Error('KTV_PUBLIC_GUEST_ORIGIN must be an HTTPS origin');
+      this.publicGuestOrigin = origin.origin;
+    }
     this.allowedHosts = new Set(
       (Array.isArray(allowedHosts) ? allowedHosts : [allowedHosts])
         .filter(Boolean)
@@ -140,10 +155,8 @@ export default class KaraokeWebHost {
         next: expected => this.command('next', { expected }),
       },
     });
-    this.roomServer.setRemoteApi(
-      new RemoteApiRouter(this.service),
-      this.service
-    );
+    this.remoteApi = new RemoteApiRouter(this.service);
+    this.roomServer.setRemoteApi(this.remoteApi, this.service);
   }
 
   async loadLocalDirectories(fallbackDirectories = []) {
@@ -688,10 +701,22 @@ export default class KaraokeWebHost {
         /* ignore invalid alt origin */
       }
     }
+    const publicJoinUrl = room.publicJoinToken
+      ? `${this.publicGuestOrigin}/room/#public=1&token=${room.publicJoinToken}`
+      : '';
     return {
       code: room.code,
       name: room.name,
       url,
+      ...(publicJoinUrl
+        ? {
+            publicJoinUrl,
+            publicQrDataUrl: await QRCode.toDataURL(publicJoinUrl, {
+              margin: 3,
+              width: 520,
+            }),
+          }
+        : {}),
       joinUrl: url,
       backupJoinUrl: backupUrl,
       qrDataUrl: await QRCode.toDataURL(url, { margin: 3, width: 520 }),
@@ -1013,7 +1038,64 @@ export default class KaraokeWebHost {
     return this.json(response, 404, { error: 'NOT_FOUND' });
   }
 
-  async handle(request, response) {
+  async handlePublicGuest(request, response) {
+    this.expire();
+    response.setHeader('Referrer-Policy', 'no-referrer');
+    response.setHeader('X-Content-Type-Options', 'nosniff');
+    response.setHeader('Cache-Control', 'no-store');
+    const rawPath = request.url.split('?')[0];
+    if (
+      !this.publicGuestOrigin ||
+      !/^\/[a-zA-Z0-9/_\-.]*$/.test(rawPath) ||
+      rawPath.split('/').some(part => part === '.' || part === '..')
+    ) {
+      return this.json(response, 404, { error: 'NOT_FOUND' });
+    }
+    const { method } = request;
+    if (method === 'GET' && rawPath === '/room') {
+      response.writeHead(308, { Location: '/room/' });
+      return response.end();
+    }
+    if (
+      method === 'GET' &&
+      (rawPath === '/room/' ||
+        /^\/room\/(?:js|css|img|fonts)\/[\w./-]+\.(?:js|css|woff2?|ttf|svg|png|jpe?g|webp|gif|avif)$/i.test(
+          rawPath
+        ))
+    ) {
+      return this.roomServer.handleRequest(request, response);
+    }
+    if (method === 'POST' && request.headers.origin !== this.publicGuestOrigin)
+      return this.json(response, 403, { error: 'FORBIDDEN' });
+    if (method === 'POST' && rawPath === '/ktv/api/client-session') {
+      const room = this.roomServer.room;
+      if (!room) return this.json(response, 410, { error: 'ROOM_ENDED' });
+      const supplied = Buffer.from(request.headers.authorization || '');
+      const expected = Buffer.from(`Bearer ${room.publicJoinToken}`);
+      if (
+        !room.publicJoinToken ||
+        supplied.length !== expected.length ||
+        !crypto.timingSafeEqual(supplied, expected)
+      ) {
+        return this.json(response, 401, { error: 'INVALID_JOIN_TOKEN' });
+      }
+      request.headers.authorization = `Bearer ${room.token}`;
+      return this.remoteApi.handle(request, response, true);
+    }
+    if (method === 'POST' && rawPath === '/ktv/api/reactions')
+      return this.handle(request, response, true);
+    if (
+      (method === 'GET' &&
+        /^\/ktv\/api\/(?:state|search|artists\/search|artists\/\d{1,20}\/tracks)$/.test(
+          rawPath
+        )) ||
+      (method === 'POST' && rawPath === '/ktv/api/requests')
+    )
+      return this.remoteApi.handle(request, response, true);
+    return this.json(response, 404, { error: 'NOT_FOUND' });
+  }
+
+  async handle(request, response, publicGuest = false) {
     this.expire();
     const url = new URL(
       request.url,
@@ -1116,7 +1198,7 @@ export default class KaraokeWebHost {
     if (route === '/ktv/api/reactions') {
       if (request.method !== 'POST')
         return this.json(response, 405, { error: 'METHOD_NOT_ALLOWED' });
-      if (!this.isValidOrigin(request))
+      if (!publicGuest && !this.isValidOrigin(request))
         return this.json(response, 403, { error: 'FORBIDDEN' });
       if (!/^application\/json/.test(request.headers['content-type'] || ''))
         return this.json(response, 415, { error: 'JSON_REQUIRED' });
@@ -1126,14 +1208,14 @@ export default class KaraokeWebHost {
       );
       let client;
       try {
-        client = this.service.client(token);
+        client = this.service.client(token, publicGuest);
       } catch (_) {
         return this.json(response, 401, { error: 'INVALID_CLIENT_TOKEN' });
       }
       try {
         const body = await this.readBody(request);
         this.expire();
-        this.service.client(token);
+        this.service.client(token, publicGuest);
         if (
           body.kind === 'emotion'
             ? !upstreamReactions.some(item => item.emotion === body.emotionId)
@@ -1282,6 +1364,7 @@ export default class KaraokeWebHost {
           code: crypto.randomBytes(3).toString('hex').toUpperCase(),
           name: 'LumaSing KTV',
           token: secret(),
+          publicJoinToken: this.publicGuestOrigin ? secret() : '',
           generation: ++this.generation,
           sessionId: body.snapshot.session.sessionId,
           ...(Number.isSafeInteger(this.owner.catalogEpoch)

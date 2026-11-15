@@ -9,6 +9,7 @@ const defaultLocalDirs = (process.env.KTV_LOCAL_MUSIC_DIRS || '/music/周杰伦'
 
 const host = new KaraokeWebHost({
   publicOrigin: process.env.KTV_PUBLIC_ORIGIN || '',
+  publicGuestOrigin: process.env.KTV_PUBLIC_GUEST_ORIGIN || '',
   allowedHosts: (process.env.KTV_ALLOWED_HOSTS || '')
     .split(/[,;]/)
     .map(item => item.trim())
@@ -30,9 +31,25 @@ const server = http.createServer((req, res) => host.handle(req, res));
 server.requestTimeout = 15000;
 server.headersTimeout = 10000;
 server.listen(Number(process.env.PORT || 3100), '0.0.0.0');
+const publicGuestServer = host.publicGuestOrigin
+  ? http.createServer(async (req, res) => {
+      try {
+        await host.handlePublicGuest(req, res);
+      } catch (_) {
+        if (res.headersSent) res.destroy();
+        else host.json(res, 502, { error: 'REMOTE_UNAVAILABLE' });
+      }
+    })
+  : null;
+if (publicGuestServer) {
+  publicGuestServer.requestTimeout = 15000;
+  publicGuestServer.headersTimeout = 10000;
+  publicGuestServer.listen(3101, '0.0.0.0');
+}
 const leaseTimer = setInterval(() => host.expire(), 5000);
 process.on('SIGTERM', () => {
   clearInterval(leaseTimer);
   host.close();
+  if (publicGuestServer) publicGuestServer.close();
   server.close(() => process.exit(0));
 });

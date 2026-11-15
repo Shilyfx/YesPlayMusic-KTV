@@ -53,6 +53,26 @@ body {
 :root[data-theme='light'] body {
   --page: #edf1f9;
 }
+#remote-app {
+  display: flow-root;
+  min-height: 100vh;
+}
+:root[data-theme='light'] .ended {
+  background: #ffffffbf;
+  border-color: #ffffff;
+}
+:root[data-theme='light'] .ended p:last-child {
+  color: #59627a;
+}
+@media (prefers-color-scheme: light) {
+  :root[data-theme='auto'] .ended {
+    background: #ffffffbf;
+    border-color: #ffffff;
+  }
+  :root[data-theme='auto'] .ended p:last-child {
+    color: #59627a;
+  }
+}
 button,
 input,
 select {
@@ -1614,4 +1634,9 @@ button.request-ack {
   .reaction-studio button {
     transition: none;
   }
+}
+
+.public-guest
+  :is([data-module-tab='recommendations'], [data-module-tab='local-playlists'], [data-module-tab='playlists'], [data-next-track], [data-priority], [data-preview], .queue-actions) {
+  display: none;
 }

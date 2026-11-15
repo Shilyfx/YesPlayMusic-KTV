@@ -121,7 +121,7 @@
           {{ lanRoom.qrError }}
         </p>
         <div v-if="lanRoom" class="room-link-block">
-          <span class="room-link-label">直接加入链接</span>
+          <span class="room-link-label">局域网点歌</span>
           <div class="room-link-row">
             <code class="room-link">{{ lanRoom.joinUrl || lanRoom.url }}</code>
             <button type="button" class="room-link-copy" @click="copyLanLink">
@@ -144,7 +144,9 @@
             </button>
           </div>
         </div>
-        <p v-else>服务会监听全部网络；你选择的网卡只决定二维码中的访问地址。</p>
+        <p v-if="!lanRoom"
+          >服务会监听全部网络；你选择的网卡只决定二维码中的访问地址。</p
+        >
         <label v-if="lanCandidates.length">
           网卡地址
           <select v-model="selectedLanAddress">
@@ -186,6 +188,25 @@
           当前网卡自检失败，请确认手机与主机处于同一局域网
         </p>
       </div>
+      <template v-if="lanRoom && lanRoom.publicJoinUrl">
+        <div class="room-qr-wrap">
+          <img :src="lanRoom.publicQrDataUrl" alt="公网 KTV 房间二维码" />
+        </div>
+        <div class="room-access-copy room-link-block">
+          <strong>公网点歌</strong>
+          <p>适用于使用移动网络或其他 Wi-Fi 的来宾。</p>
+          <div class="room-link-row">
+            <code class="room-link">{{ lanRoom.publicJoinUrl }}</code>
+            <button
+              type="button"
+              class="room-link-copy"
+              @click="copyPublicLink"
+            >
+              一键复制
+            </button>
+          </div>
+        </div>
+      </template>
     </section>
 
     <section
@@ -2156,7 +2177,23 @@ export default {
     },
     async copyBackupLink() {
       if (!this.lanRoom || !this.lanRoom.backupJoinUrl) return;
-      const value = this.lanRoom.backupJoinUrl;
+      if (!(await this.copyRoomLink(this.lanRoom.backupJoinUrl))) return;
+      this.$store.dispatch('showToast', '备用加入链接已复制');
+      this.copyBackupLinkState = 'copied';
+      window.clearTimeout(this.copyBackupLinkTimer);
+      this.copyBackupLinkTimer = window.setTimeout(() => {
+        this.copyBackupLinkState = 'idle';
+      }, 1800);
+    },
+    async copyPublicLink() {
+      if (!this.lanRoom?.publicJoinUrl) return;
+      const copied = await this.copyRoomLink(this.lanRoom.publicJoinUrl);
+      this.$store.dispatch(
+        'showToast',
+        copied ? '公网点歌链接已复制' : '复制失败，请手动复制链接'
+      );
+    },
+    async copyRoomLink(value) {
       let copied = false;
       if (
         window.isSecureContext &&
@@ -2179,18 +2216,16 @@ export default {
           input.style.opacity = '0';
           document.body.appendChild(input);
           input.select();
-          document.execCommand('copy');
-          document.body.removeChild(input);
+          try {
+            copied = document.execCommand('copy');
+          } finally {
+            input.remove();
+          }
         } catch (_) {
-          /* ignore copy errors */
+          /* Keep the link selectable when clipboard access is unavailable. */
         }
       }
-      this.$store.dispatch('showToast', '备用加入链接已复制');
-      this.copyBackupLinkState = 'copied';
-      window.clearTimeout(this.copyBackupLinkTimer);
-      this.copyBackupLinkTimer = window.setTimeout(() => {
-        this.copyBackupLinkState = 'idle';
-      }, 1800);
+      return copied;
     },
     async enterKtvFullscreen() {
       const target = this.$refs.karaokeSurface;

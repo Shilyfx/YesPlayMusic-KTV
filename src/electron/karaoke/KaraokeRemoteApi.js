@@ -770,15 +770,18 @@ export class KaraokeRemoteService {
     if (!this.getRoom()) throw new Error('ROOM_ENDED');
   }
 
-  bootstrap(joinToken, remoteAddress = '') {
+  bootstrap(joinToken, remoteAddress = '', publicGuest = false) {
     this.ensureActive();
     this.sessions.purgeExpired();
-    if (!this.limiter.check(`bootstrap:${remoteAddress}`, 10))
+    if (
+      !this.limiter.check(`bootstrap:${remoteAddress}`, publicGuest ? 40 : 10)
+    )
       throw new Error('RATE_LIMIT');
     if (!this.limiter.check('bootstrap:room', 40))
       throw new Error('RATE_LIMIT');
     if (this.sessions.clients.size >= 32) throw new Error('ROOM_FULL');
     const session = this.sessions.create(joinToken);
+    session.publicGuest = publicGuest;
     return {
       clientId: session.clientId,
       clientToken: session.clientToken,
@@ -786,9 +789,12 @@ export class KaraokeRemoteService {
     };
   }
 
-  client(tokenValue) {
+  client(tokenValue, publicGuest = false) {
     this.ensureActive();
-    return this.sessions.authorize(tokenValue);
+    const session = this.sessions.authorize(tokenValue);
+    if (Boolean(session.publicGuest) !== publicGuest)
+      throw new Error('INVALID_CLIENT_TOKEN');
+    return session;
   }
 
   async state(client) {
@@ -823,7 +829,7 @@ export class KaraokeRemoteService {
       client: {
         clientId: client.clientId,
         displayName: client.displayName,
-        permissions: { priority: true },
+        permissions: { priority: !client.publicGuest },
       },
     };
   }
@@ -990,9 +996,9 @@ export class KaraokeRemoteService {
       this.catalog.getTrack(trackId),
       this.catalog.availability(trackId, { fresh: true }),
     ]);
-    this.client(client.clientToken);
+    this.client(client.clientToken, Boolean(client.publicGuest));
     if (availability !== 'playable') throw new Error('TRACK_NOT_PLAYABLE');
-    this.client(client.clientToken);
+    this.client(client.clientToken, Boolean(client.publicGuest));
     const expected = {
       sessionId: client.sessionId,
       generation: client.generation,
@@ -1018,7 +1024,7 @@ export class KaraokeRemoteService {
     );
     if (!item) throw new Error('KTV_NOT_ACTIVE');
     if (priority) {
-      this.client(client.clientToken);
+      this.client(client.clientToken, Boolean(client.publicGuest));
       await this.managerBridge.front(item.queueItemId, expected);
     }
     return this.sanitizeItem(item);
@@ -1125,7 +1131,7 @@ export class RemoteApiRouter {
     this.service = service;
   }
 
-  async handle(request, response) {
+  async handle(request, response, publicGuest = false) {
     const url = new URL(request.url, 'http://karaoke.local');
     if (!url.pathname.startsWith('/ktv/api/')) return false;
     try {
@@ -1138,11 +1144,12 @@ export class RemoteApiRouter {
           200,
           this.service.bootstrap(
             bearer(request),
-            request.socket.remoteAddress || ''
+            publicGuest ? 'public' : request.socket.remoteAddress || '',
+            publicGuest
           )
         );
       }
-      const client = this.service.client(bearer(request));
+      const client = this.service.client(bearer(request), publicGuest);
       if (url.pathname === '/ktv/api/state' && request.method === 'GET') {
         return json(response, 200, await this.service.state(client));
       }
@@ -1298,6 +1305,8 @@ export class RemoteApiRouter {
         if (!/^application\/json/.test(request.headers['content-type'] || ''))
           return error(response, 415, 'JSON_REQUIRED');
         const body = await readJson(request);
+        if (publicGuest && !/^\d{1,20}$/.test(String(body?.trackId || '')))
+          return error(response, 400, 'INVALID_TRACK');
         if (
           !/^(?:\d{1,20}|local-[a-f0-9]{16})$/i.test(String(body.trackId || ''))
         )
@@ -1306,7 +1315,7 @@ export class RemoteApiRouter {
           item: await this.service.enqueue(
             client,
             body.trackId,
-            body.priority === true
+            !publicGuest && body.priority === true
           ),
         });
       }

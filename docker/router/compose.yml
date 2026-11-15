@@ -25,12 +25,15 @@ services:
     environment:
       # Optional alternate access URLs shown as backup join links (comma separated).
       # The first one whose hostname differs from the current visit host is used.
+      KTV_PUBLIC_GUEST_ORIGIN: "${KTV_PUBLIC_GUEST_ORIGIN:-}"
       KTV_ALT_ORIGINS: "http://ktv.home,http://192.168.100.1:18080"
     volumes:
       - ./dist/ktv-server.cjs:/app/ktv-server.cjs:ro
       - ./dist/remote:/app/remote:ro
       - ./local-music:/music:ro
       - ./data:/data
+    ports:
+      - "127.0.0.1:13101:3101"
     mem_limit: 192m
     cpus: 1.0
     healthcheck:
