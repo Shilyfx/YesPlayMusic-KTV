@@ -245,6 +245,9 @@ h2 {
 .notice[data-kind='error'] {
   color: #ff929d;
 }
+.notice[data-kind='warning'] {
+  color: #ffd38a;
+}
 .notice[data-kind='success'] {
   color: #79e4b2;
 }
@@ -305,6 +308,11 @@ h2 {
   color: #fff2f4;
   background: #361925eb;
 }
+.request-toast[data-kind='warning'] {
+  border-color: #ffd38a66;
+  color: #fff8e9;
+  background: #3b2d18eb;
+}
 :root[data-theme='light'] .request-toast {
   border-color: #26a86e55;
   color: #0e4a30;
@@ -315,6 +323,11 @@ h2 {
   border-color: #d94a5955;
   color: #6b1520;
   background: #fff0f2f2;
+}
+:root[data-theme='light'] .request-toast[data-kind='warning'] {
+  border-color: #c7811a55;
+  color: #61400d;
+  background: #fff6e3f2;
 }
 .request-toast.toast-active {
   animation: request-toast-fade 0.92s cubic-bezier(0.2, 0.85, 0.3, 1) both;

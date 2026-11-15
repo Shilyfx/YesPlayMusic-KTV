@@ -121,7 +121,10 @@ async function run() {
         await post(
           guest,
           '/ktv/api/requests',
-          { trackId: 'local-0123456789abcdef' },
+          {
+            trackId: 'local-0123456789abcdef',
+            requestId: 'request-public-local-0001',
+          },
           clientToken
         )
       ).status,
@@ -130,7 +133,11 @@ async function run() {
     const requested = await post(
       guest,
       '/ktv/api/requests',
-      { trackId: '123', priority: true },
+      {
+        trackId: '123',
+        priority: true,
+        requestId: 'request-public-guest-0001',
+      },
       clientToken
     );
     assert.equal(requested.status, 201, await requested.text());

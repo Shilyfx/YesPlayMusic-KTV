@@ -2,6 +2,8 @@ import crypto from 'crypto';
 import http from 'http';
 
 const CLIENT_TTL = 5 * 60 * 60 * 1000;
+const ENQUEUE_REQUEST_TTL = CLIENT_TTL;
+const MAX_ENQUEUE_REQUESTS = 8192;
 const CACHE_TTL = 5 * 60 * 1000;
 const SEARCH_CACHE_TTL = 15 * 1000;
 const RATE_LIMIT_WINDOW_MS = 10 * 1000;
@@ -752,18 +754,23 @@ export class KaraokeRemoteService {
     this.getRoom = getRoom;
     this.sessions = new RemoteClientSessionStore();
     this.limiter = new RateLimiter();
+    this.enqueueRequests = new Map();
   }
 
   onRoomStart(room) {
     this.sessions.start(room);
     this.limiter.clear();
-    this.catalog.resetRoomCatalog?.();
+    this.enqueueRequests.clear();
+    if (typeof this.catalog.resetRoomCatalog === 'function')
+      this.catalog.resetRoomCatalog();
   }
 
   onRoomStop() {
     this.sessions.stop();
     this.limiter.clear();
-    this.catalog.resetRoomCatalog?.();
+    this.enqueueRequests.clear();
+    if (typeof this.catalog.resetRoomCatalog === 'function')
+      this.catalog.resetRoomCatalog();
   }
 
   ensureActive() {
@@ -806,7 +813,7 @@ export class KaraokeRemoteService {
     const room = this.getRoom();
     const snapshot = await this.managerBridge.snapshot();
     return {
-      ...(Number.isSafeInteger(room?.catalogEpoch)
+      ...(Number.isSafeInteger(room && room.catalogEpoch)
         ? { catalogEpoch: room.catalogEpoch }
         : {}),
       revision: snapshot.revision == null ? 0 : snapshot.revision,
@@ -987,7 +994,65 @@ export class KaraokeRemoteService {
     return this.catalog.preview(trackId);
   }
 
-  async enqueue(client, trackId, priority) {
+  purgeEnqueueRequests(now = Date.now()) {
+    for (const [key, entry] of this.enqueueRequests) {
+      if (entry.expiresAt <= now) this.enqueueRequests.delete(key);
+    }
+  }
+
+  async enqueue(client, trackId, priority, requestId) {
+    if (requestId === undefined)
+      return this.enqueueTrack(client, trackId, priority);
+    if (
+      typeof requestId !== 'string' ||
+      !/^[A-Za-z0-9_-]{16,128}$/.test(requestId)
+    )
+      throw new Error('INVALID_REQUEST_ID');
+
+    const key = JSON.stringify([client.sessionId, client.clientId, requestId]);
+    const fingerprint = JSON.stringify({
+      trackId: String(trackId),
+      priority: priority === true,
+    });
+    const now = Date.now();
+    this.purgeEnqueueRequests(now);
+    const existing = this.enqueueRequests.get(key);
+    if (existing) {
+      if (existing.fingerprint !== fingerprint)
+        throw new Error('IDEMPOTENCY_KEY_REUSED');
+      existing.expiresAt = now + ENQUEUE_REQUEST_TTL;
+      this.enqueueRequests.delete(key);
+      this.enqueueRequests.set(key, existing);
+      return existing.promise;
+    }
+    if (this.enqueueRequests.size >= MAX_ENQUEUE_REQUESTS)
+      throw new Error('IDEMPOTENCY_CAPACITY');
+
+    const entry = {
+      fingerprint,
+      expiresAt: now + ENQUEUE_REQUEST_TTL,
+      promise: null,
+    };
+    entry.promise = Promise.resolve()
+      .then(() =>
+        this.enqueueTrack(client, trackId, priority, () => {
+          entry.mutationStarted = true;
+        })
+      )
+      .catch(exception => {
+        // Keep outcomes once the host enqueue command has started. Its reply
+        // can be lost after the queue changed, so retrying must never enqueue
+        // a second item. Failures before that point may safely be attempted
+        // again with the same key.
+        if (!entry.mutationStarted && this.enqueueRequests.get(key) === entry)
+          this.enqueueRequests.delete(key);
+        throw exception;
+      });
+    this.enqueueRequests.set(key, entry);
+    return entry.promise;
+  }
+
+  async enqueueTrack(client, trackId, priority, onMutationStart = () => {}) {
     if (!this.limiter.check(`mutation:${client.clientId}`, 20))
       throw new Error('RATE_LIMIT');
     if (!this.limiter.check('mutation:room', 120))
@@ -1003,6 +1068,7 @@ export class KaraokeRemoteService {
       sessionId: client.sessionId,
       generation: client.generation,
     };
+    onMutationStart();
     const item = await this.managerBridge.enqueue(
       {
         id: track.trackId,
@@ -1305,7 +1371,16 @@ export class RemoteApiRouter {
         if (!/^application\/json/.test(request.headers['content-type'] || ''))
           return error(response, 415, 'JSON_REQUIRED');
         const body = await readJson(request);
-        if (publicGuest && !/^\d{1,20}$/.test(String(body?.trackId || '')))
+        if (
+          body.requestId !== undefined &&
+          (typeof body.requestId !== 'string' ||
+            !/^[A-Za-z0-9_-]{16,128}$/.test(body.requestId))
+        )
+          return error(response, 400, 'INVALID_REQUEST_ID');
+        if (
+          publicGuest &&
+          !/^\d{1,20}$/.test(String((body && body.trackId) || ''))
+        )
           return error(response, 400, 'INVALID_TRACK');
         if (
           !/^(?:\d{1,20}|local-[a-f0-9]{16})$/i.test(String(body.trackId || ''))
@@ -1315,7 +1390,8 @@ export class RemoteApiRouter {
           item: await this.service.enqueue(
             client,
             body.trackId,
-            !publicGuest && body.priority === true
+            !publicGuest && body.priority === true,
+            body.requestId
           ),
         });
       }
@@ -1352,8 +1428,11 @@ export class RemoteApiRouter {
         ROOM_ENDED: [410, 'ROOM_ENDED'],
         FORBIDDEN: [403, 'FORBIDDEN'],
         RATE_LIMIT: [429, 'RATE_LIMIT'],
+        IDEMPOTENCY_CAPACITY: [429, 'IDEMPOTENCY_CAPACITY'],
         ROOM_FULL: [429, 'ROOM_FULL'],
         TRACK_NOT_PLAYABLE: [409, 'TRACK_NOT_PLAYABLE'],
+        IDEMPOTENCY_KEY_REUSED: [409, 'IDEMPOTENCY_KEY_REUSED'],
+        INVALID_REQUEST_ID: [400, 'INVALID_REQUEST_ID'],
         TRACK_NOT_FOUND: [404, 'TRACK_NOT_FOUND'],
         KTV_NOT_ACTIVE: [409, 'KTV_NOT_ACTIVE'],
         HOST_NOT_LOGGED_IN: [409, 'HOST_NOT_LOGGED_IN'],

@@ -657,7 +657,14 @@ async function testExpiredCommand() {
   let revision = 1;
   let failOnce = true;
   const exchanges = [];
-  const command = { id: 'one', action: 'next', payload: {} };
+  const command = {
+    id: 'one',
+    action: 'enqueue',
+    payload: {
+      requestId: 'request-docker-bridge-0001',
+      trackId: '101',
+    },
+  };
   const bridge = createWebRoomBridge({
     manager: {
       getSnapshot: () => ({
@@ -696,7 +703,11 @@ async function testExpiredCommand() {
   await flush();
   await assert.rejects(bridge.exchange(), /lost reply/);
   await bridge.exchange();
-  assert.equal(executed, 1, 'retried commands must not skip twice');
+  assert.equal(
+    executed,
+    1,
+    'a lost Docker acknowledgment must not enqueue a command twice'
+  );
   assert.equal(exchanges[1].results[0].result, 'done');
   assert.equal(
     exchanges[2].results[0].result,

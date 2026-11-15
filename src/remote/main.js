@@ -2,6 +2,7 @@ import './styles.css';
 import createRefreshScheduler from './refreshScheduler';
 import createCatalogPrefetchScheduler from './catalogPrefetchScheduler';
 import searchSchedulerModule from './searchScheduler.cjs';
+import requestSubmissionModule from './requestSubmission.cjs';
 import invalidateRemoteCatalogState from './catalogEpoch';
 import { appendCatalogItems, catalogPageProgress } from './catalogPagination';
 import { loadEmotionBall, loadMoodMates } from '../karaoke/moodMates';
@@ -15,6 +16,7 @@ import {
 
 const { clearSearchNotice, createSearchScheduler, getRetryAfterMs } =
   searchSchedulerModule;
+const { createRequestSubmission } = requestSubmissionModule;
 
 const app = document.querySelector('#remote-app');
 const apiRoot = '/ktv/api';
@@ -263,6 +265,22 @@ function api(path, options = {}) {
   });
 }
 
+const requestSubmission = createRequestSubmission({
+  send: async (payload, signal) => {
+    const response = await api('/requests', {
+      method: 'POST',
+      body: JSON.stringify(payload),
+      signal,
+    });
+    if (!response?.item?.queueItemId) {
+      const error = new Error('INVALID_REQUEST_CONFIRMATION');
+      error.status = 502;
+      throw error;
+    }
+    return response;
+  },
+});
+
 function setNotice(message = '', kind = '') {
   const notice = app.querySelector('[data-notice]');
   if (!notice) return;
@@ -360,6 +378,50 @@ function showRequestToast(message = '点歌成功', kind = 'success') {
     toast.classList.remove('toast-active');
     toast.hidden = true;
   }, 950);
+}
+
+function requestButtonMarkup(trackId, priority, label, unavailable = false) {
+  const state = requestSubmission.getState(trackId);
+  const inFlight = state?.status === 'inFlight';
+  const matchingIntent = state && state.priority === priority;
+  const locked = unavailable || inFlight || (state && !matchingIntent);
+  const text = inFlight
+    ? '正在提交…'
+    : state?.status === 'unknown' && matchingIntent
+    ? '安全重试'
+    : state?.status === 'cooldown' && matchingIntent
+    ? '刚刚已加入'
+    : label;
+  const attribute = priority ? 'data-priority' : 'data-request';
+  return `<button class="${
+    priority ? 'priority-button' : ''
+  }" ${attribute}="${escape(
+    trackId
+  )}" data-request-label="${label}" data-request-unavailable="${
+    unavailable ? 'true' : 'false'
+  }" ${locked ? 'disabled' : ''}>${text}</button>`;
+}
+
+function updateRequestButtons(trackId) {
+  const id = String(trackId);
+  const state = requestSubmission.getState(id);
+  app.querySelectorAll('[data-request], [data-priority]').forEach(button => {
+    const buttonId = button.dataset.request || button.dataset.priority;
+    if (buttonId !== id) return;
+    const priority = button.hasAttribute('data-priority');
+    const matchingIntent = state && state.priority === priority;
+    const unavailable = button.dataset.requestUnavailable === 'true';
+    const inFlight = state?.status === 'inFlight';
+    button.disabled =
+      unavailable || inFlight || Boolean(state && !matchingIntent);
+    button.textContent = inFlight
+      ? '正在提交…'
+      : state?.status === 'unknown' && matchingIntent
+      ? '安全重试'
+      : state?.status === 'cooldown' && matchingIntent
+      ? '刚刚已加入'
+      : button.dataset.requestLabel;
+  });
 }
 
 function formatDuration(milliseconds) {
@@ -852,11 +914,15 @@ function renderHistory() {
           item.requesterName || '主机'
         )}</small></div><div class="request-actions"><button class="quiet preview-button" data-preview="${escape(
           item.trackId
-        )}">试听</button><button data-request="${escape(
-          item.trackId
-        )}">再唱一次</button><button class="priority-button" data-priority="${escape(
-          item.trackId
-        )}">优先再唱</button></div></article>`
+        )}">试听</button>${requestButtonMarkup(
+          item.trackId,
+          false,
+          '再唱一次'
+        )}${requestButtonMarkup(
+          item.trackId,
+          true,
+          '优先再唱'
+        )}</div></article>`
     )
     .join('');
 }
@@ -1018,13 +1084,17 @@ function trackRequestMarkup(track, className = '') {
     track.versionLabel ? `${escape(track.versionLabel)} · ` : ''
   }${formatDuration(
     track.duration
-  )}${availabilityMarkup}</small></div><div class="request-actions">${previewButton}<button data-request="${escape(
-    trackId
-  )}" ${
-    disabled ? 'disabled' : ''
-  }>点歌</button><button class="priority-button" data-priority="${escape(
-    trackId
-  )}" ${disabled ? 'disabled' : ''}>优先点歌</button></div></article>`;
+  )}${availabilityMarkup}</small></div><div class="request-actions">${previewButton}${requestButtonMarkup(
+    trackId,
+    false,
+    '点歌',
+    disabled
+  )}${requestButtonMarkup(
+    trackId,
+    true,
+    '优先点歌',
+    disabled
+  )}</div></article>`;
 }
 
 function normalizeArtistName(value) {
@@ -2306,33 +2376,54 @@ async function requestSong(trackId, priority, button) {
   }
   const track = findTrack(trackId);
   const name = track?.name || '歌曲';
-  showRequestToast(priority ? '优先点歌成功' : '点歌成功', 'success');
-  setNotice(
-    priority ? `${name}点歌成功，已优先加入等待队列` : `${name}点歌成功`,
-    'success'
-  );
-  if (button) {
-    button.classList.add('request-ack');
-    setTimeout(() => {
-      if (button.isConnected) button.classList.remove('request-ack');
-    }, 650);
-  }
+  const submission = requestSubmission.submit(String(trackId), priority);
+  updateRequestButtons(trackId);
   try {
-    await api('/requests', {
-      method: 'POST',
-      body: JSON.stringify({ trackId, priority }),
-    });
-    await requestRefresh();
+    const result = await submission;
+    if (result.status === 'pending') return;
+    if (result.status === 'duplicate') {
+      showRequestToast('这首歌刚刚已加入队列', 'success');
+      return;
+    }
+    if (result.status === 'unknown') {
+      const message =
+        '点歌结果暂未确认；可点“安全重试”继续确认，不会重复入队。';
+      setNotice(message, 'warning');
+      showRequestToast('点歌结果暂未确认', 'warning');
+      return;
+    }
+
+    showRequestToast(priority ? '优先点歌成功' : '点歌成功', 'success');
+    setNotice(
+      priority
+        ? name + '已确认加入队列，并已优先排队'
+        : name + '已确认加入等待队列',
+      'success'
+    );
+    if (button) {
+      button.classList.add('request-ack');
+      setTimeout(() => {
+        if (button.isConnected) button.classList.remove('request-ack');
+      }, 650);
+    }
+    setTimeout(() => updateRequestButtons(trackId), 810);
+    Promise.resolve()
+      .then(() => requestRefresh())
+      .catch(() => {});
   } catch (error) {
     const errorMsg =
       error.code === 'TRACK_NOT_PLAYABLE'
         ? '此歌曲当前不可播放。'
+        : error.code === 'RATE_LIMIT'
+        ? '点歌太频繁，请稍后再试。'
         : '点歌失败，请稍后再试。';
     setNotice(errorMsg, 'error');
     showRequestToast(
       error.code === 'TRACK_NOT_PLAYABLE' ? '此歌曲不可播放' : '点歌失败',
       'error'
     );
+  } finally {
+    updateRequestButtons(trackId);
   }
 }
 

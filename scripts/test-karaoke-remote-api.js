@@ -369,18 +369,99 @@ async function run() {
   );
   const localRequest = await request(port, 'POST', '/ktv/api/requests', {
     token: guestB.body.clientToken,
-    body: { trackId: 'local-0123456789abcdef' },
+    body: {
+      trackId: 'local-0123456789abcdef',
+      requestId: 'request-local-song-0001',
+    },
   });
   assert.equal(localRequest.status, 201);
   assert.equal(localRequest.body.item.source, 'local');
+  const missingRequestId = await request(port, 'POST', '/ktv/api/requests', {
+    token: guestB.body.clientToken,
+    body: { trackId: '101' },
+  });
+  assert.equal(missingRequestId.status, 201);
+  const invalidRequestId = await request(port, 'POST', '/ktv/api/requests', {
+    token: guestB.body.clientToken,
+    body: { trackId: '101', requestId: 'bad' },
+  });
+  assert.equal(invalidRequestId.status, 400);
+  assert.equal(invalidRequestId.body.error, 'INVALID_REQUEST_ID');
+
+  const queueSizeBeforeIdempotency = waitingItems.length;
+  const idempotentBody = {
+    trackId: '101',
+    priority: false,
+    requestId: 'request-remote-api-0001',
+  };
+  const [firstIdempotentRequest, concurrentIdempotentRequest] =
+    await Promise.all([
+      request(port, 'POST', '/ktv/api/requests', {
+        token: guestA.body.clientToken,
+        body: idempotentBody,
+      }),
+      request(port, 'POST', '/ktv/api/requests', {
+        token: guestA.body.clientToken,
+        body: idempotentBody,
+      }),
+    ]);
+  assert.equal(firstIdempotentRequest.status, 201);
+  assert.equal(concurrentIdempotentRequest.status, 201);
+  assert.equal(
+    firstIdempotentRequest.body.item.queueItemId,
+    concurrentIdempotentRequest.body.item.queueItemId,
+    'concurrent replays return the same queue item'
+  );
+  assert.equal(
+    waitingItems.length,
+    queueSizeBeforeIdempotency + 1,
+    'concurrent requests with one ID enqueue only once'
+  );
+  const replayedIdempotentRequest = await request(
+    port,
+    'POST',
+    '/ktv/api/requests',
+    { token: guestA.body.clientToken, body: idempotentBody }
+  );
+  assert.equal(replayedIdempotentRequest.status, 201);
+  assert.equal(
+    replayedIdempotentRequest.body.item.queueItemId,
+    firstIdempotentRequest.body.item.queueItemId,
+    'a later retry returns the confirmed queue item'
+  );
+  const conflictingIdempotentRequest = await request(
+    port,
+    'POST',
+    '/ktv/api/requests',
+    {
+      token: guestA.body.clientToken,
+      body: { ...idempotentBody, trackId: '102' },
+    }
+  );
+  assert.equal(conflictingIdempotentRequest.status, 409);
+  assert.equal(
+    conflictingIdempotentRequest.body.error,
+    'IDEMPOTENCY_KEY_REUSED'
+  );
+  const secondSongRequest = await request(port, 'POST', '/ktv/api/requests', {
+    token: guestA.body.clientToken,
+    body: { ...idempotentBody, requestId: 'request-remote-api-0002' },
+  });
+  assert.equal(secondSongRequest.status, 201);
+  assert.notEqual(
+    secondSongRequest.body.item.queueItemId,
+    firstIdempotentRequest.body.item.queueItemId,
+    'a fresh request ID may queue the same track again'
+  );
+
   const freshRemoteRequest = await request(port, 'POST', '/ktv/api/requests', {
     token: guestA.body.clientToken,
-    body: { trackId: '102' },
+    body: { trackId: '102', requestId: 'request-fresh-track-0001' },
   });
   assert.equal(freshRemoteRequest.status, 201);
   assert.equal(
     bridgeCalls.filter(action => action === 'availability').length,
-    availabilityCallsBeforeCatalog + 1
+    availabilityCallsBeforeCatalog + 4
   );
   const next = await request(port, 'POST', '/ktv/api/next', {
     token: guestA.body.clientToken,
@@ -403,7 +484,7 @@ async function run() {
   assert.equal(playlistTracks.body.tracks[0].playability, 'playable');
   assert.equal(
     bridgeCalls.filter(action => action === 'availability').length,
-    availabilityCallsBeforeCatalog + 1
+    availabilityCallsBeforeCatalog + 4
   );
   assert.ok(bridgeCalls.includes('playlists'));
   assert.ok(bridgeCalls.includes('playlistTracks'));
@@ -522,11 +603,15 @@ async function run() {
   });
   const aRequest = await request(port, 'POST', '/ktv/api/requests', {
     token: guestA.body.clientToken,
-    body: { trackId: '101' },
+    body: { trackId: '101', requestId: 'request-owner-a-0001' },
   });
   const bRequest = await request(port, 'POST', '/ktv/api/requests', {
     token: guestB.body.clientToken,
-    body: { trackId: '101', priority: true },
+    body: {
+      trackId: '101',
+      priority: true,
+      requestId: 'request-owner-b-0001',
+    },
   });
   assert.equal(aRequest.status, 201);
   assert.equal(bRequest.status, 201);
@@ -542,7 +627,7 @@ async function run() {
     token: guestA.body.clientToken,
   });
   assert.equal(state.status, 200);
-  assert.equal(state.body.waiting.length, 4);
+  assert.equal(state.body.waiting.length, 7);
   assert.equal(JSON.stringify(state.body).includes('joinToken'), false);
   assert.equal(JSON.stringify(state.body).includes('clientToken'), false);
   const removed = await request(
@@ -580,7 +665,12 @@ async function run() {
       };
     });
   const enqueueReady = waitForMutation('enqueue');
-  const staleEnqueue = service.enqueue(clientA, '101', false);
+  const staleEnqueue = service.enqueue(
+    clientA,
+    '101',
+    false,
+    'request-stale-queue-0001'
+  );
   await enqueueReady;
   activeSession = { status: 'active', sessionId: 'session-new' };
   bridge.releaseenqueue();

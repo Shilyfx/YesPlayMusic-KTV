@@ -12,6 +12,7 @@ const suites = [
       'test-karaoke-web-host.js',
       'test-karaoke-public-guest.js',
       'test-karaoke-remote-api.js',
+      'test-karaoke-request-submission.js',
       'test-upstream-search-rate-limit.js',
       'test-karaoke-lifecycle.js',
     ],
