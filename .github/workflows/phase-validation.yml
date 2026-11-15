@@ -43,6 +43,7 @@ jobs:
           src/remote/*.js src/remote/*.css vue.config.js
           scripts/test-karaoke-server.js scripts/test-karaoke-lifecycle.js
           scripts/test-karaoke-remote-api.js scripts/test-karaoke-player.js
+          scripts/test-ktv-quick-regression.js
           scripts/test-music-reaction-linkage.js
           scripts/test-safe-storage.js scripts/isolate-remote-assets.js
           src/utils/safeStorage.js src/utils/request.js src/utils/updateApp.js
@@ -62,6 +63,7 @@ jobs:
           src/remote/*.js vue.config.js
           scripts/test-karaoke-server.js scripts/test-karaoke-lifecycle.js
           scripts/test-karaoke-remote-api.js scripts/test-karaoke-player.js
+          scripts/test-ktv-quick-regression.js
           scripts/test-music-reaction-linkage.js
           scripts/test-safe-storage.js scripts/isolate-remote-assets.js
           src/utils/safeStorage.js src/utils/request.js src/utils/updateApp.js
@@ -72,20 +74,16 @@ jobs:
         run: node scripts/test-lyric-stage-modes.js
       - name: Original Folia PV compilers and clock
         run: node scripts/test-folia-pv.js
-      - name: KTV Player persistence and cancellation
-        run: node scripts/test-karaoke-player.js
       - name: KTV LAN room server
         run: node scripts/test-karaoke-server.js
-      - name: KTV LAN lifecycle bridge
-        run: node scripts/test-karaoke-lifecycle.js
-      - name: KTV remote API integration
-        run: node scripts/test-karaoke-remote-api.js
       - name: Safe storage validation
         run: node scripts/test-safe-storage.js
-      - name: Node runtime for Docker KTV tests
+      - name: Node runtime for KTV quick regression
         uses: actions/setup-node@v4
         with:
           node-version: 22
+      - name: KTV quick regression
+        run: yarn test:ktv:quick
       - name: KTV catalog, render and persistence performance regressions
         run: |
           node src/remote/searchScheduler.test.cjs
@@ -100,15 +98,9 @@ jobs:
           node scripts/test-store-persistence.js
       - name: Docker KTV host and browser transport
         run: |
-          node scripts/test-karaoke-web-host.js
           node scripts/test-karaoke-reactions.js
           node scripts/test-music-reaction-linkage.js
           node scripts/test-reaction-loader.js
-          node scripts/test-karaoke-web-bridge.js
-          node scripts/test-karaoke-display.js
-          node scripts/test-karaoke-display-client.js
-          node scripts/test-karaoke-display-preferences.js
-          node scripts/test-karaoke-display-lifecycle.js
           node scripts/build-ktv-server.js
       - name: Folia visual configuration, assets and lifecycle
         run: |
@@ -120,7 +112,6 @@ jobs:
           node scripts/test-folia-tempera-assets.js
           node scripts/test-karaoke-visual-preview.js
           node scripts/test-karaoke-preference-storage.js
-          node scripts/test-karaoke-display-analysis-retry.js
           node scripts/test-folia-build-policy.js
           node scripts/test-smartbeat-integration.js
       - name: Verify analysis models and CPU-side contracts

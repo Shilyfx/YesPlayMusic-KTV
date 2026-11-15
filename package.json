@@ -9,6 +9,7 @@
     "build": "vue-cli-service build && node scripts/isolate-remote-assets.js",
     "build:local-ktv": "node scripts/build-local-ktv.cjs",
     "test:local-ktv-build": "node scripts/test-local-ktv-build.js",
+    "test:ktv:quick": "node scripts/test-ktv-quick-regression.js",
     "lint": "vue-cli-service lint",
     "electron:build": "vue-cli-service electron:build -p never --legacy",
     "electron:build-all": "vue-cli-service electron:build -p never -mwl --legacy",
