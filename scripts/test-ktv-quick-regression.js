@@ -26,7 +26,7 @@ const suites = [
   },
   {
     name: 'Playback',
-    tests: ['test-karaoke-player.js'],
+    tests: ['test-karaoke-player.js', 'test-karaoke-recovery.js'],
   },
   {
     name: 'Primary and secondary displays',

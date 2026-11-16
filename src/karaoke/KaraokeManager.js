@@ -5,14 +5,20 @@ import { KARAOKE_ITEM_STATUS, KARAOKE_SESSION_STATUS } from './constants';
 const hostRequester = { id: 'host', name: '主机' };
 
 export default class KaraokeManager {
-  constructor(playerAdapter) {
+  constructor(playerAdapter, { recoveryStorage = null } = {}) {
     this.playerAdapter = playerAdapter;
     this.session = new KaraokeSession();
     this.queue = new KaraokeQueue();
+    this.recoveryStorage = recoveryStorage;
+    this.preserveRecoveryOnPageHide = false;
     this.listeners = [];
     this.revision = 0;
     this.transitionPromise = null;
     this.transitionId = 0;
+    const recovered = this.recoveryStorage?.load();
+    if (recovered && this.session.restore(recovered.session)) {
+      this.queue.restoreWaitingItems(recovered.waitingItems);
+    }
     this.playerAdapter.onEnded(() => this.handleTrackEnded());
     this.playerAdapter.onError(() => this.handlePlaybackError());
     this.playerAdapter.setCommandHandlers({
@@ -53,12 +59,38 @@ export default class KaraokeManager {
 
   notify() {
     this.revision += 1;
+    this.persistRecoverySnapshot();
     const snapshot = this.getSnapshot();
     this.listeners.forEach(listener => listener(snapshot));
   }
 
+  persistRecoverySnapshot() {
+    if (!this.recoveryStorage) return;
+    if (!this.isSessionActive) {
+      if (!this.preserveRecoveryOnPageHide) this.recoveryStorage.clear();
+      return;
+    }
+    this.recoveryStorage.save(this.session.toJSON(), this.queue.waitingItems);
+  }
+
+  preserveRecoveryForPageHide() {
+    if (this.preserveRecoveryOnPageHide) return;
+    this.preserveRecoveryOnPageHide = true;
+    this.transitionId += 1;
+    if (this.queue.currentItem) {
+      this.queue.archiveCurrent(KARAOKE_ITEM_STATUS.SKIPPED);
+      this.notify();
+    }
+    if (this.isSessionActive) this.playerAdapter.stop();
+  }
+
+  resumeAfterPageShow() {
+    this.preserveRecoveryOnPageHide = false;
+  }
+
   startSession() {
     if (this.isSessionActive) return this.getSnapshot();
+    this.preserveRecoveryOnPageHide = false;
     this.queue = new KaraokeQueue();
     this.session = new KaraokeSession().start();
     this.notify();
@@ -67,6 +99,7 @@ export default class KaraokeManager {
 
   endSession() {
     if (!this.isSessionActive) return this.getSnapshot();
+    if (this.preserveRecoveryOnPageHide) return this.getSnapshot();
     this.transitionId += 1;
     this.playerAdapter.stop();
     this.session.end();
@@ -114,7 +147,8 @@ export default class KaraokeManager {
     if (
       !this.isSessionActive ||
       this.queue.currentItem ||
-      this.transitionPromise
+      this.transitionPromise ||
+      this.preserveRecoveryOnPageHide
     )
       return null;
     const item = this.queue.take(queueItemId);
@@ -146,12 +180,14 @@ export default class KaraokeManager {
       this.notify();
       return this.queue.currentItem;
     } catch (_) {
+      if (transitionId !== this.transitionId) return null;
       this.queue.archiveCurrent(KARAOKE_ITEM_STATUS.FAILED);
       this.notify();
       return null;
     } finally {
       this.transitionPromise = null;
       if (
+        !this.preserveRecoveryOnPageHide &&
         this.isSessionActive &&
         !this.queue.currentItem &&
         this.queue.waitingItems.length

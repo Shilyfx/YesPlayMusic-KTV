@@ -40,6 +40,18 @@ export default class KaraokeQueue {
     return item;
   }
 
+  restoreWaitingItems(items) {
+    this.currentItem = null;
+    this.waitingItems = items.map(item => ({
+      ...item,
+      artists: [...item.artists],
+      ...(item.lyrics
+        ? { lyrics: item.lyrics.map(line => ({ ...line })) }
+        : {}),
+    }));
+    this.historyItems = [];
+  }
+
   take(queueItemId = null) {
     const index = queueItemId
       ? this.waitingItems.findIndex(item => item.queueItemId === queueItemId)

@@ -30,6 +30,21 @@ export default class KaraokeSession {
     return this;
   }
 
+  restore(snapshot) {
+    if (
+      !snapshot ||
+      !snapshot.sessionId ||
+      snapshot.status !== KARAOKE_SESSION_STATUS.ACTIVE
+    )
+      return false;
+    this.sessionId = snapshot.sessionId;
+    this.status = snapshot.status;
+    this.createdAt = snapshot.createdAt;
+    this.startedAt = snapshot.startedAt;
+    this.endedAt = null;
+    return true;
+  }
+
   toJSON() {
     return {
       sessionId: this.sessionId,
