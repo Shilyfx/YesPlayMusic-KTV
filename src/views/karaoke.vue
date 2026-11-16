@@ -398,81 +398,15 @@
         </div>
       </section>
 
-      <aside class="queue-panel glass-panel">
-        <div class="panel-title">
-          <div>
-            <p class="eyebrow">本机待唱</p>
-            <h2>等待队列</h2>
-          </div>
-          <span class="queue-count">{{ waitingItems.length }} 首待唱</span>
-        </div>
-
-        <article v-if="currentItem" class="current-queue-item">
-          <span>正在演唱</span>
-          <strong>{{ currentItem.trackName }}</strong>
-          <small
-            >{{ currentItem.artists.join(' / ') }} ·
-            {{ currentItem.requesterName }}</small
-          >
-        </article>
-
-        <ol v-if="waitingItems.length" class="waiting-list">
-          <li v-for="(item, index) in waitingItems" :key="item.queueItemId">
-            <span class="queue-number">{{
-              String(index + 1).padStart(2, '0')
-            }}</span>
-            <div class="queue-item-copy">
-              <strong>{{ item.trackName }}</strong>
-              <small
-                >{{ item.artists.join(' / ') }} ·
-                {{ item.requesterName }}</small
-              >
-            </div>
-            <div class="queue-actions">
-              <button
-                type="button"
-                :disabled="index === 0"
-                :aria-label="`置顶 ${item.trackName}`"
-                @click="moveQueueItemToFront(item.queueItemId)"
-                >置顶</button
-              >
-              <button
-                type="button"
-                :disabled="index === 0"
-                :aria-label="`上移 ${item.trackName}`"
-                @click="moveQueueItem(item.queueItemId, index - 1)"
-                >↑</button
-              >
-              <button
-                type="button"
-                :disabled="index === waitingItems.length - 1"
-                :aria-label="`下移 ${item.trackName}`"
-                @click="moveQueueItem(item.queueItemId, index + 1)"
-                >↓</button
-              >
-              <button
-                type="button"
-                :aria-label="`删除 ${item.trackName}`"
-                @click="removeQueueItem(item.queueItemId)"
-                >删除</button
-              >
-            </div>
-          </li>
-        </ol>
-        <div v-else class="queue-empty">
-          <strong>{{
-            isSessionActive ? '还没有待唱歌曲' : 'KTV 尚未开始'
-          }}</strong>
-          <span>使用上方按钮把当前播放歌曲加入本机待唱。</span>
-        </div>
-        <button
-          v-if="waitingItems.length"
-          type="button"
-          class="clear-waiting"
-          @click="clearWaitingQueue"
-          >清空待唱</button
-        >
-      </aside>
+      <KaraokeQueuePanel
+        :current-item="currentItem"
+        :waiting-items="waitingItems"
+        :is-session-active="isSessionActive"
+        @move-queue-item-to-front="moveQueueItemToFront"
+        @move-queue-item="moveQueueItem"
+        @remove-queue-item="removeQueueItem"
+        @clear-waiting-queue="clearWaitingQueue"
+      />
     </div>
 
     <footer class="karaoke-controls glass-panel">
@@ -558,6 +492,7 @@ import KaraokeControlPanel from '@/components/karaoke/KaraokeControlPanel.vue';
 import KaraokeControlToggle from '@/components/karaoke/KaraokeControlToggle.vue';
 import KaraokeSmartBeatControls from '@/components/karaoke/KaraokeSmartBeatControls.vue';
 import KaraokeRoomAccessPanel from '@/components/karaoke/KaraokeRoomAccessPanel.vue';
+import KaraokeQueuePanel from '@/components/karaoke/KaraokeQueuePanel.vue';
 import ReactionOverlay from '@/components/karaoke/ReactionOverlay.vue';
 import SongRequestButton from '@/components/karaoke/SongRequestButton.vue';
 import createWebRoomBridge from '@/karaoke/webRoomBridge';
@@ -609,6 +544,7 @@ export default {
     KaraokeControlToggle,
     KaraokeSmartBeatControls,
     KaraokeRoomAccessPanel,
+    KaraokeQueuePanel,
     KaraokeLyricScene,
     ReactionOverlay,
     SongRequestButton,
@@ -2432,8 +2368,7 @@ export default {
   box-shadow: 0 0 0 5px rgba(97, 214, 167, 0.16);
 }
 .session-button,
-.enqueue-current,
-.clear-waiting {
+.enqueue-current {
   min-height: 36px;
   padding: 0 13px;
   border: 1px solid var(--ktv-glass-border);
@@ -2730,8 +2665,7 @@ export default {
   grid-row: 2;
   overflow-y: auto;
 }
-.track-identity,
-.queue-panel {
+.track-identity {
   padding: 24px;
   min-width: 0;
 }
@@ -3204,109 +3138,6 @@ button:disabled {
   accent-color: var(--ktv-accent);
   cursor: pointer;
 }
-.panel-title {
-  display: flex;
-  align-items: flex-start;
-  justify-content: space-between;
-  gap: 10px;
-}
-.panel-title .eyebrow {
-  margin-top: 0;
-}
-.panel-title h2 {
-  margin-bottom: 16px;
-  font-size: 21px;
-}
-.queue-count {
-  color: var(--ktv-text-muted);
-  font-size: 12px;
-}
-.current-queue-item {
-  padding: 12px;
-  border: 1px solid rgba(171, 156, 255, 0.36);
-  border-radius: 14px;
-  background: var(--ktv-glass-soft);
-}
-.current-queue-item span,
-.current-queue-item strong,
-.current-queue-item small {
-  display: block;
-}
-.current-queue-item span {
-  margin-bottom: 5px;
-  color: var(--ktv-accent);
-  font-size: 11px;
-  font-weight: 800;
-}
-.current-queue-item small,
-.queue-item-copy small {
-  margin-top: 3px;
-  color: var(--ktv-text-muted);
-  font-size: 12px;
-}
-.waiting-list {
-  max-height: 48vh;
-  padding: 0;
-  margin: 12px 0 0;
-  overflow: auto;
-  list-style: none;
-}
-.waiting-list li {
-  display: grid;
-  grid-template-columns: 26px 1fr auto;
-  gap: 8px;
-  align-items: center;
-  padding: 13px 0;
-  border-bottom: 1px solid var(--ktv-glass-border);
-}
-.queue-number {
-  color: var(--ktv-accent);
-  font-size: 12px;
-  font-variant-numeric: tabular-nums;
-  font-weight: 800;
-}
-.queue-item-copy {
-  min-width: 0;
-}
-.queue-item-copy strong,
-.queue-item-copy small {
-  display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-.queue-item-copy strong {
-  font-size: 14px;
-}
-.queue-actions {
-  display: flex;
-  gap: 4px;
-}
-.queue-actions button {
-  min-width: 26px;
-  min-height: 28px;
-  padding: 0 5px;
-  border: 1px solid var(--ktv-glass-border);
-  border-radius: 8px;
-  color: var(--ktv-text-secondary);
-  font-size: 12px;
-}
-.queue-empty {
-  display: grid;
-  gap: 6px;
-  padding: 44px 4px;
-  color: var(--ktv-text-muted);
-  text-align: center;
-  font-size: 13px;
-}
-.queue-empty strong {
-  color: var(--ktv-text-secondary);
-}
-.clear-waiting {
-  width: 100%;
-  margin-top: 14px;
-  color: var(--ktv-danger);
-}
 .karaoke-controls {
   position: relative;
   display: flex;
@@ -3419,9 +3250,6 @@ button:disabled {
   .karaoke-layout {
     grid-template-columns: minmax(0, 1fr) minmax(190px, 0.3fr);
   }
-  .waiting-list {
-    max-height: 260px;
-  }
 }
 @media (max-width: 760px) {
   .karaoke-desktop {
@@ -3487,9 +3315,6 @@ button:disabled {
   .stage {
     order: 1;
     min-height: 380px;
-  }
-  .queue-panel {
-    order: 2;
   }
   .karaoke-controls {
     grid-template-columns: 1fr;

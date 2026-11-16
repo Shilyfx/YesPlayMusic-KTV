@@ -39,6 +39,10 @@ const suites = [
       'test-karaoke-display-analysis-retry.js',
     ],
   },
+  {
+    name: 'Karaoke panels',
+    tests: ['test-karaoke-queue-panel.js'],
+  },
 ];
 
 const testCount = suites.reduce(
