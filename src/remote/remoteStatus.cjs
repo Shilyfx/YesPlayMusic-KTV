@@ -40,7 +40,7 @@ function copyNotice(notice) {
 }
 
 function getRoomAccessNotice(error) {
-  const code = typeof error === 'string' ? error : error?.code;
+  const code = typeof error === 'string' ? error : error && error.code;
   if (!Object.prototype.hasOwnProperty.call(ROOM_ACCESS_NOTICES, code))
     return null;
   return copyNotice(ROOM_ACCESS_NOTICES[code]);
