@@ -5,6 +5,7 @@ import searchSchedulerModule from './searchScheduler.cjs';
 import searchLogicModule from './searchLogic.cjs';
 import requestSubmissionModule from './requestSubmission.cjs';
 import remoteStatusModule from './remoteStatus.cjs';
+import previewControllerModule from './previewController.cjs';
 import invalidateRemoteCatalogState from './catalogEpoch';
 import {
   appendCatalogItems,
@@ -32,6 +33,8 @@ const {
 } = searchLogicModule;
 const { createRequestSubmission } = requestSubmissionModule;
 const { createNetworkStatusTracker, getRoomAccessNotice } = remoteStatusModule;
+const { createPreviewController, previewPlayerMarkup } =
+  previewControllerModule;
 const networkStatus = createNetworkStatusTracker({
   isOnline: navigator.onLine,
 });
@@ -173,8 +176,6 @@ let artistTrackGeneration = 0;
 let artistTrackPage = createCatalogPageState();
 let artistSelections = [];
 let selectedModule = 'search';
-let previewTrackId = '';
-let previewGeneration = 0;
 let requestToastTimer;
 const refreshScheduler = createRefreshScheduler(
   () => performRefresh(),
@@ -286,6 +287,14 @@ const requestSubmission = createRequestSubmission({
     }
     return response;
   },
+});
+
+const previewController = createPreviewController({
+  app,
+  api,
+  findTrack,
+  escape,
+  setNotice,
 });
 
 function setNotice(message = '', kind = '') {
@@ -506,20 +515,9 @@ function initializeShell() {
     );
   app.insertAdjacentHTML(
     'beforeend',
-    '<div class="request-toast" data-request-toast role="status" aria-live="polite" hidden>点歌成功</div><div class="preview-float" data-preview-float hidden><button type="button" class="preview-float-toggle" data-preview-toggle="true" aria-label="播放试听" title="播放或暂停试听">▶</button><strong data-preview-title>试听</strong><button type="button" class="preview-float-close" data-preview-stop="true" aria-label="关闭试听" title="关闭试听">×</button><audio data-preview-audio preload="none"></audio></div>'
+    `<div class="request-toast" data-request-toast role="status" aria-live="polite" hidden>点歌成功</div>${previewPlayerMarkup}`
   );
-  const previewAudio = app.querySelector('[data-preview-audio]');
-  ['play', 'pause', 'ended'].forEach(eventName =>
-    previewAudio?.addEventListener(eventName, () => {
-      if (eventName === 'ended') {
-        previewTrackId = '';
-        const float = app.querySelector('[data-preview-float]');
-        if (float) float.hidden = true;
-      }
-      renderPreviewControls();
-      updatePreviewButtons();
-    })
-  );
+  previewController.bind();
   app
     .querySelector('.history-area')
     .insertAdjacentHTML(
@@ -760,10 +758,12 @@ function initializeShell() {
       requestSong(button.dataset.request, false, button);
     else if (button.dataset.priority)
       requestSong(button.dataset.priority, true, button);
-    else if (button.dataset.preview) previewTrack(button.dataset.preview);
+    else if (button.dataset.preview)
+      previewController.previewTrack(button.dataset.preview);
     else if (button.hasAttribute('data-preview-toggle'))
-      togglePreviewPlayback();
-    else if (button.hasAttribute('data-preview-stop')) stopPreview();
+      previewController.togglePlayback();
+    else if (button.hasAttribute('data-preview-stop'))
+      previewController.stopPreview();
     else if (button.hasAttribute('data-next-track')) nextTrack();
     else if (button.dataset.recommendation)
       selectRecommendation(button.dataset.recommendation);
@@ -955,101 +955,6 @@ function findTrack(trackId) {
   return undefined;
 }
 
-function stopPreview() {
-  previewGeneration += 1;
-  previewTrackId = '';
-  const audio = app.querySelector('[data-preview-audio]');
-  const float = app.querySelector('[data-preview-float]');
-  if (audio) {
-    audio.pause();
-    audio.removeAttribute('src');
-    audio.load();
-  }
-  if (float) float.hidden = true;
-  renderPreviewControls();
-  updatePreviewButtons();
-}
-
-async function previewTrack(trackId) {
-  const id = String(trackId);
-  const audio = app.querySelector('[data-preview-audio]');
-  const float = app.querySelector('[data-preview-float]');
-  const title = app.querySelector('[data-preview-title]');
-  if (!audio || !float || !title) return;
-  if (previewTrackId === id) {
-    if (audio.paused) {
-      if (audio.src) audio.play().catch(() => {});
-    } else audio.pause();
-    renderPreviewControls();
-    updatePreviewButtons();
-    return;
-  }
-  previewTrackId = id;
-  const generation = ++previewGeneration;
-  const track = findTrack(id);
-  title.textContent = track?.name || '歌曲试听';
-  float.hidden = false;
-  renderPreviewControls();
-  updatePreviewButtons();
-  audio.pause();
-  audio.removeAttribute('src');
-  audio.load();
-  setNotice('正在加载试听…');
-  try {
-    const response = await api(`/track/${encodeURIComponent(id)}/preview`);
-    if (generation !== previewGeneration) return;
-    audio.src = response.url;
-    audio.load();
-    renderPreviewControls();
-    try {
-      await audio.play();
-      renderPreviewControls();
-      setNotice('正在试听，可使用播放器控制音量。', 'success');
-    } catch (_) {
-      renderPreviewControls();
-      setNotice('试听已加载，请点击悬浮按钮开始播放。', 'success');
-    }
-  } catch (error) {
-    if (generation !== previewGeneration) return;
-    previewTrackId = '';
-    float.hidden = true;
-    renderPreviewControls();
-    updatePreviewButtons();
-    setNotice(
-      error.code === 'TRACK_NOT_PLAYABLE'
-        ? '这首歌暂时没有可用试听音源。'
-        : '试听加载失败，请稍后重试。',
-      'error'
-    );
-  }
-}
-
-function renderPreviewControls() {
-  const audio = app.querySelector('[data-preview-audio]');
-  const toggle = app.querySelector('[data-preview-toggle]');
-  if (!audio || !toggle) return;
-  const playing = !audio.paused;
-  toggle.textContent = playing ? 'Ⅱ' : '▶';
-  toggle.setAttribute('aria-label', playing ? '暂停试听' : '播放试听');
-}
-
-function updatePreviewButtons() {
-  app.querySelectorAll('[data-preview]').forEach(button => {
-    const active = String(button.dataset.preview) === String(previewTrackId);
-    button.textContent = active ? '暂停试听' : '试听';
-    button.setAttribute('aria-pressed', String(active));
-    button.classList.toggle('active', active);
-  });
-}
-
-function togglePreviewPlayback() {
-  const audio = app.querySelector('[data-preview-audio]');
-  if (!audio || !previewTrackId) return;
-  if (audio.paused) audio.play().catch(() => {});
-  else audio.pause();
-  renderPreviewControls();
-}
-
 function trackRequestMarkup(track, className = '') {
   const trackId = String(track.trackId);
   const availability =
@@ -1071,11 +976,7 @@ function trackRequestMarkup(track, className = '') {
   const previewButton =
     track.source === 'local'
       ? ''
-      : `<button class="quiet preview-button" data-preview="${escape(
-          trackId
-        )}" aria-pressed="${previewTrackId === trackId}">${
-          previewTrackId === trackId ? '暂停试听' : '试听'
-        }</button>`;
+      : previewController.trackButtonMarkup(trackId);
   const sourceLabel = track.source === 'local' ? '本地歌曲 · ' : '';
   const coverThumb =
     track.source === 'local' && track.coverUrl
