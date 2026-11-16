@@ -26,3 +26,9 @@
 - 来宾点歌由独立 `/room/` 页面进入，调用 `/ktv/api/`。公网 HTTPS 经云端 Nginx、SSH 隧道和来宾专用端口到同一个房间服务。
 - `src/server/KaraokeWebHost.js` 管理 Docker 房间和主屏连接，复用 `src/electron/karaoke/KaraokeRemoteApi.js` 的来宾业务。
 - Electron 桌面端通过 `src/background.js` 和 `src/electron/ipcMain.js` 对接房间服务。
+
+## 发布产物回退
+
+发布命令、归档边界及部署前检查见 [执行索引的软路由 KTV 发布清单](../../execution-index.md#软路由-ktv-发布清单)。打包脚本只生成归档，不会部署。默认归档不含 `dist/index.html` 和 `dist/ktv-server.cjs`；完整更新回退须连同备份里的这两个文件及归档覆盖的其他文件一起恢复。remote-only 回退只还原 `dist/remote/`，不要误覆盖主屏和服务端。
+
+实际回退使用发布前刚创建并校验过的备份，不直接套用本页历史线上 SHA 或旧备份覆盖当前状态。恢复 Compose 挂载的路径时保持目录结构；若服务端 bind-mounted 文件的 inode 已更换，在路由器项目目录执行 `docker compose -f compose.yml up -d --force-recreate --no-deps ktv` 重新挂载，再检查健康状态和内网/公网入口。服务端重启会中断房间，操作前须再次确认房间空闲。源码恢复检查点为本页开头记录的 `f0d6919b119cd3f256f02f1ae9a656686989a25e`，它用于恢复源代码工作副本，不代替线上产物备份。

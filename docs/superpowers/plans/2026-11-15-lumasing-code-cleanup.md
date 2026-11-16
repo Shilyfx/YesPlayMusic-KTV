@@ -25,7 +25,7 @@
 
 - [ ] 保留现有脚本和命令路径，先在 `package.json` 增加统一的 KTV 快速回归入口，将实际用到的测试整理成目录索引，再让 `.github/workflows/phase-validation.yml` 复用同一组命令。
 - [ ] 快速回归纳入 `test-karaoke-web-host.js`、`test-karaoke-public-guest.js`、`test-karaoke-remote-api.js`、`test-upstream-search-rate-limit.js`、分页 API/UI、播放和主副屏的现有测试。硬件、联网、多端和性能验证独立运行。
-- [ ] 梳理 `build-local-ktv.cjs`、`build-ktv-server.js`、`package-router-update.cjs`、`write-ktv-release-manifest.cjs` 的输入输出。为完整更新和只更新点歌页明确各自的文件清单。验证归档内 HTML 指向的散列文件存在，且清单能区分主屏、来宾页与服务端版本。
+- [x] 梳理 `build-local-ktv.cjs`、`build-ktv-server.js`、`package-router-update.cjs`、`write-ktv-release-manifest.cjs` 的输入输出。完整归档保留原默认 dist 范围，remote-only 只含 `remote/`；两者的命令、排除项、入口 SHA-256、归档验证和回退步骤见 `docs/execution-index.md` 与 `docs/superpowers/plans/2026-11-16-cleanup-baseline.md`。
 
 **验收**：开发机和 CI 能按相同命令运行核心回归，给定一个发布包能确认它更新哪些部分。
 
