@@ -2,6 +2,7 @@ import './styles.css';
 import createRefreshScheduler from './refreshScheduler';
 import createCatalogPrefetchScheduler from './catalogPrefetchScheduler';
 import searchSchedulerModule from './searchScheduler.cjs';
+import searchLogicModule from './searchLogic.cjs';
 import requestSubmissionModule from './requestSubmission.cjs';
 import remoteStatusModule from './remoteStatus.cjs';
 import invalidateRemoteCatalogState from './catalogEpoch';
@@ -21,6 +22,14 @@ import {
 
 const { clearSearchNotice, createSearchScheduler, getRetryAfterMs } =
   searchSchedulerModule;
+const {
+  buildSearchRequest,
+  findLocalTracks,
+  getSearchRenderState,
+  getSearchResults,
+  mergeSearchResults,
+  normalizeSearchText,
+} = searchLogicModule;
 const { createRequestSubmission } = requestSubmissionModule;
 const { createNetworkStatusTracker, getRoomAccessNotice } = remoteStatusModule;
 const networkStatus = createNetworkStatusTracker({
@@ -182,12 +191,11 @@ const searchScheduler = createSearchScheduler({
     if (!localPlaylistsLoaded) {
       await loadLocalPlaylists().catch(() => {});
     }
-    return api(`/search?q=${encodeURIComponent(query)}`, { signal }).then(
-      response => response.results
-    );
+    const request = buildSearchRequest(query, signal);
+    return api(request.path, request.options).then(getSearchResults);
   },
   onSearching: () => {
-    const localMatches = findLocalTracks(searchQuery);
+    const localMatches = findLocalTracks(searchQuery, localPlaylists);
     if (localMatches.length > 0) {
       renderResults(localMatches, { searching: true });
     } else {
@@ -195,7 +203,7 @@ const searchScheduler = createSearchScheduler({
     }
   },
   onResults: (query, results) => {
-    const localMatches = findLocalTracks(query || searchQuery);
+    const localMatches = findLocalTracks(query || searchQuery, localPlaylists);
     const combined = mergeSearchResults(
       localMatches,
       Array.isArray(results) ? results : []
@@ -204,7 +212,7 @@ const searchScheduler = createSearchScheduler({
     clearSearchNotice(app.querySelector('[data-notice]'), () => setNotice(''));
   },
   onError: (query, error) => {
-    const localMatches = findLocalTracks(query || searchQuery);
+    const localMatches = findLocalTracks(query || searchQuery, localPlaylists);
     if (localMatches.length > 0) {
       renderResults(localMatches);
       setNotice('远程搜索暂时受限，已优先展示本地匹配歌曲。', 'warning');
@@ -1096,69 +1104,11 @@ function trackRequestMarkup(track, className = '') {
   )}</div></article>`;
 }
 
-function normalizeArtistName(value) {
-  return String(value || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, '');
-}
-
-function findLocalTracks(query) {
-  const clean = normalizeArtistName(query);
-  if (!clean) return [];
-  const matches = [];
-  const seen = new Set();
-  localPlaylists.forEach(playlist => {
-    (playlist.tracks || []).forEach(track => {
-      const trackId = String(track.trackId || track.id || '');
-      if (!trackId || seen.has(trackId)) return;
-      const trackName = normalizeArtistName(track.name);
-      const trackArtists = (track.artists || track.ar || []).map(item =>
-        normalizeArtistName(typeof item === 'string' ? item : item?.name)
-      );
-      const trackAlbum = normalizeArtistName(track.album);
-
-      const nameMatch =
-        trackName && (trackName.includes(clean) || clean.includes(trackName));
-      const artistMatch = trackArtists.some(
-        name => name && (name.includes(clean) || clean.includes(name))
-      );
-      const albumMatch =
-        trackAlbum &&
-        (trackAlbum.includes(clean) || clean.includes(trackAlbum));
-
-      if (nameMatch || artistMatch || albumMatch) {
-        seen.add(trackId);
-        matches.push({ ...track, source: 'local' });
-      }
-    });
-  });
-  return matches;
-}
-
-function mergeSearchResults(localMatches, remoteResults) {
-  const seen = new Set();
-  const merged = [];
-  (localMatches || []).forEach(track => {
-    const trackId = String(track.trackId || track.id || '');
-    if (!trackId || seen.has(trackId)) return;
-    seen.add(trackId);
-    merged.push({ ...track, source: 'local' });
-  });
-  (remoteResults || []).forEach(track => {
-    const trackId = String(track.trackId || track.id || '');
-    if (!trackId || seen.has(trackId)) return;
-    seen.add(trackId);
-    merged.push(track);
-  });
-  return merged;
-}
-
 function localTracksForArtist(artistId) {
   const artist = [...artists, ...featuredArtists].find(
     item => String(item.id) === String(artistId)
   );
-  const artistName = normalizeArtistName(artist?.name);
+  const artistName = normalizeSearchText(artist?.name);
   if (!artistName) return [];
   const matches = [];
   const seen = new Set();
@@ -1171,7 +1121,7 @@ function localTracksForArtist(artistId) {
       );
       if (
         !trackArtists.some(name => {
-          const norm = normalizeArtistName(name);
+          const norm = normalizeSearchText(name);
           return (
             norm === artistName ||
             norm.includes(artistName) ||
@@ -1460,17 +1410,16 @@ function playlistTracksMatchingQuery(tracks) {
 function renderResults(results, { searching = false } = {}) {
   searchResults = results;
   const container = app.querySelector('[data-results]');
-  if (searching) {
-    container.innerHTML = '<div class="hint">正在搜索…</div>';
+  const renderState = getSearchRenderState(searchQuery, results, searching);
+  if (renderState.state === 'searching') {
+    container.innerHTML = `<div class="hint">${renderState.message}</div>`;
     return;
   }
-  if (!results.length) {
-    container.innerHTML = searchQuery.trim()
-      ? '<div class="hint">没有找到可展示的歌曲。</div>'
-      : '<div class="hint">输入关键词后点击搜索或按回车点歌。</div>';
+  if (renderState.state === 'empty') {
+    container.innerHTML = `<div class="hint">${renderState.message}</div>`;
     return;
   }
-  container.innerHTML = results
+  container.innerHTML = renderState.results
     .map(track => trackRequestMarkup(track, 'search-track-card'))
     .join('');
 }
