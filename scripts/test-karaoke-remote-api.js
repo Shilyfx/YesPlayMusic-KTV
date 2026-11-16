@@ -10,7 +10,59 @@ const {
   KaraokeCatalogService,
   KaraokeRemoteService,
   RemoteApiRouter,
+  RemoteClientSessionStore: ApiRemoteClientSessionStore,
 } = require('../src/electron/karaoke/KaraokeRemoteApi');
+const {
+  RemoteClientSessionStore,
+  RateLimiter,
+  RATE_LIMIT_WINDOW_MS,
+} = require('../src/electron/karaoke/KaraokeRemoteSessionState');
+
+assert.strictEqual(ApiRemoteClientSessionStore, RemoteClientSessionStore);
+
+function testRemoteSessionState() {
+  assert.equal(RATE_LIMIT_WINDOW_MS, 10000);
+
+  const sessions = new RemoteClientSessionStore();
+  assert.throws(() => sessions.create(), /ROOM_ENDED/);
+  sessions.start({
+    code: 'room-test',
+    sessionId: 'session-test',
+    generation: 1,
+    token: 'join-token',
+  });
+  assert.throws(() => sessions.create('wrong-token'), /INVALID_JOIN_TOKEN/);
+
+  const client = sessions.create('join-token');
+  assert.match(client.clientToken, /^[A-Za-z0-9_-]{40,}$/);
+  assert.match(client.clientId, /^guest-[a-f0-9]{12}$/);
+  assert.equal(client.displayName, '麦霸01');
+  assert.strictEqual(sessions.authorize(client.clientToken), client);
+
+  sessions.start({
+    code: 'room-next',
+    sessionId: 'session-next',
+    generation: 2,
+    token: 'next-token',
+  });
+  assert.equal(sessions.clients.size, 0);
+  assert.throws(
+    () => sessions.authorize(client.clientToken),
+    /INVALID_CLIENT_TOKEN/
+  );
+  sessions.stop();
+  assert.throws(() => sessions.create(), /ROOM_ENDED/);
+
+  const limiter = new RateLimiter();
+  assert.equal(limiter.check('client-a', 2), true);
+  assert.equal(limiter.check('client-a', 2), true);
+  assert.equal(limiter.check('client-a', 2), false);
+  assert(limiter.retryAfterMs('client-a') > 0);
+  assert(limiter.retryAfterMs('client-a') <= RATE_LIMIT_WINDOW_MS);
+  assert.equal(limiter.check('client-b', 1), true);
+  limiter.clear();
+  assert.equal(limiter.check('client-a', 1), true);
+}
 
 function getAvailablePort() {
   return new Promise(resolve => {
@@ -59,6 +111,7 @@ function request(port, method, pathname, { token, body } = {}) {
 }
 
 async function run() {
+  testRemoteSessionState();
   const waitingItems = [];
   let sequence = 0;
   let activeSession = { status: 'active', sessionId: 'session-test' };
