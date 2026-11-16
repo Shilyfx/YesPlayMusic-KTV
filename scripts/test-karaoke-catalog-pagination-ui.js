@@ -4,7 +4,27 @@ require('./helpers/register-babel-src');
 const {
   appendCatalogItems,
   catalogPageProgress,
+  createCatalogPageState,
 } = require('../src/remote/catalogPagination');
+
+const firstPageState = createCatalogPageState();
+assert.deepStrictEqual(firstPageState, {
+  nextOffset: 0,
+  hasMore: false,
+  total: null,
+  requestedCount: 0,
+  unavailableCount: 0,
+  loading: false,
+  error: null,
+  retryAfterMs: 0,
+});
+const secondPageState = createCatalogPageState();
+firstPageState.loading = true;
+assert.equal(
+  secondPageState.loading,
+  false,
+  'catalog pages receive independent initial state'
+);
 
 const merged = appendCatalogItems(
   [

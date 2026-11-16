@@ -1,3 +1,16 @@
+export function createCatalogPageState() {
+  return {
+    nextOffset: 0,
+    hasMore: false,
+    total: null,
+    requestedCount: 0,
+    unavailableCount: 0,
+    loading: false,
+    error: null,
+    retryAfterMs: 0,
+  };
+}
+
 export function appendCatalogItems(currentItems, nextItems, getId) {
   const existing = Array.isArray(currentItems) ? currentItems : [];
   const incoming = Array.isArray(nextItems) ? nextItems : [];

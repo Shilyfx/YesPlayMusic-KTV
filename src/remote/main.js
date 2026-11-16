@@ -3,8 +3,13 @@ import createRefreshScheduler from './refreshScheduler';
 import createCatalogPrefetchScheduler from './catalogPrefetchScheduler';
 import searchSchedulerModule from './searchScheduler.cjs';
 import requestSubmissionModule from './requestSubmission.cjs';
+import remoteStatusModule from './remoteStatus.cjs';
 import invalidateRemoteCatalogState from './catalogEpoch';
-import { appendCatalogItems, catalogPageProgress } from './catalogPagination';
+import {
+  appendCatalogItems,
+  catalogPageProgress,
+  createCatalogPageState,
+} from './catalogPagination';
 import { loadEmotionBall, loadMoodMates } from '../karaoke/moodMates';
 import {
   ktvReactionChoices,
@@ -17,6 +22,10 @@ import {
 const { clearSearchNotice, createSearchScheduler, getRetryAfterMs } =
   searchSchedulerModule;
 const { createRequestSubmission } = requestSubmissionModule;
+const { createNetworkStatusTracker, getRoomAccessNotice } = remoteStatusModule;
+const networkStatus = createNetworkStatusTracker({
+  isOnline: navigator.onLine,
+});
 
 const app = document.querySelector('#remote-app');
 const apiRoot = '/ktv/api';
@@ -58,16 +67,6 @@ let playlistsPagePromise;
 let playlistLoadGeneration = 0;
 const CATALOG_PAGE_SIZE = 100;
 const catalogRetryTimers = {};
-const createCatalogPageState = () => ({
-  nextOffset: 0,
-  hasMore: false,
-  total: null,
-  requestedCount: 0,
-  unavailableCount: 0,
-  loading: false,
-  error: null,
-  retryAfterMs: 0,
-});
 let playlistsPage = createCatalogPageState();
 let selectedPlaylistId = '';
 let playlistTracks = [];
@@ -2539,6 +2538,12 @@ function handleCatalogEpoch(nextEpoch) {
 
 async function performRefresh() {
   try {
+    if (!client?.clientToken) {
+      if (!(await joinRoom())) throw new Error('CLIENT_SESSION_UNAVAILABLE');
+      ensureModuleLoaded(selectedModule);
+      if (!publicGuest) loadLocalPlaylists().catch(() => {});
+      prefetchCatalogModules();
+    }
     state = await api('/state');
     handleCatalogEpoch(state?.catalogEpoch);
     retryDelay = 2000;
@@ -2553,7 +2558,7 @@ async function performRefresh() {
     }
     scheduleRefresh(document.hidden ? 5000 : 500);
   } catch (error) {
-    if (error.code === 'ROOM_ENDED') return showEnded();
+    if (getRoomAccessNotice(error)) return showEnded(error.code);
     if (error.code === 'INVALID_CLIENT_TOKEN') {
       try {
         if (!(await joinRoom())) return showEnded();
@@ -2561,8 +2566,7 @@ async function performRefresh() {
         scheduleRefresh(0);
         return;
       } catch (joinError) {
-        if (['INVALID_JOIN_TOKEN', 'ROOM_ENDED'].includes(joinError.code))
-          return showEnded();
+        if (getRoomAccessNotice(joinError)) return showEnded(joinError.code);
       }
     }
     scheduleRefresh(retryDelay);
@@ -2574,14 +2578,20 @@ function requestRefresh() {
   return refreshScheduler();
 }
 
-function showEnded() {
+function showEnded(code = 'ROOM_ENDED') {
   roomEnded = true;
   catalogPrefetchScheduler.stop();
   searchScheduler.stop();
   clearTimeout(refreshTimer);
   sessionStorage.removeItem(storageKey);
-  app.innerHTML =
-    '<main class="ended"><p class="eyebrow">LUMASING · LAN KTV</p><h1>未开启点歌</h1><p>主机尚未开启 KTV 房间，开启后刷新页面即可点歌。</p></main>';
+  const notice = getRoomAccessNotice(code);
+  const heading =
+    code === 'INVALID_JOIN_TOKEN' ? '邀请链接已失效' : '未开启点歌';
+  const message =
+    notice?.message || '主机尚未开启 KTV 房间，开启后刷新页面即可点歌。';
+  app.innerHTML = `<main class="ended"><p class="eyebrow">LUMASING · LAN KTV</p><h1>${escape(
+    heading
+  )}</h1><p>${escape(message)}</p></main>`;
 }
 
 async function joinRoom() {
@@ -2630,11 +2640,14 @@ async function bootstrap() {
           return;
         }
       } catch (_) {
-        // Fall through to showEnded
+        if (getRoomAccessNotice(_)) {
+          showEnded(_.code);
+          return;
+        }
       }
     }
-    if (error?.code === 'INVALID_JOIN_TOKEN' || error?.code === 'ROOM_ENDED') {
-      showEnded();
+    if (getRoomAccessNotice(error)) {
+      showEnded(error.code);
       return;
     }
     setNotice('连接 KTV 服务失败，请刷新页面或重新扫描二维码。', 'error');
@@ -2642,6 +2655,14 @@ async function bootstrap() {
   }
 }
 
+function handleNetworkChange(online) {
+  const notice = networkStatus.update(online);
+  if (!notice || roomEnded) return;
+  setNotice(notice.message, notice.kind);
+  if (notice.shouldReconnect) requestRefresh();
+}
+window.addEventListener('offline', () => handleNetworkChange(false));
+window.addEventListener('online', () => handleNetworkChange(true));
 document.addEventListener('visibilitychange', () => {
   searchScheduler.setHidden(document.hidden);
   if (!document.hidden) {
