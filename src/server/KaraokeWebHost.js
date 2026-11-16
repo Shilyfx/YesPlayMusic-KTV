@@ -20,6 +20,7 @@ import KaraokeVisualAssetStore, {
 } from './KaraokeVisualAssetStore';
 import KaraokeLocalLibrary from '../electron/karaoke/KaraokeLocalLibrary';
 import { KaraokeServer } from '../electron/karaoke/KaraokeServer';
+import { createPublicGuestRouter } from './KaraokePublicGuestRouter';
 import {
   KaraokeCatalogService,
   KaraokeRemoteService,
@@ -157,6 +158,7 @@ export default class KaraokeWebHost {
     });
     this.remoteApi = new RemoteApiRouter(this.service);
     this.roomServer.setRemoteApi(this.remoteApi, this.service);
+    this.publicGuestRouter = createPublicGuestRouter(this);
   }
 
   async loadLocalDirectories(fallbackDirectories = []) {
@@ -1039,60 +1041,7 @@ export default class KaraokeWebHost {
   }
 
   async handlePublicGuest(request, response) {
-    this.expire();
-    response.setHeader('Referrer-Policy', 'no-referrer');
-    response.setHeader('X-Content-Type-Options', 'nosniff');
-    response.setHeader('Cache-Control', 'no-store');
-    const rawPath = request.url.split('?')[0];
-    if (
-      !this.publicGuestOrigin ||
-      !/^\/[a-zA-Z0-9/_\-.]*$/.test(rawPath) ||
-      rawPath.split('/').some(part => part === '.' || part === '..')
-    ) {
-      return this.json(response, 404, { error: 'NOT_FOUND' });
-    }
-    const { method } = request;
-    if (method === 'GET' && rawPath === '/room') {
-      response.writeHead(308, { Location: '/room/' });
-      return response.end();
-    }
-    if (
-      method === 'GET' &&
-      (rawPath === '/room/' ||
-        /^\/room\/(?:js|css|img|fonts)\/[\w./-]+\.(?:js|css|woff2?|ttf|svg|png|jpe?g|webp|gif|avif)$/i.test(
-          rawPath
-        ))
-    ) {
-      return this.roomServer.handleRequest(request, response);
-    }
-    if (method === 'POST' && request.headers.origin !== this.publicGuestOrigin)
-      return this.json(response, 403, { error: 'FORBIDDEN' });
-    if (method === 'POST' && rawPath === '/ktv/api/client-session') {
-      const room = this.roomServer.room;
-      if (!room) return this.json(response, 410, { error: 'ROOM_ENDED' });
-      const supplied = Buffer.from(request.headers.authorization || '');
-      const expected = Buffer.from(`Bearer ${room.publicJoinToken}`);
-      if (
-        !room.publicJoinToken ||
-        supplied.length !== expected.length ||
-        !crypto.timingSafeEqual(supplied, expected)
-      ) {
-        return this.json(response, 401, { error: 'INVALID_JOIN_TOKEN' });
-      }
-      request.headers.authorization = `Bearer ${room.token}`;
-      return this.remoteApi.handle(request, response, true);
-    }
-    if (method === 'POST' && rawPath === '/ktv/api/reactions')
-      return this.handle(request, response, true);
-    if (
-      (method === 'GET' &&
-        /^\/ktv\/api\/(?:state|search|artists\/search|artists\/\d{1,20}\/tracks)$/.test(
-          rawPath
-        )) ||
-      (method === 'POST' && rawPath === '/ktv/api/requests')
-    )
-      return this.remoteApi.handle(request, response, true);
-    return this.json(response, 404, { error: 'NOT_FOUND' });
+    return this.publicGuestRouter(request, response);
   }
 
   async handle(request, response, publicGuest = false) {

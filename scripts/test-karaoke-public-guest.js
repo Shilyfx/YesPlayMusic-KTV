@@ -2,8 +2,40 @@ const assert = require('assert/strict');
 const http = require('http');
 require('./helpers/register-babel-src');
 const KaraokeWebHost = require('../src/server/KaraokeWebHost').default;
+const {
+  createPublicGuestRouter,
+} = require('../src/server/KaraokePublicGuestRouter');
+
+async function testPublicGuestRouterRedirect() {
+  const headers = {};
+  let statusCode = null;
+  let location = '';
+  const host = { expire() {}, publicGuestOrigin: 'https://ktv.example.test' };
+  const router = createPublicGuestRouter(host);
+  const response = {
+    setHeader(name, value) {
+      headers[name] = value;
+    },
+    writeHead(status, values) {
+      statusCode = status;
+      location = values.Location;
+    },
+    end() {},
+  };
+
+  await router({ method: 'GET', url: '/room?from=guest' }, response);
+
+  assert.deepEqual(headers, {
+    'Referrer-Policy': 'no-referrer',
+    'X-Content-Type-Options': 'nosniff',
+    'Cache-Control': 'no-store',
+  });
+  assert.equal(statusCode, 308);
+  assert.equal(location, '/room/');
+}
 
 async function run() {
+  await testPublicGuestRouterRedirect();
   const origin = 'https://ktv.example.test';
   const lanOrigin = 'http://127.0.0.1';
   const host = new KaraokeWebHost({
