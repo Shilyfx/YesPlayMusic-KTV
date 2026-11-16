@@ -39,6 +39,8 @@
 LumaSing 的构建产物与版本说明请前往 [Releases](https://github.com/Shilyfx/YesPlayMusic-KTV/releases) 页面查看。
 当前版本将会进入维护模式，除重大 bug 修复外，不会再更新新功能。
 
+开发、测试、构建与部署入口见[执行索引](docs/execution-index.md)。
+
 ## ✨ 特性
 
 - ✅ 使用 Vue.js 全家桶开发
