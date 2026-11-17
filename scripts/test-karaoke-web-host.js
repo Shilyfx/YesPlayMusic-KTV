@@ -1,7 +1,13 @@
 const assert = require('assert');
 const http = require('http');
+const fs = require('fs');
+const os = require('os');
+const path = require('path');
 require('./helpers/register-babel-src');
 const KaraokeWebHost = require('../src/server/KaraokeWebHost').default;
+const {
+  isKaraokeLocalLibraryRoute,
+} = require('../src/server/KaraokeLocalLibraryRouter');
 const { sanitizeCoverReference } = require('../src/karaoke/lyricDisplay');
 
 async function testLyricDocuments(host, base, call, token, snapshot) {
@@ -212,7 +218,26 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
 (async () => {
   let now = 1000;
   const origin = 'http://192.168.100.1:18080';
-  const host = new KaraokeWebHost({ publicOrigin: origin, now: () => now });
+  const localRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'ktv-local-routes-'));
+  const localDirectory = path.join(localRoot, 'Music');
+  fs.mkdirSync(localDirectory);
+  fs.writeFileSync(
+    path.join(localDirectory, 'Singer - Song.mp3'),
+    'audio-data'
+  );
+  fs.writeFileSync(
+    path.join(localDirectory, 'Singer - Song.lrc'),
+    '[00:00.00]测试歌词\n'
+  );
+  fs.writeFileSync(
+    path.join(localDirectory, 'Singer - Song.jpg'),
+    'cover-data'
+  );
+  const host = new KaraokeWebHost({
+    publicOrigin: origin,
+    now: () => now,
+    localDirectories: [localDirectory],
+  });
   const server = http.createServer((req, res) => host.handle(req, res));
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
   const base = `http://127.0.0.1:${server.address().port}`;
@@ -245,6 +270,154 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
     return { status: res.status, body: await res.json() };
   };
   try {
+    assert.equal(isKaraokeLocalLibraryRoute('/ktv/local/list'), true);
+    assert.equal(isKaraokeLocalLibraryRoute('/ktv/local'), false);
+    assert.equal(isKaraokeLocalLibraryRoute('/ktv/locality/list'), false);
+
+    const localListResponse = await fetch(base + '/ktv/local/list');
+    assert.equal(localListResponse.status, 200);
+    const localList = await localListResponse.json();
+    assert.equal(localList.ok, true);
+    assert.deepEqual(localList.directories, [localDirectory]);
+    assert.equal(localList.playlists[0].tracks.length, 1);
+    const localTrack = localList.playlists[0].tracks[0];
+    assert.equal(localTrack.name, 'Song');
+    assert.equal(localTrack.coverUrl, `/ktv/local/cover/${localTrack.localId}`);
+
+    const localResolveResponse = await fetch(
+      base + `/ktv/local/resolve/${localTrack.localId}`
+    );
+    assert.equal(localResolveResponse.status, 200);
+    const localResolve = await localResolveResponse.json();
+    assert.equal(localResolve.ok, true);
+    assert.equal(localResolve.localId, localTrack.localId);
+    assert.equal(localResolve.name, 'Song');
+    assert.deepEqual(localResolve.lyrics, [{ time: 0, content: '测试歌词' }]);
+    assert.equal(
+      localResolve.audioUrl,
+      `/ktv/local/audio/${localTrack.localId}`
+    );
+    assert.equal(
+      localResolve.coverUrl,
+      `/ktv/local/cover/${localTrack.localId}`
+    );
+    const missingLocalTrack = await fetch(
+      base + `/ktv/local/resolve/local-${'0'.repeat(16)}`
+    );
+    assert.equal(missingLocalTrack.status, 404);
+    assert.deepEqual(await missingLocalTrack.json(), {
+      ok: false,
+      error: 'LOCAL_TRACK_NOT_FOUND',
+    });
+
+    const audioResponse = await fetch(
+      base + `/ktv/local/audio/${localTrack.localId}`
+    );
+    assert.equal(audioResponse.status, 200);
+    assert.equal(await audioResponse.text(), 'audio-data');
+    assert.equal(
+      (
+        await fetch(base + `/ktv/local/audio/${localTrack.localId}`, {
+          method: 'POST',
+        })
+      ).status,
+      405
+    );
+    const rangedAudioResponse = await fetch(
+      base + `/ktv/local/audio/${localTrack.localId}`,
+      { headers: { Range: 'bytes=1-3' } }
+    );
+    assert.equal(rangedAudioResponse.status, 206);
+    assert.equal(await rangedAudioResponse.text(), 'udi');
+
+    const coverResponse = await fetch(
+      base + `/ktv/local/cover/${localTrack.localId}`
+    );
+    assert.equal(coverResponse.status, 200);
+    assert.equal(await coverResponse.text(), 'cover-data');
+    assert.equal(
+      (
+        await fetch(base + `/ktv/local/cover/${localTrack.localId}`, {
+          method: 'POST',
+        })
+      ).status,
+      405
+    );
+    assert.equal(
+      (await fetch(base + '/ktv/local/list', { method: 'POST' })).status,
+      405
+    );
+    assert.equal((await fetch(base + '/ktv/local/scan')).status, 405);
+    const scanResponse = await fetch(base + '/ktv/local/scan', {
+      method: 'POST',
+    });
+    assert.equal(scanResponse.status, 200);
+    assert.equal((await scanResponse.json()).playlists[0].tracks.length, 1);
+    assert.equal(
+      (
+        await fetch(base + '/ktv/local/add-directory', {
+          method: 'GET',
+        })
+      ).status,
+      405
+    );
+    const missingLocalRoute = await fetch(base + '/ktv/local/unknown');
+    assert.equal(missingLocalRoute.status, 404);
+    assert.deepEqual(await missingLocalRoute.json(), { error: 'NOT_FOUND' });
+
+    const addedDirectory = path.join(localRoot, 'Added');
+    fs.mkdirSync(addedDirectory);
+    fs.writeFileSync(path.join(addedDirectory, 'Another - Track.mp3'), 'audio');
+    const addDirectoryResponse = await fetch(
+      base + '/ktv/local/add-directory',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory: addedDirectory }),
+      }
+    );
+    assert.equal(addDirectoryResponse.status, 200);
+    const addedLibrary = await addDirectoryResponse.json();
+    assert.deepEqual(addedLibrary.directories, [
+      localDirectory,
+      addedDirectory,
+    ]);
+    assert.equal(
+      addedLibrary.playlists.reduce(
+        (trackCount, playlist) => trackCount + playlist.tracks.length,
+        0
+      ),
+      2
+    );
+    const removeDirectoryResponse = await fetch(
+      base + '/ktv/local/remove-directory',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory: addedDirectory }),
+      }
+    );
+    assert.equal(removeDirectoryResponse.status, 200);
+    const removedLibrary = await removeDirectoryResponse.json();
+    assert.deepEqual(removedLibrary.directories, [localDirectory]);
+    assert.equal(
+      removedLibrary.playlists.reduce(
+        (trackCount, playlist) => trackCount + playlist.tracks.length,
+        0
+      ),
+      1
+    );
+
+    const invalidDirectoryResponse = await fetch(
+      base + '/ktv/local/add-directory',
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ directory: path.join(localRoot, 'missing') }),
+      }
+    );
+    assert.equal(invalidDirectoryResponse.status, 400);
+
     assert.equal(
       (await call('/ktv/host/open', { snapshot }, '', 'https://evil.test'))
         .status,
@@ -1030,6 +1203,7 @@ async function testLyricDocuments(host, base, call, token, snapshot) {
   } finally {
     host.close();
     await new Promise(resolve => server.close(resolve));
+    fs.rmSync(localRoot, { recursive: true, force: true });
   }
 })().catch(error => {
   console.error(error);

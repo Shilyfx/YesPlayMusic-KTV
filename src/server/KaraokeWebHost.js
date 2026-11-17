@@ -22,6 +22,10 @@ import {
   createKaraokeDisplayRouter,
   isKaraokeDisplayRoute,
 } from './KaraokeDisplayRouter';
+import {
+  createKaraokeLocalLibraryRouter,
+  isKaraokeLocalLibraryRoute,
+} from './KaraokeLocalLibraryRouter';
 import KaraokeLocalLibrary from '../electron/karaoke/KaraokeLocalLibrary';
 import { KaraokeServer } from '../electron/karaoke/KaraokeServer';
 import { createPublicGuestRouter } from './KaraokePublicGuestRouter';
@@ -132,6 +136,7 @@ export default class KaraokeWebHost {
       remoteDistPath,
       localLibrary: this.localLibrary,
     });
+    this.localLibraryRouter = createKaraokeLocalLibraryRouter(this);
     this.service = new KaraokeRemoteService({
       catalog: new KaraokeCatalogService({
         hostCatalogBridge: async (action, payload) => {
@@ -896,153 +901,7 @@ export default class KaraokeWebHost {
   }
 
   async handleLocalRoute(request, response, route) {
-    if (!this.localLibrary) {
-      return this.json(response, 404, { error: 'LOCAL_LIBRARY_UNAVAILABLE' });
-    }
-    await this.localDirsReady;
-
-    const audioMatch = route.match(
-      /^\/ktv\/local\/audio\/(local-[a-f0-9]{16})$/i
-    );
-    if (audioMatch) {
-      if (request.method !== 'GET')
-        return this.json(response, 405, { error: 'METHOD_NOT_ALLOWED' });
-      await this.localLibrary.ensureIndexed();
-      const resolved = await this.localLibrary.resolve(audioMatch[1]);
-      if (!resolved || !resolved.audioPath)
-        return this.roomServer.notFound(response);
-      return this.roomServer.sendLocalAudio(
-        resolved.audioPath,
-        request,
-        response
-      );
-    }
-
-    const coverMatch = route.match(
-      /^\/ktv\/local\/cover\/(local-[a-f0-9]{16})$/i
-    );
-    if (coverMatch) {
-      if (request.method !== 'GET')
-        return this.json(response, 405, { error: 'METHOD_NOT_ALLOWED' });
-      await this.localLibrary.ensureIndexed();
-      const resolved = await this.localLibrary.resolve(coverMatch[1]);
-      if (!resolved || !resolved.coverPath)
-        return this.roomServer.notFound(response);
-      return this.roomServer.sendLocalCover(resolved.coverPath, response);
-    }
-
-    const resolveMatch = route.match(
-      /^\/ktv\/local\/resolve\/(local-[a-f0-9]{16})$/i
-    );
-    if (resolveMatch) {
-      if (request.method !== 'GET')
-        return this.json(response, 405, { error: 'METHOD_NOT_ALLOWED' });
-      await this.localLibrary.ensureIndexed();
-      const localId = resolveMatch[1];
-      const resolved = await this.localLibrary.resolve(localId);
-      if (!resolved)
-        return this.json(response, 404, {
-          ok: false,
-          error: 'LOCAL_TRACK_NOT_FOUND',
-        });
-      return this.json(response, 200, {
-        ok: true,
-        localId: resolved.localId,
-        name: resolved.name,
-        artists: resolved.artists,
-        lyrics: resolved.lyrics || [],
-        audioPath: resolved.audioPath,
-        audioUrl: this.getLocalAudioUrl(localId),
-        coverUrl: resolved.coverPath ? this.getLocalCoverUrl(localId) : '',
-      });
-    }
-
-    if (route === '/ktv/local/list') {
-      if (request.method !== 'GET')
-        return this.json(response, 405, { error: 'METHOD_NOT_ALLOWED' });
-      const playlists = await this.getLocalPlaylists();
-      return this.json(response, 200, {
-        ok: true,
-        directories: this.localLibrary.listDirectories(),
-        playlists,
-      });
-    }
-
-    if (route === '/ktv/local/scan') {
-      if (request.method !== 'POST')
-        return this.json(response, 405, { error: 'METHOD_NOT_ALLOWED' });
-      const playlists = this.decorateLocalPlaylists(
-        await this.localLibrary.scan()
-      );
-      return this.json(response, 200, {
-        ok: true,
-        directories: this.localLibrary.listDirectories(),
-        playlists,
-      });
-    }
-
-    if (route === '/ktv/local/add-directory') {
-      if (request.method !== 'POST')
-        return this.json(response, 405, { error: 'METHOD_NOT_ALLOWED' });
-      try {
-        const body = await this.readBody(request);
-        const dir = String(body.directory || '').trim();
-        if (!dir)
-          return this.json(response, 400, {
-            ok: false,
-            error: '请输入有效的音乐目录路径',
-          });
-        try {
-          const stat = await fs.stat(dir);
-          if (!stat.isDirectory()) {
-            return this.json(response, 400, {
-              ok: false,
-              error: `路径不是有效目录：${dir}`,
-            });
-          }
-        } catch (_) {
-          return this.json(response, 400, {
-            ok: false,
-            error: `服务器目录不存在或不可访问：${dir}`,
-          });
-        }
-        this.localLibrary.addDirectories([dir]);
-        await this.saveLocalDirectories();
-        const playlists = this.decorateLocalPlaylists(
-          await this.localLibrary.scan()
-        );
-        return this.json(response, 200, {
-          ok: true,
-          directories: this.localLibrary.listDirectories(),
-          playlists,
-        });
-      } catch (error) {
-        return this.json(response, 400, { ok: false, error: error.message });
-      }
-    }
-
-    if (route === '/ktv/local/remove-directory') {
-      if (request.method !== 'POST')
-        return this.json(response, 405, { error: 'METHOD_NOT_ALLOWED' });
-      try {
-        const body = await this.readBody(request);
-        const dir = String(body.directory || '').trim();
-        this.localLibrary.removeDirectory(dir);
-        await this.saveLocalDirectories();
-        const playlists = this.decorateLocalPlaylists(
-          await this.localLibrary.scan()
-        );
-        return this.json(response, 200, {
-          ok: true,
-          directories: this.localLibrary.listDirectories(),
-          playlists,
-        });
-      } catch (error) {
-        return this.json(response, 400, { ok: false, error: error.message });
-      }
-    }
-
-    return this.json(response, 404, { error: 'NOT_FOUND' });
+    return this.localLibraryRouter(request, response, route);
   }
 
   async handlePublicGuest(request, response) {
@@ -1134,7 +993,7 @@ export default class KaraokeWebHost {
         );
       }
     }
-    if (route.startsWith('/ktv/local/')) {
+    if (isKaraokeLocalLibraryRoute(route)) {
       return this.handleLocalRoute(request, response, route);
     }
     if (!route.startsWith('/ktv/host/')) {
