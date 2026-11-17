@@ -4,11 +4,13 @@ const definitions = {
   ball: {
     global: 'EmotionBall',
     base: '/reactions/emotion-ball/js/',
+    roomBase: '/room/js/reactions/emotion-ball/js/',
     paths: ['rings.js', 'emotions.js', 'ball.js', 'engine.js'],
   },
   mates: {
     global: 'MoodMates',
     base: '/reactions/mood-mates/src/',
+    roomBase: '/room/js/reactions/mood-mates/src/',
     paths: [
       'core/geometry.js',
       'core/render.js',
@@ -36,6 +38,9 @@ function loadLibrary(key) {
   if (ready(key)) return Promise.resolve(ready(key));
   if (!pending.has(key)) {
     const definition = definitions[key];
+    const isRoomPage =
+      window.location && /^\/room(?:\/|$)/.test(window.location.pathname);
+    const base = isRoomPage ? definition.roomBase : definition.base;
     const operation = serial.then(() => {
       if (ready(key)) return ready(key);
       return definition.paths
@@ -45,7 +50,7 @@ function loadLibrary(key) {
               () =>
                 new Promise((resolve, reject) => {
                   const script = document.createElement('script');
-                  script.src = definition.base + path;
+                  script.src = base + path;
                   script.onload = resolve;
                   script.onerror = () => {
                     script.remove();

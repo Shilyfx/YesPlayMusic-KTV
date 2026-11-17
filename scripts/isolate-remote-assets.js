@@ -1,7 +1,11 @@
 const fs = require('fs');
 const path = require('path');
+const { copyReactionAssets } = require('./reaction-assets.cjs');
 
-function isolateRemoteAssets(distPath) {
+function isolateRemoteAssets(
+  distPath,
+  projectRoot = path.resolve(__dirname, '..')
+) {
   const remotePath = path.join(distPath, 'remote');
   const indexPath = path.join(remotePath, 'index.html');
   let html = fs.readFileSync(indexPath, 'utf8');
@@ -30,6 +34,7 @@ function isolateRemoteAssets(distPath) {
     fs.mkdirSync(targetDirectory, { recursive: true });
     fs.copyFileSync(source, path.join(targetDirectory, asset));
   });
+  copyReactionAssets(remotePath, projectRoot);
   html = html
     .replace(/(?:app:\/\/\.|)\/(js|css)\//g, '$1/')
     .replace(

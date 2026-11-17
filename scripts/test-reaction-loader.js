@@ -1,11 +1,11 @@
 const assert = require('assert');
 require('./helpers/register-babel-src');
-const { loadEmotionBall, loadMoodMates } = require('../src/karaoke/moodMates');
+const { REACTION_ASSET_PATHS } = require('./reaction-assets.cjs');
 const originalWindow = global.window;
 const originalDocument = global.document;
 const loaded = [];
 let failOnce = true;
-global.window = {};
+global.window = { location: { pathname: '/room/' } };
 global.document = {
   createElement: () => ({ remove() {} }),
   head: {
@@ -31,6 +31,10 @@ global.document = {
 };
 (async () => {
   try {
+    let {
+      loadEmotionBall,
+      loadMoodMates,
+    } = require('../src/karaoke/moodMates');
     const initial = await Promise.allSettled([
       loadEmotionBall(),
       loadMoodMates(),
@@ -56,8 +60,26 @@ global.document = {
       13,
       'retry is single-flight and loads all eight original scripts'
     );
+    assert.deepEqual(
+      [...new Set(loaded.map(src => src.replace('/room/js/reactions/', '')))],
+      REACTION_ASSET_PATHS,
+      'every dynamically loaded guest script is part of the remote asset manifest'
+    );
     await Promise.all([loadEmotionBall(), loadMoodMates()]);
     assert.equal(loaded.length, 13, 'ready libraries do not reload');
+
+    delete window.EmotionBall;
+    delete window.MoodMates;
+    delete require.cache[require.resolve('../src/karaoke/moodMates')];
+    ({ loadEmotionBall, loadMoodMates } = require('../src/karaoke/moodMates'));
+    window.location.pathname = '/';
+    loaded.length = 0;
+    await Promise.all([loadEmotionBall(), loadMoodMates()]);
+    assert.deepEqual(
+      [...new Set(loaded.map(src => src.replace('/reactions/', '')))],
+      REACTION_ASSET_PATHS,
+      'desktop and primary displays keep loading the existing root assets'
+    );
     console.log(
       'Reaction loaders: seed isolation, single-flight, retry and cache passed'
     );

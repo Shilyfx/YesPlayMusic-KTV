@@ -1,6 +1,10 @@
 const assert = require('assert/strict');
+const fs = require('fs');
 const http = require('http');
+const os = require('os');
+const path = require('path');
 require('./helpers/register-babel-src');
+const { REACTION_ASSET_PATHS } = require('./reaction-assets.cjs');
 const KaraokeWebHost = require('../src/server/KaraokeWebHost').default;
 const {
   createPublicGuestRouter,
@@ -34,13 +38,107 @@ async function testPublicGuestRouterRedirect() {
   assert.equal(location, '/room/');
 }
 
+async function testPublicGuestStaticPaths() {
+  const delegated = [];
+  const host = {
+    expire() {},
+    publicGuestOrigin: 'https://ktv.example.test',
+    roomServer: {
+      handleRequest(request, response) {
+        delegated.push(request.url);
+        response.writeHead(200);
+      },
+    },
+    json(response, status) {
+      response.status = status;
+    },
+  };
+  const router = createPublicGuestRouter(host);
+  const invoke = async url => {
+    const response = {
+      status: null,
+      setHeader() {},
+      writeHead(status) {
+        this.status = status;
+      },
+      end() {},
+    };
+    await router({ method: 'GET', url }, response);
+    return response.status;
+  };
+
+  const allowedPath = '/room/js/reactions/mood-mates/src/core/geometry.js';
+  assert.equal(await invoke(allowedPath), 200);
+  assert.deepEqual(delegated, [allowedPath]);
+  for (const blockedPath of [
+    '/room/js/reactions/../../index.html',
+    '/room/js/reactions/%2e%2e/index.html',
+    '/room/js/reactions/mood-mates/LICENSE',
+    '/room/js/reactions/mood-mates/README.md',
+    '/room/js/reactions/mood-mates/',
+  ]) {
+    assert.equal(await invoke(blockedPath), 404, blockedPath);
+  }
+  assert.deepEqual(
+    delegated,
+    [allowedPath],
+    'only allowed JavaScript assets reach the static room server'
+  );
+}
+
+function requestRawPath(base, requestPath) {
+  const url = new URL(base);
+  return new Promise((resolve, reject) => {
+    const request = http.get(
+      { hostname: url.hostname, port: url.port, path: requestPath },
+      response => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', chunk => (body += chunk));
+        response.on('end', () =>
+          resolve({ status: response.statusCode, body })
+        );
+      }
+    );
+    request.on('error', reject);
+  });
+}
+
 async function run() {
   await testPublicGuestRouterRedirect();
+  await testPublicGuestStaticPaths();
   const origin = 'https://ktv.example.test';
   const lanOrigin = 'http://127.0.0.1';
+  const remoteDistPath = fs.mkdtempSync(
+    path.join(os.tmpdir(), 'ktv-public-reactions-')
+  );
+  for (const relativePath of REACTION_ASSET_PATHS) {
+    const scriptPath = path.join(
+      remoteDistPath,
+      'js',
+      'reactions',
+      ...relativePath.split('/')
+    );
+    fs.mkdirSync(path.dirname(scriptPath), { recursive: true });
+    fs.writeFileSync(scriptPath, `asset:${relativePath}`);
+  }
+  fs.writeFileSync(path.join(remoteDistPath, 'index.html'), 'remote shell');
+  fs.mkdirSync(path.join(remoteDistPath, 'js', 'reactions', 'mood-mates'), {
+    recursive: true,
+  });
+  fs.writeFileSync(
+    path.join(remoteDistPath, 'js', 'reactions', 'mood-mates', 'LICENSE'),
+    'must not be exposed'
+  );
+  fs.mkdirSync(path.join(remoteDistPath, 'js'), { recursive: true });
+  fs.writeFileSync(
+    path.join(remoteDistPath, 'js', 'index.html'),
+    'must not be exposed through traversal'
+  );
   const host = new KaraokeWebHost({
     publicOrigin: lanOrigin,
     publicGuestOrigin: origin,
+    remoteDistPath,
   });
   const servers = [
     http.createServer((req, res) => host.handle(req, res)),
@@ -102,6 +200,29 @@ async function run() {
   };
   host.service.managerBridge.front = async () => assert.fail('Public priority');
   try {
+    for (const relativePath of REACTION_ASSET_PATHS) {
+      const reactionAsset = await fetch(
+        guest + `/room/js/reactions/${relativePath}`
+      );
+      assert.equal(reactionAsset.status, 200, relativePath);
+      assert.equal(await reactionAsset.text(), `asset:${relativePath}`);
+    }
+    assert.equal(
+      (await requestRawPath(guest, '/room/js/reactions/%2e%2e/index.html'))
+        .status,
+      404,
+      'encoded traversal is rejected before the static room handler'
+    );
+    assert.equal(
+      (await requestRawPath(guest, '/room/js/reactions/../index.html')).status,
+      404,
+      'dot-segment traversal is rejected before the static room handler'
+    );
+    assert.equal(
+      (await fetch(guest + '/room/js/reactions/mood-mates/LICENSE')).status,
+      404,
+      'non-script source and license files are not exposed'
+    );
     const open = () => post(lan, '/ktv/host/open', { snapshot }, '', lanOrigin);
     const opened = await open();
     assert.equal(opened.status, 200);
@@ -199,6 +320,7 @@ async function run() {
     await Promise.all(
       servers.map(server => new Promise(resolve => server.close(resolve)))
     );
+    fs.rmSync(remoteDistPath, { recursive: true, force: true });
   }
 }
 

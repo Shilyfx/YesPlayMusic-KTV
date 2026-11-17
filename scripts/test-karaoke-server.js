@@ -69,6 +69,17 @@ async function run() {
     'window.roomHashed=true;'
   );
   fs.writeFileSync(path.join(remoteDistPath, 'css', 'remote.css'), 'body{}');
+  const roleAssetPath = path.join(
+    remoteDistPath,
+    'js',
+    'reactions',
+    'mood-mates',
+    'src',
+    'core',
+    'geometry.js'
+  );
+  fs.mkdirSync(path.dirname(roleAssetPath), { recursive: true });
+  fs.writeFileSync(roleAssetPath, 'window.reactionAsset = true;');
   fs.writeFileSync(
     path.join(desktopDistPath, 'js', 'desktop.js'),
     'window.desktop=true;'
@@ -166,6 +177,15 @@ async function run() {
     200
   );
   assert.equal(
+    (
+      await request(
+        serverPort,
+        `${roomUrl.pathname}js/reactions/mood-mates/src/core/geometry.js`
+      )
+    ).body,
+    'window.reactionAsset = true;'
+  );
+  assert.equal(
     (await request(serverPort, `${roomUrl.pathname}js/remote.js`)).headers[
       'cache-control'
     ],
@@ -214,14 +234,8 @@ async function run() {
     lanAddress: '192.168.8.20',
   });
   assert.equal(restarted.url, room.url);
-  assert.equal(
-    (await request(serverPort, '/room/')).status,
-    200
-  );
-  assert.equal(
-    (await request(serverPort, '/room')).status,
-    200
-  );
+  assert.equal((await request(serverPort, '/room/')).status, 200);
+  assert.equal((await request(serverPort, '/room')).status, 200);
   await server.stopRoom();
 
   const busyPort = await getAvailablePort();
