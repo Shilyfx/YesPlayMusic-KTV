@@ -18,6 +18,10 @@ import KaraokeVisualAssetStore, {
   detectVisualAssetMime,
   MAX_VISUAL_ASSET_BYTES,
 } from './KaraokeVisualAssetStore';
+import {
+  createKaraokeDisplayRouter,
+  isKaraokeDisplayRoute,
+} from './KaraokeDisplayRouter';
 import KaraokeLocalLibrary from '../electron/karaoke/KaraokeLocalLibrary';
 import { KaraokeServer } from '../electron/karaoke/KaraokeServer';
 import { createPublicGuestRouter } from './KaraokePublicGuestRouter';
@@ -159,6 +163,7 @@ export default class KaraokeWebHost {
     this.remoteApi = new RemoteApiRouter(this.service);
     this.roomServer.setRemoteApi(this.remoteApi, this.service);
     this.publicGuestRouter = createPublicGuestRouter(this);
+    this.displayRouter = createKaraokeDisplayRouter(this);
   }
 
   async loadLocalDirectories(fallbackDirectories = []) {
@@ -1051,15 +1056,8 @@ export default class KaraokeWebHost {
       this.getTrustedOrigin(request) || this.publicOrigin || 'http://127.0.0.1'
     );
     const route = url.pathname;
-    if (route.startsWith('/ktv/display/visual-assets/')) {
-      if (request.method !== 'GET')
-        return this.json(response, 405, { error: 'READ_ONLY' });
-      const match = route.match(
-        /^\/ktv\/display\/visual-assets\/([a-f0-9]{64})$/
-      );
-      if (!match) return this.json(response, 404, { error: 'NOT_FOUND' });
-      return this.handleVisualAssetRead(request, response, match[1]);
-    }
+    if (isKaraokeDisplayRoute(route))
+      return this.displayRouter(request, response, url, route);
     if (route === '/ktv/health')
       return this.json(response, 200, {
         ok: true,
@@ -1068,82 +1066,6 @@ export default class KaraokeWebHost {
           ? { uiRevision: this.requiredUiRevision }
           : {}),
       });
-    if (route === '/ktv/display') {
-      if (request.method !== 'GET')
-        return this.json(response, 405, { error: 'READ_ONLY' });
-      const owner = this.owner;
-      return this.json(
-        response,
-        200,
-        owner
-          ? {
-              active: true,
-              generation: this.generation,
-              hostName: owner.name,
-              stale:
-                !owner.presentation || this.now() - owner.presentedAt > 5000,
-              updatedAt: owner.presentedAt,
-              serverTime: this.now(),
-              presentation: owner.presentation,
-              smartBeatRevision: owner.smartBeatRevision || 0,
-              smartBeatTrackKey: owner.presentation?.smartBeat?.trackKey || '',
-              appearanceRevision: owner.appearanceRevision,
-              pvLyricsRevision: owner.pvLyrics?.revision ?? null,
-              pvLyricsItemId: owner.pvLyrics?.itemId ?? null,
-              joinUrl: this.guestJoinUrl(request),
-              nextTrack: this.nextDisplayTrack(),
-              reactions: this.recentReactions(),
-              reactionEpoch: this.reactionEpoch,
-              ...(owner.uiRevision ? { hostUiRevision: owner.uiRevision } : {}),
-            }
-          : { active: false }
-      );
-    }
-    if (route === '/ktv/display/appearance') {
-      if (request.method !== 'GET')
-        return this.json(response, 405, { error: 'READ_ONLY' });
-      const owner = this.owner;
-      if (
-        !owner ||
-        url.searchParams.get('generation') !== String(this.generation) ||
-        url.searchParams.get('revision') !== String(owner.appearanceRevision)
-      )
-        return this.json(response, 409, { error: 'STALE_DISPLAY_APPEARANCE' });
-      return this.json(response, 200, {
-        generation: this.generation,
-        revision: owner.appearanceRevision,
-        config: owner.appearance,
-      });
-    }
-    if (route === '/ktv/display/analysis') {
-      if (request.method !== 'GET')
-        return this.json(response, 405, { error: 'READ_ONLY' });
-      const owner = this.owner;
-      if (
-        !owner ||
-        url.searchParams.get('generation') !== String(this.generation) ||
-        url.searchParams.get('revision') !== String(owner.smartBeatRevision)
-      )
-        return this.json(response, 409, { error: 'STALE_SMART_BEAT_ANALYSIS' });
-      return this.json(response, 200, {
-        generation: this.generation,
-        revision: owner.smartBeatRevision,
-        timeline: owner.smartBeatTimeline,
-      });
-    }
-    // Same public, read-only capability as /ktv/display; never accept host writes.
-    if (route === '/ktv/display/lyrics') {
-      if (request.method !== 'GET')
-        return this.json(response, 405, { error: 'READ_ONLY' });
-      const document = this.owner?.pvLyrics;
-      if (
-        !document ||
-        url.searchParams.get('generation') !== String(this.generation) ||
-        url.searchParams.get('revision') !== String(document.revision)
-      )
-        return this.json(response, 409, { error: 'STALE_PV_LYRICS' });
-      return this.json(response, 200, document);
-    }
     if (route === '/ktv/api/reactions') {
       if (request.method !== 'POST')
         return this.json(response, 405, { error: 'METHOD_NOT_ALLOWED' });

@@ -68,6 +68,26 @@ const KaraokeWebHost = require('../src/server/KaraokeWebHost').default;
     assert.equal(display.updatedAt, now);
     assert.ok(!JSON.stringify(display).includes(token));
     assert.ok(!JSON.stringify(display).includes('must-not-leak'));
+    const analysisUrl =
+      `/ktv/display/analysis?generation=${display.generation}` +
+      `&revision=${display.smartBeatRevision}`;
+    const analysisResponse = await fetch(base + analysisUrl);
+    assert.equal(analysisResponse.status, 200);
+    assert.deepEqual(await analysisResponse.json(), {
+      generation: display.generation,
+      revision: display.smartBeatRevision,
+      timeline: null,
+    });
+    const staleAnalysis = await fetch(
+      base + analysisUrl.replace(/revision=\d+/, 'revision=999999')
+    );
+    assert.equal(staleAnalysis.status, 409);
+    assert.deepEqual(await staleAnalysis.json(), {
+      error: 'STALE_SMART_BEAT_ANALYSIS',
+    });
+    const writeAnalysis = await fetch(base + analysisUrl, { method: 'POST' });
+    assert.equal(writeAnalysis.status, 405);
+    assert.deepEqual(await writeAnalysis.json(), { error: 'READ_ONLY' });
     assert.equal((await post('open', { snapshot })).status, 409);
     assert.equal(
       (await post('exchange', { presentation }, 'viewer')).status,
