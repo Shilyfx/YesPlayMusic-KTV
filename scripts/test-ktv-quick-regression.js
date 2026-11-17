@@ -17,6 +17,8 @@ const suites = [
       'test-karaoke-lifecycle.js',
       'test-karaoke-local-library.js',
       'test-karaoke-reactions.js',
+      'test-reaction-loader.js',
+      'test-reaction-assets.cjs',
     ],
   },
   {
