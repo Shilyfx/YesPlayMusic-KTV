@@ -13,12 +13,16 @@ const {
   RemoteClientSessionStore: ApiRemoteClientSessionStore,
 } = require('../src/electron/karaoke/KaraokeRemoteApi');
 const {
+  RemoteApiRouter: ExtractedRemoteApiRouter,
+} = require('../src/electron/karaoke/KaraokeRemoteApiRouter');
+const {
   RemoteClientSessionStore,
   RateLimiter,
   RATE_LIMIT_WINDOW_MS,
 } = require('../src/electron/karaoke/KaraokeRemoteSessionState');
 
 assert.strictEqual(ApiRemoteClientSessionStore, RemoteClientSessionStore);
+assert.strictEqual(RemoteApiRouter, ExtractedRemoteApiRouter);
 
 function testRemoteSessionState() {
   assert.equal(RATE_LIMIT_WINDOW_MS, 10000);
