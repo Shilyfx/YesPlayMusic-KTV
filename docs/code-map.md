@@ -6,3 +6,5 @@
 - [独立点歌页](../src/remote/main.js)是来宾页面入口，搜索、分页、试听及连接状态的独立模块位于同目录。
 - [Docker 房间服务](../src/server/KaraokeWebHost.js)承接主屏、副屏和来宾请求；[点歌业务与 API](../src/electron/karaoke/KaraokeRemoteApi.js)供服务复用。公网入口另外经过反向代理和隧道，参见[公网配置](../docker/router/PUBLIC-KTV.md)。
 - Folia 舞台渲染和 SmartBeat 继续使用现有实现；修改它们时应单独验证主副屏和深浅主题，避免将第三方资源搬移或删除当作普通清理。
+
+队列恢复使用当前浏览器标签页的 sessionStorage，快照有效期最长 24 小时；恢复后需要重新指定主屏，不会自动恢复播放。主动结束 KTV 会清除恢复数据。点歌请求去重记录位于服务进程内，服务重启后不能保证对重启前的重试继续去重。
