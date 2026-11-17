@@ -7,6 +7,7 @@
 - [当前执行清单](superpowers/plans/2026-11-16-task-handoff.md)：执行顺序、已完成项和待办。
 - [整理基线与回退说明](superpowers/plans/2026-11-16-cleanup-baseline.md)：代码入口、线上指纹及回退注意事项。
 - [整理阶段计划](superpowers/plans/2026-11-15-lumasing-code-cleanup.md)：整理范围与阶段安排。
+- [KTV 代码入口与职责](code-map.md)：主副屏、播放器、点歌页及服务的职责。
 - [历史记录索引](history-index.md)：历史设计、排查和阶段记录；保留原始路径。
 - [KTV 工作流说明](../KTV_Project/AI_WORKFLOW/README.md)：持续任务的开始、记录和审查入口。
 
