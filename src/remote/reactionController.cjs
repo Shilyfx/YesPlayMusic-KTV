@@ -26,7 +26,9 @@ function createReactionController({
   setTimeout: schedule = setTimeout,
 }) {
   const randomizedReactionEffects = shuffleEffects(reactionEffects, random);
-  let reactionEffect = randomizedReactionEffects[0]?.id || 'bounce';
+  let reactionEffect =
+    (randomizedReactionEffects[0] && randomizedReactionEffects[0].id) ||
+    'bounce';
   let reactionEffectsExpanded = false;
   let reactionCharacter = 'ball';
   let reactionPreviewVersion = 0;
@@ -152,8 +154,9 @@ function createReactionController({
     button.disabled = true;
     try {
       const effect = reactionEffect;
+      const customInput = app.querySelector('[data-reaction-custom-text]');
       const customText = normalizeReactionText(
-        app.querySelector('[data-reaction-custom-text]')?.value
+        customInput ? customInput.value : undefined
       );
       const result = await api('/reactions', {
         method: 'POST',
@@ -167,12 +170,14 @@ function createReactionController({
           ...(customText ? { customText } : {}),
         }),
       });
+      const resolvedReaction = resolveReaction({
+        kind,
+        emotionId: button.dataset.emotionId,
+      });
       const labelText =
-        customText ||
-        resolveReaction({ kind, emotionId: button.dataset.emotionId })?.label ||
-        '应援';
-      const isQueued = result?.status === 'queued';
-      const isReplaced = result?.status === 'replaced';
+        customText || (resolvedReaction && resolvedReaction.label) || '应援';
+      const isQueued = result && result.status === 'queued';
+      const isReplaced = result && result.status === 'replaced';
       setNotice(
         isQueued
           ? `已加入排队（第 ${result.queuePosition || 1} 位），即将登场`
@@ -245,9 +250,8 @@ function createReactionController({
         sendReaction(button.dataset.reaction, button);
       }
     });
-    app
-      .querySelector('[data-reaction-custom-text]')
-      ?.addEventListener('input', updateCustomText);
+    const customInput = app.querySelector('[data-reaction-custom-text]');
+    if (customInput) customInput.addEventListener('input', updateCustomText);
   }
 
   return {
