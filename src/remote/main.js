@@ -4,6 +4,7 @@ import createCatalogPrefetchScheduler from './catalogPrefetchScheduler';
 import searchSchedulerModule from './searchScheduler.cjs';
 import searchLogicModule from './searchLogic.cjs';
 import remoteCapabilitiesModule from './remoteCapabilities.cjs';
+import remoteApiModule from './remoteApi.cjs';
 import requestSubmissionModule from './requestSubmission.cjs';
 import remoteStatusModule from './remoteStatus.cjs';
 import previewControllerModule from './previewController.cjs';
@@ -34,6 +35,7 @@ const {
   normalizeSearchText,
 } = searchLogicModule;
 const { createRemoteCapabilities } = remoteCapabilitiesModule;
+const { createRemoteApi } = remoteApiModule;
 const { createRequestSubmission } = requestSubmissionModule;
 const { createNetworkStatusTracker, getRoomAccessNotice } = remoteStatusModule;
 const { createPreviewController, previewPlayerMarkup } =
@@ -56,6 +58,12 @@ const storageKey = `yesplaymusic-ktv:${roomCode}${
   publicGuest ? ':public' : ''
 }`;
 let client;
+const api = createRemoteApi({
+  apiRoot,
+  fetchRequest: (...args) => fetch(...args),
+  getClientToken: () => client && client.clientToken,
+  getRetryAfterMs,
+});
 const reactionController = createReactionController({
   app,
   api,
@@ -258,32 +266,6 @@ function escape(value = '') {
         char
       ])
   );
-}
-
-function api(path, options = {}) {
-  return fetch(`${apiRoot}${path}`, {
-    ...options,
-    headers: {
-      ...(options.body ? { 'Content-Type': 'application/json' } : {}),
-      ...(client?.clientToken
-        ? { Authorization: `Bearer ${client.clientToken}` }
-        : {}),
-      ...options.headers,
-    },
-  }).then(async response => {
-    const body = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const error = new Error(body.error || 'REMOTE_UNAVAILABLE');
-      error.code = body.error;
-      error.status = response.status;
-      error.retryAfterMs = getRetryAfterMs(
-        body.retryAfterMs,
-        response.headers?.get('Retry-After')
-      );
-      throw error;
-    }
-    return body;
-  });
 }
 
 const requestSubmission = createRequestSubmission({

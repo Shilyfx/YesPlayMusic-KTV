@@ -53,6 +53,7 @@ const suites = [
       '../src/remote/searchLogic.test.cjs',
       '../src/remote/reactionController.test.cjs',
       '../src/remote/remoteCapabilities.test.cjs',
+      '../src/remote/remoteApi.test.cjs',
     ],
   },
 ];
