@@ -51,6 +51,7 @@ const suites = [
       '../src/remote/previewController.test.cjs',
       '../src/remote/remoteStatus.test.cjs',
       '../src/remote/searchLogic.test.cjs',
+      '../src/remote/reactionController.test.cjs',
     ],
   },
 ];
