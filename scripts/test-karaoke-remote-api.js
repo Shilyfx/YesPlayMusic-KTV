@@ -13,6 +13,9 @@ const {
   RemoteClientSessionStore: ApiRemoteClientSessionStore,
 } = require('../src/electron/karaoke/KaraokeRemoteApi');
 const {
+  KaraokeCatalogService: ExtractedKaraokeCatalogService,
+} = require('../src/electron/karaoke/KaraokeCatalogService');
+const {
   RemoteApiRouter: ExtractedRemoteApiRouter,
 } = require('../src/electron/karaoke/KaraokeRemoteApiRouter');
 const {
@@ -22,6 +25,7 @@ const {
 } = require('../src/electron/karaoke/KaraokeRemoteSessionState');
 
 assert.strictEqual(ApiRemoteClientSessionStore, RemoteClientSessionStore);
+assert.strictEqual(KaraokeCatalogService, ExtractedKaraokeCatalogService);
 assert.strictEqual(RemoteApiRouter, ExtractedRemoteApiRouter);
 
 function testRemoteSessionState() {
