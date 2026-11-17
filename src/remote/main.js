@@ -9,6 +9,7 @@ import requestSubmissionModule from './requestSubmission.cjs';
 import remoteStatusModule from './remoteStatus.cjs';
 import previewControllerModule from './previewController.cjs';
 import reactionControllerModule from './reactionController.cjs';
+import playbackQueueRendererModule from './playbackQueueRenderer.cjs';
 import invalidateRemoteCatalogState from './catalogEpoch';
 import {
   appendCatalogItems,
@@ -41,6 +42,7 @@ const { createNetworkStatusTracker, getRoomAccessNotice } = remoteStatusModule;
 const { createPreviewController, previewPlayerMarkup } =
   previewControllerModule;
 const { createReactionController } = reactionControllerModule;
+const { createPlaybackQueueRenderer } = playbackQueueRendererModule;
 const networkStatus = createNetworkStatusTracker({
   isOnline: navigator.onLine,
 });
@@ -83,7 +85,12 @@ let refreshTimer;
 let roomEnded = false;
 let lastStateRevision = null;
 let observedCatalogEpoch;
-let renderedNowPlayingKey = null;
+const { renderNowPlaying, renderQueue } = createPlaybackQueueRenderer({
+  app,
+  getState: () => state,
+  getClient: () => client,
+  escape,
+});
 let retryDelay = 2000;
 let searchQuery = '';
 let searchResults = [];
@@ -440,26 +447,6 @@ function formatDuration(milliseconds) {
   return `${Math.floor(total / 60)}:${String(total % 60).padStart(2, '0')}`;
 }
 
-function itemMarkup(item, index, own = false) {
-  const controls =
-    own && item.status === 'queued'
-      ? `<div class="queue-actions"><button data-front="${escape(
-          item.queueItemId
-        )}">置顶</button><button class="quiet" data-remove="${escape(
-          item.queueItemId
-        )}">取消</button></div>`
-      : '';
-  return `<article class="queue-item ${
-    item.priorityRequested ? 'priority' : ''
-  }"><span class="queue-index">${index}</span><div><strong>${escape(
-    item.name
-  )}</strong><p>${escape((item.artists || []).join(' / '))} · ${escape(
-    item.requesterName || '主机'
-  )}</p></div>${
-    item.priorityRequested ? '<span class="tag">优先</span>' : ''
-  }${controls}</article>`;
-}
-
 function initializeModuleTabs() {
   const panels = [...app.querySelectorAll('[data-module-panel]')];
   const tabs = [...app.querySelectorAll('[data-module-tab]')];
@@ -746,57 +733,6 @@ function initializeShell() {
   });
   reactionController.bind();
   initializeModuleTabs();
-}
-
-function renderNowPlaying() {
-  const current = state?.current;
-  const roomTitle = app.querySelector('[data-room-name]');
-  if (roomTitle) {
-    roomTitle.textContent = state?.room?.name || 'LumaSing KTV';
-  }
-  const currentKey = current
-    ? JSON.stringify([
-        current.queueItemId,
-        current.trackId,
-        current.status,
-        current.requesterId,
-        current.name,
-        current.artists,
-        current.coverUrl,
-        current.requesterName,
-      ])
-    : 'empty';
-  if (currentKey === renderedNowPlayingKey) return;
-  renderedNowPlayingKey = currentKey;
-  const target = app.querySelector('[data-now-playing]');
-  const coverMarkup = current?.coverUrl
-    ? `<img class="record cover-art" src="${escape(
-        current.coverUrl
-      )}" alt="" />`
-    : '<div class="record">♫</div>';
-  target.innerHTML = `<p class="section-label">正在演唱</p>${
-    current
-      ? `<div class="now-playing-row"><div class="track-title">${coverMarkup}<div><h2>${escape(
-          current.name
-        )}</h2><p>${escape(
-          (current.artists || []).join(' / ')
-        )}</p><small>由 ${escape(
-          current.requesterName || '主机'
-        )} 点播</small></div></div><button type="button" class="next-track-button" data-next-track="true">切歌</button></div>`
-      : '<div class="empty">等待主机选择歌曲</div>'
-  }`;
-}
-
-function renderQueue() {
-  const waiting = state?.waiting || [];
-  app.querySelector('[data-queue-count]').textContent = `${waiting.length} 首`;
-  app.querySelector('[data-queue-list]').innerHTML = waiting.length
-    ? waiting
-        .map((item, index) =>
-          itemMarkup(item, index + 1, item.requesterId === client?.clientId)
-        )
-        .join('')
-    : '<div class="empty">还没有待唱歌曲</div>';
 }
 
 function renderHistory() {

@@ -54,6 +54,7 @@ const suites = [
       '../src/remote/reactionController.test.cjs',
       '../src/remote/remoteCapabilities.test.cjs',
       '../src/remote/remoteApi.test.cjs',
+      '../src/remote/playbackQueueRenderer.test.cjs',
     ],
   },
 ];
