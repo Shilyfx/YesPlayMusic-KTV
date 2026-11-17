@@ -15,6 +15,8 @@ const suites = [
       'test-karaoke-request-submission.js',
       'test-upstream-search-rate-limit.js',
       'test-karaoke-lifecycle.js',
+      'test-karaoke-local-library.js',
+      'test-karaoke-reactions.js',
     ],
   },
   {

@@ -23,8 +23,8 @@
 
 ## 阶段 1：收拢验证与发布入口
 
-- [ ] 保留现有脚本和命令路径，先在 `package.json` 增加统一的 KTV 快速回归入口，将实际用到的测试整理成目录索引，再让 `.github/workflows/phase-validation.yml` 复用同一组命令。
-- [ ] 快速回归纳入 `test-karaoke-web-host.js`、`test-karaoke-public-guest.js`、`test-karaoke-remote-api.js`、`test-upstream-search-rate-limit.js`、分页 API/UI、播放和主副屏的现有测试。硬件、联网、多端和性能验证独立运行。
+- [x] 保留现有脚本和命令路径，先在 `package.json` 增加统一的 KTV 快速回归入口，将实际用到的测试整理成目录索引，再让 `.github/workflows/phase-validation.yml` 复用同一组命令。
+- [x] 快速回归纳入 `test-karaoke-web-host.js`、`test-karaoke-public-guest.js`、`test-karaoke-remote-api.js`、`test-upstream-search-rate-limit.js`、分页 API/UI、播放和主副屏的现有测试。硬件、联网、多端和性能验证独立运行。
 - [x] 梳理 `build-local-ktv.cjs`、`build-ktv-server.js`、`package-router-update.cjs`、`write-ktv-release-manifest.cjs` 的输入输出。完整归档保留原默认 dist 范围，remote-only 只含 `remote/`；两者的命令、排除项、入口 SHA-256、归档验证和回退步骤见 `docs/execution-index.md` 与 `docs/superpowers/plans/2026-11-16-cleanup-baseline.md`。
 
 **验收**：开发机和 CI 能按相同命令运行核心回归，给定一个发布包能确认它更新哪些部分。
@@ -47,7 +47,7 @@
 
 ## 阶段 4：拆主副屏与播放器边界
 
-- [ ] 从 `src/views/karaoke.vue` 依次提取房间邀请面板、等待队列、本地曲库面板。组件接收视图数据并发出操作事件，由原页面负责协调。
+- [x] 从 `src/views/karaoke.vue` 依次提取房间邀请面板、等待队列、本地曲库面板。组件接收视图数据并发出操作事件，由原页面负责协调。
 - [ ] 在 `karaoke.vue` 与 `karaokeWeb.vue` 间，仅共享实际一致的显示和设置功能，保留主屏控制和副屏独立设置的各自职责。再按需要分离 `KaraokeControlPanel.vue` 的设置块。
 - [ ] 最后核查播放与舞台生命周期。优先复用 `KaraokeManager`、`KaraokePlayerAdapter` 等已有边界。Folia、SmartBeat、主题渲染这一批先梳理接口，渲染逻辑或第三方产物改动另列任务。
 
