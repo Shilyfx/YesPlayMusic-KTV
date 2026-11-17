@@ -41,7 +41,15 @@ const suites = [
   },
   {
     name: 'Karaoke panels',
-    tests: ['test-karaoke-queue-panel.js'],
+    tests: ['test-karaoke-queue-panel.js', 'test-karaoke-room-access-panel.js'],
+  },
+  {
+    name: 'Guest page modules',
+    tests: [
+      '../src/remote/previewController.test.cjs',
+      '../src/remote/remoteStatus.test.cjs',
+      '../src/remote/searchLogic.test.cjs',
+    ],
   },
 ];
 

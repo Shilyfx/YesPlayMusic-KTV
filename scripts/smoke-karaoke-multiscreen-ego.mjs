@@ -91,8 +91,9 @@ export async function smokeMultiScreen(task, base) {
           qr: !!document.querySelector('.room-qr-wrap'),
           lyricRequests: performance
             .getEntriesByType('resource')
-            .filter(entry => new URL(entry.name).pathname.includes('/lyric'))
-            .length,
+            .filter(entry =>
+              /^\/api\/lyric(?:\/|$)/.test(new URL(entry.name).pathname)
+            ).length,
         };
       });
       assert.ok(data.title);
@@ -108,6 +109,7 @@ export async function smokeMultiScreen(task, base) {
       );
     }
     for (const mode of ['classic', 'poem', 'depth', 'orbit']) {
+      console.log('Checking synchronized lyric mode', mode);
       await master.evaluate(value => {
         document.querySelector('.karaoke-desktop').__vue__.lyricStageMode =
           value;
@@ -121,6 +123,7 @@ export async function smokeMultiScreen(task, base) {
           { timeout: 10000 }
         );
     }
+    console.log('Checking pause synchronization');
     await master.evaluate(() =>
       document.querySelector('.karaoke-desktop').__vue__.player.pause()
     );
@@ -144,8 +147,7 @@ export async function smokeMultiScreen(task, base) {
       await page.waitForFunction(
         () => {
           const position =
-            document.querySelector('.display-screen').__vue__.presentation
-              .position;
+            document.querySelector('.display-screen').__vue__.clockPosition;
           return position >= 59.5 && position <= 60.5;
         },
         undefined,
