@@ -3,6 +3,7 @@ import createRefreshScheduler from './refreshScheduler';
 import createCatalogPrefetchScheduler from './catalogPrefetchScheduler';
 import searchSchedulerModule from './searchScheduler.cjs';
 import searchLogicModule from './searchLogic.cjs';
+import remoteCapabilitiesModule from './remoteCapabilities.cjs';
 import requestSubmissionModule from './requestSubmission.cjs';
 import remoteStatusModule from './remoteStatus.cjs';
 import previewControllerModule from './previewController.cjs';
@@ -32,6 +33,7 @@ const {
   mergeSearchResults,
   normalizeSearchText,
 } = searchLogicModule;
+const { createRemoteCapabilities } = remoteCapabilitiesModule;
 const { createRequestSubmission } = requestSubmissionModule;
 const { createNetworkStatusTracker, getRoomAccessNotice } = remoteStatusModule;
 const { createPreviewController, previewPlayerMarkup } =
@@ -45,7 +47,10 @@ const app = document.querySelector('#remote-app');
 const apiRoot = '/ktv/api';
 const roomCode = window.location.pathname.split('/').filter(Boolean).pop();
 const roomLinkParams = new URLSearchParams(window.location.hash.slice(1));
-const publicGuest = roomLinkParams.get('public') === '1';
+const remoteCapabilities = createRemoteCapabilities({
+  publicGuest: roomLinkParams.get('public') === '1',
+});
+const publicGuest = remoteCapabilities.isPublicGuest;
 const joinToken = roomLinkParams.get('token') || '';
 const storageKey = `yesplaymusic-ktv:${roomCode}${
   publicGuest ? ':public' : ''
@@ -188,18 +193,23 @@ const catalogPrefetchScheduler = createCatalogPrefetchScheduler({
   isHidden: () => document.hidden,
   shouldRun: () => !roomEnded && Boolean(client?.clientToken),
 });
+function findAvailableLocalTracks(query) {
+  if (!remoteCapabilities.canLoadLocalPlaylists) return [];
+  return findLocalTracks(query, localPlaylists);
+}
+
 const searchScheduler = createSearchScheduler({
   // 600ms：拼音逐字输入时减少落到上游的中间态请求（上游对搜索有 405 风控）。
   debounceMs: 600,
   search: async (query, { signal }) => {
-    if (!localPlaylistsLoaded) {
+    if (remoteCapabilities.canLoadLocalPlaylists && !localPlaylistsLoaded) {
       await loadLocalPlaylists().catch(() => {});
     }
     const request = buildSearchRequest(query, signal);
     return api(request.path, request.options).then(getSearchResults);
   },
   onSearching: () => {
-    const localMatches = findLocalTracks(searchQuery, localPlaylists);
+    const localMatches = findAvailableLocalTracks(searchQuery);
     if (localMatches.length > 0) {
       renderResults(localMatches, { searching: true });
     } else {
@@ -207,7 +217,7 @@ const searchScheduler = createSearchScheduler({
     }
   },
   onResults: (query, results) => {
-    const localMatches = findLocalTracks(query || searchQuery, localPlaylists);
+    const localMatches = findAvailableLocalTracks(query || searchQuery);
     const combined = mergeSearchResults(
       localMatches,
       Array.isArray(results) ? results : []
@@ -216,7 +226,7 @@ const searchScheduler = createSearchScheduler({
     clearSearchNotice(app.querySelector('[data-notice]'), () => setNotice(''));
   },
   onError: (query, error) => {
-    const localMatches = findLocalTracks(query || searchQuery, localPlaylists);
+    const localMatches = findAvailableLocalTracks(query || searchQuery);
     if (localMatches.length > 0) {
       renderResults(localMatches);
       setNotice('远程搜索暂时受限，已优先展示本地匹配歌曲。', 'warning');
@@ -1307,7 +1317,7 @@ function ensureModuleLoaded(module) {
 function prefetchCatalogModules() {
   if (!client?.clientToken) return;
   loadFeaturedArtists();
-  if (publicGuest) return;
+  if (!remoteCapabilities.canPrefetchCatalog) return;
   const currentCatalog =
     selectedModule === 'recommendations'
       ? 'recommendations'
@@ -1430,6 +1440,7 @@ function selectLocalPlaylist(playlistId) {
 }
 
 async function loadLocalPlaylists({ force = false } = {}) {
+  if (!remoteCapabilities.canLoadLocalPlaylists) return;
   if (localPlaylistsPromise) return localPlaylistsPromise;
   if (localPlaylistsLoaded && !force) return;
   const button = app.querySelector('[data-playlists-refresh]');
@@ -1673,7 +1684,7 @@ async function selectArtist(artistId) {
     renderArtistTracks();
     return;
   }
-  if (!publicGuest && !localPlaylistsLoaded) {
+  if (remoteCapabilities.canLoadLocalPlaylists && !localPlaylistsLoaded) {
     await loadLocalPlaylists().catch(() => {});
   }
   const localInitial = localTracksForArtist(selectedArtistId);
@@ -2192,7 +2203,8 @@ async function performRefresh() {
     if (!client?.clientToken) {
       if (!(await joinRoom())) throw new Error('CLIENT_SESSION_UNAVAILABLE');
       ensureModuleLoaded(selectedModule);
-      if (!publicGuest) loadLocalPlaylists().catch(() => {});
+      if (remoteCapabilities.canLoadLocalPlaylists)
+        loadLocalPlaylists().catch(() => {});
       prefetchCatalogModules();
     }
     state = await api('/state');
@@ -2275,7 +2287,8 @@ async function bootstrap() {
       if (!(await joinRoom())) return showEnded();
     }
     ensureModuleLoaded(selectedModule);
-    if (!publicGuest) loadLocalPlaylists().catch(() => {});
+    if (remoteCapabilities.canLoadLocalPlaylists)
+      loadLocalPlaylists().catch(() => {});
     prefetchCatalogModules();
     await requestRefresh();
   } catch (error) {
@@ -2285,7 +2298,8 @@ async function bootstrap() {
       try {
         if (await joinRoom()) {
           ensureModuleLoaded(selectedModule);
-          if (!publicGuest) loadLocalPlaylists().catch(() => {});
+          if (remoteCapabilities.canLoadLocalPlaylists)
+            loadLocalPlaylists().catch(() => {});
           prefetchCatalogModules();
           await requestRefresh();
           return;
