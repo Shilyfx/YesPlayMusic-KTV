@@ -32,10 +32,17 @@ jobs:
           yarn add --ignore-platform --ignore-optional --no-lockfile \
             "@unblockneteasemusic/rust-napi-darwin-arm64@${unm_version}" \
             dmg-license
-          esbuild_version=$(node -p "const path=require('path'); const base=path.dirname(require.resolve('esbuild-loader/package.json')); require(require.resolve('esbuild/package.json',{paths:[base]})).version")
-          yarn add --ignore-platform --ignore-optional --no-lockfile \
-            "@esbuild/darwin-arm64@${esbuild_version}"
-          node -e "const path=require('path'); const base=path.dirname(require.resolve('esbuild-loader/package.json')); const esbuild=require(require.resolve('esbuild',{paths:[base]})); const host=require(require.resolve('esbuild/package.json',{paths:[base]})).version; const binary=require('@esbuild/darwin-arm64/package.json').version; if(host!==binary) throw new Error('esbuild-loader binary mismatch: '+host+' vs '+binary); esbuild.transformSync('const ready = true')"
+          # The root esbuild (used by vue.config.js) and esbuild-loader may
+          # resolve different versions. Give each its own matching binary.
+          root_esbuild=$(node -p "require('path').dirname(require.resolve('esbuild/package.json'))")
+          loader_esbuild=$(node -p "const p=require('path'); p.dirname(require.resolve('esbuild/package.json',{paths:[p.dirname(require.resolve('esbuild-loader/package.json'))]}))")
+          for esbuild_dir in "$root_esbuild" "$loader_esbuild"; do
+            version=$(node -p "require(process.argv[1]+'/package.json').version" "$esbuild_dir")
+            archive=$(npm pack "@esbuild/darwin-arm64@${version}" --pack-destination "$RUNNER_TEMP" --silent)
+            mkdir -p "$esbuild_dir/node_modules/@esbuild/darwin-arm64"
+            tar -xzf "$RUNNER_TEMP/$archive" --strip-components=1 -C "$esbuild_dir/node_modules/@esbuild/darwin-arm64"
+            node -e "require(process.argv[1]).transformSync('const ready = true')" "$esbuild_dir"
+          done
       - name: Verify fresh anonymous-token initialization
         run: yarn test:anonymous-token
       - name: Build packaged application
