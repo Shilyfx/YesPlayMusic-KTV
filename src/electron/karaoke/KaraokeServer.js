@@ -706,7 +706,8 @@ export class KaraokeServer {
       client = this.remoteService.client(token, publicGuest);
       const scheduled = this.reactionScheduler.scheduleUser({
         senderId: client.clientId,
-        itemId: (snapshot.currentItem && snapshot.currentItem.queueItemId) || '',
+        itemId:
+          (snapshot.currentItem && snapshot.currentItem.queueItemId) || '',
         kind: body.kind,
         effect: body.effect || 'bounce',
         character: body.character,
