@@ -2457,6 +2457,16 @@ export default {
 }
 .track-identity .cover-wrap {
   grid-row: span 4;
+  width: 100%;
+  align-self: start;
+}
+.track-identity .eyebrow,
+.track-identity h1,
+.track-identity .artist,
+.track-identity .album {
+  grid-column: 2;
+  min-width: 0;
+  overflow-wrap: anywhere;
 }
 .track-identity .eyebrow {
   margin-top: 0;

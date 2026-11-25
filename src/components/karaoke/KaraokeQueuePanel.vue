@@ -165,7 +165,7 @@ export default {
 }
 .waiting-list li {
   display: grid;
-  grid-template-columns: 26px 1fr auto;
+  grid-template-columns: 26px minmax(0, 1fr);
   gap: 8px;
   align-items: center;
   padding: 13px 0;
@@ -183,15 +183,15 @@ export default {
 .queue-item-copy strong,
 .queue-item-copy small {
   display: block;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
 }
 .queue-item-copy strong {
   font-size: 14px;
 }
 .queue-actions {
+  grid-column: 2;
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 .queue-actions button {
