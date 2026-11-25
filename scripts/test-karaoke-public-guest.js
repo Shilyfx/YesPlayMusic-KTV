@@ -227,7 +227,7 @@ async function testPublicGuestCatalogRoutesAndLocalProjection() {
     ['GET', '/ktv/local/list'],
     ['GET', '/ktv/local/resolve/local-0123456789abcdef'],
     ['GET', '/ktv/local/audio/local-0123456789abcdef'],
-    ['GET', '/ktv/api/track/123/preview'],
+    ['GET', '/ktv/api/track/local-0123456789abcdef/preview'],
     ['POST', '/ktv/api/playlists'],
   ])
     assert.equal((await invoke(method, url)).status, 404, `${method} ${url}`);
@@ -322,6 +322,16 @@ async function run() {
       },
       body: JSON.stringify(body),
     });
+  const mutate = (base, method, route, token, from = origin) =>
+    fetch(base + route, {
+      method,
+      headers: {
+        Origin: from,
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+      },
+      ...(method === 'POST' ? { body: '{}' } : {}),
+    });
   const state = (base, token) =>
     fetch(base + '/ktv/api/state', {
       headers: { Authorization: `Bearer ${token}` },
@@ -342,8 +352,10 @@ async function run() {
     coverUrl: '',
     album: 'Album',
   });
+  let previewUrl = 'http://m701.music.126.net/test-preview.mp3';
   host.service.catalog.availability = async () => 'playable';
   host.service.catalog.hostCatalogBridge = async action => {
+    if (action === 'preview') return previewUrl;
     if (action === 'recommendations')
       return [{ id: '123', name: 'Recommended', trackCount: 1 }];
     if (action === 'toplists')
@@ -400,20 +412,34 @@ async function run() {
       ];
     throw new Error('UNEXPECTED_CATALOG_ACTION');
   };
+  let queueSequence = 0;
   host.service.managerBridge.enqueue = async (track, requester) => {
     const item = {
-      queueItemId: 'test-item',
+      queueItemId: `test-item-${++queueSequence}`,
       trackId: String(track.id),
       trackName: track.name,
       artists: ['Artist'],
       requesterId: requester.id,
+      requesterName: requester.name,
+      requesterType: requester.type,
+      priorityRequested: Boolean(requester.priorityRequested),
       status: 'queued',
     };
     waitingItems.push(item);
     host.owner.snapshot.waitingItems = waitingItems;
     return item;
   };
-  host.service.managerBridge.front = async () => assert.fail('Public priority');
+  host.service.managerBridge.remove = async queueItemId => {
+    const index = waitingItems.findIndex(item => item.queueItemId === queueItemId);
+    return index < 0 ? null : waitingItems.splice(index, 1)[0];
+  };
+  host.service.managerBridge.front = async queueItemId => {
+    const index = waitingItems.findIndex(item => item.queueItemId === queueItemId);
+    if (index < 0) return false;
+    waitingItems.unshift(waitingItems.splice(index, 1)[0]);
+    return true;
+  };
+  host.service.managerBridge.next = async () => waitingItems.shift() || null;
   try {
     const portraitPath = '/room/artist-portraits/6452.jpg';
     for (const base of [lan, guest]) {
@@ -474,6 +500,9 @@ async function run() {
     const joined = await post(guest, joinPath, {}, pass);
     assert.equal(joined.status, 200);
     const { clientToken } = await joined.json();
+    const secondJoined = await post(guest, joinPath, {}, pass);
+    assert.equal(secondJoined.status, 200);
+    const { clientToken: secondClientToken } = await secondJoined.json();
     assert.equal((await state(lan, clientToken)).status, 401);
     assert.equal((await state(guest, lanToken)).status, 401);
     const headers = { Authorization: `Bearer ${clientToken}` };
@@ -481,7 +510,6 @@ async function run() {
       '/ktv/host/status',
       '/ktv/local/list',
       '/ktv/display',
-      '/ktv/api/track/123/preview',
       '/ktv/local/audio/local-0123456789abcdef',
     ])
       assert.equal((await fetch(guest + route, { headers })).status, 404);
@@ -500,10 +528,29 @@ async function run() {
       assert.ok(Array.isArray(data.playlists || data.tracks), route);
       assert.doesNotMatch(JSON.stringify(data), /audioPath|lyrics|accountToken|Private account name|C:\\\\Users/);
     }
-    assert.equal(
-      (await post(guest, '/ktv/api/next', {}, clientToken)).status,
-      404
+    const unauthenticatedPreview = await fetch(
+      guest + '/ktv/api/track/123/preview'
     );
+    assert.equal(unauthenticatedPreview.status, 401);
+    const preview = await fetch(guest + '/ktv/api/track/123/preview', {
+      headers,
+    });
+    assert.equal(preview.status, 200);
+    assert.equal((await preview.json()).url, 'https://m701.music.126.net/test-preview.mp3');
+    previewUrl = 'https://audio.attacker.example/test.mp3';
+    const rejectedPreview = await fetch(
+      guest + '/ktv/api/track/123/preview',
+      { headers }
+    );
+    assert.equal(rejectedPreview.status, 409);
+    assert.doesNotMatch(await rejectedPreview.text(), /attacker\.example/);
+    previewUrl = 'file:///C:/Users/alice/Music/private.mp3';
+    const rejectedLocalPreview = await fetch(
+      guest + '/ktv/api/track/123/preview',
+      { headers }
+    );
+    assert.equal(rejectedLocalPreview.status, 409);
+    assert.doesNotMatch(await rejectedLocalPreview.text(), /C:\/Users/);
     const unknownLocalRequest = await post(
       guest,
       '/ktv/api/requests',
@@ -514,22 +561,65 @@ async function run() {
       clientToken
     );
     assert.equal(unknownLocalRequest.status, 400);
+    const secondRequested = await post(
+      guest,
+      '/ktv/api/requests',
+      {
+        trackId: '123',
+        requestId: 'request-public-guest-b-0001',
+      },
+      secondClientToken
+    );
+    assert.equal(secondRequested.status, 201, await secondRequested.clone().text());
+    const secondRequestedBody = await secondRequested.json();
     const requested = await post(
       guest,
       '/ktv/api/requests',
       {
         trackId: '123',
         priority: true,
-        requestId: 'request-public-guest-0001',
+        requestId: 'request-public-guest-a-0001',
       },
       clientToken
     );
-    assert.equal(requested.status, 201, await requested.text());
+    assert.equal(requested.status, 201, await requested.clone().text());
+    const requestedBody = await requested.json();
+    assert.equal(requestedBody.item.priorityRequested, true);
     const publicState = await (await state(guest, clientToken)).json();
     const lanState = await (await state(lan, lanToken)).json();
     assert.deepEqual(publicState.waiting, lanState.waiting);
-    assert.equal(publicState.waiting.length, 1);
-    assert.equal(publicState.client.permissions.priority, false);
+    assert.equal(publicState.waiting.length, 2);
+    assert.equal(publicState.waiting[0].queueItemId, requestedBody.item.queueItemId);
+    assert.equal(publicState.client.permissions.priority, true);
+    const wrongOriginDelete = await mutate(
+      guest,
+      'DELETE',
+      `/ktv/api/requests/${requestedBody.item.queueItemId}`,
+      clientToken,
+      'https://attacker.example'
+    );
+    assert.equal(wrongOriginDelete.status, 403);
+    const deleteAnotherGuestsItem = await mutate(
+      guest,
+      'DELETE',
+      `/ktv/api/requests/${requestedBody.item.queueItemId}`,
+      secondClientToken
+    );
+    assert.equal(deleteAnotherGuestsItem.status, 403);
+    const frontAnotherGuestsItem = await mutate(
+      guest,
+      'POST',
+      `/ktv/api/requests/${requestedBody.item.queueItemId}/front`,
+      secondClientToken
+    );
+    assert.equal(frontAnotherGuestsItem.status, 403);
+    const deletedOwnItem = await mutate(
+      guest,
+      'DELETE',
+      `/ktv/api/requests/${requestedBody.item.queueItemId}`,
+      clientToken
+    );
+    assert.equal(deletedOwnItem.status, 200);
     const localRequested = await post(
       guest,
       '/ktv/api/requests',
@@ -542,8 +632,30 @@ async function run() {
     assert.equal(localRequested.status, 201, await localRequested.clone().text());
     const localRequestBody = await localRequested.json();
     assert.equal(localRequestBody.item.source, 'local');
+    const frontOwnItem = await mutate(
+      guest,
+      'POST',
+      `/ktv/api/requests/${localRequestBody.item.queueItemId}/front`,
+      clientToken
+    );
+    assert.equal(frontOwnItem.status, 200);
+    assert.equal(
+      (await (await state(guest, clientToken)).json()).waiting[0].queueItemId,
+      localRequestBody.item.queueItemId
+    );
+    const noOriginNext = await mutate(
+      guest,
+      'POST',
+      '/ktv/api/next',
+      clientToken,
+      ''
+    );
+    assert.equal(noOriginNext.status, 403);
+    const nextItem = await mutate(guest, 'POST', '/ktv/api/next', clientToken);
+    assert.equal(nextItem.status, 200);
+    assert.equal((await nextItem.json()).item.queueItemId, localRequestBody.item.queueItemId);
     const localQueue = await (await state(guest, clientToken)).json();
-    assert.equal(localQueue.waiting.length, 2);
+    assert.equal(localQueue.waiting.length, 1);
     assert.doesNotMatch(
       JSON.stringify(localQueue),
       /audioPath|audioUrl|lyrics|C:\\\\Users/

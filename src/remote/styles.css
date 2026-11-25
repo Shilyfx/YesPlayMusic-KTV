@@ -1648,8 +1648,3 @@ button.request-ack {
     transition: none;
   }
 }
-
-.public-guest
-  :is([data-module-tab='recommendations'], [data-module-tab='local-playlists'], [data-module-tab='playlists'], [data-next-track], [data-priority], [data-preview], .queue-actions) {
-  display: none;
-}

@@ -24,8 +24,9 @@
  * Guests use /r/<roomId>/<allowed-local-path>. GET static assets are limited
  * to /room/; nested /room/{js,css,img,fonts}/ files with known extensions;
  * and /room/artist-portraits/<1-20 digits>.jpg. KTV GETs are limited to the
- * queue, search, artist, and safe catalog read APIs; the only KTV POSTs are
- * /client-session, /requests, and /reactions. Local playlist responses are
+ * queue, search, artist, preview, and safe catalog read APIs; the only KTV
+ * mutations are /client-session, /requests, /requests/<id>,
+ * /requests/<id>/front, /next, and /reactions. Local playlist responses are
  * projected to metadata at this public boundary. The gateway never opens an
  * outbound socket or accepts a destination host from a guest.
  */
@@ -208,6 +209,7 @@ function allowedGuestMethod(method, pathname) {
       pathname === '/ktv/api/state' ||
       pathname === '/ktv/api/search' ||
       pathname === '/ktv/api/artists/search' ||
+      /^\/ktv\/api\/track\/\d{1,20}\/preview$/.test(pathname) ||
       /^\/ktv\/api\/artists\/\d{1,20}\/tracks$/.test(pathname) ||
       /^\/ktv\/api\/(?:recommendations|toplists|playlists|local-playlists|(?:recommendations|toplists|playlists)\/\d{1,20}\/tracks)$/.test(
         pathname
@@ -215,11 +217,16 @@ function allowedGuestMethod(method, pathname) {
   )
     return true;
 
+  if (method === 'DELETE')
+    return /^\/ktv\/api\/requests\/[\w-]{1,160}$/.test(pathname);
+
   return (
     method === 'POST' &&
     (pathname === '/ktv/api/client-session' ||
       pathname === '/ktv/api/requests' ||
-      pathname === '/ktv/api/reactions')
+      pathname === '/ktv/api/next' ||
+      pathname === '/ktv/api/reactions' ||
+      /^\/ktv\/api\/requests\/[\w-]{1,160}\/front$/.test(pathname))
   );
 }
 
@@ -557,7 +564,7 @@ function createGateway(options) {
     if (!allowedGuestMethod(request.method, localTarget.pathname)) {
       const pathIsAllowlisted =
         isStaticRoomPath(localTarget.pathname) ||
-        /^\/ktv\/api\/(?:state|search|artists\/search|artists\/\d{1,20}\/tracks|client-session|requests|reactions|recommendations|toplists|playlists|local-playlists|(?:recommendations|toplists|playlists)\/\d{1,20}\/tracks)$/.test(
+        /^\/ktv\/api\/(?:state|search|artists\/search|artists\/\d{1,20}\/tracks|track\/\d{1,20}\/preview|client-session|requests|requests\/[\w-]{1,160}(?:\/front)?|next|reactions|recommendations|toplists|playlists|local-playlists|(?:recommendations|toplists|playlists)\/\d{1,20}\/tracks)$/.test(
           localTarget.pathname
         );
       throw new GatewayError(

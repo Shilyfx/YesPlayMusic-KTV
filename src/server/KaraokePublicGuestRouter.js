@@ -3,6 +3,7 @@ import { isPublicGuestStaticPath } from './PublicGuestStaticPaths.cjs';
 import {
   projectPublicLocalPlaylistResponse,
   projectPublicUserPlaylistResponse,
+  projectPublicPreviewResponse,
 } from '../multiroom/hostConnector.cjs';
 
 function publicCatalogResponse(request, response) {
@@ -12,6 +13,8 @@ function publicCatalogResponse(request, response) {
       ? projectPublicLocalPlaylistResponse
       : path === '/ktv/api/playlists'
       ? projectPublicUserPlaylistResponse
+      : /^\/ktv\/api\/track\/\d{1,20}\/preview$/.test(path)
+      ? projectPublicPreviewResponse
       : null;
   if (request.method !== 'GET' || !project) return response;
 
@@ -32,8 +35,12 @@ function publicCatalogResponse(request, response) {
         try {
           output = project(output);
         } catch (_) {
-          status = 502;
-          output = Buffer.from('{"error":"INVALID_PUBLIC_CATALOG_RESPONSE"}');
+          status = project === projectPublicPreviewResponse ? 409 : 502;
+          output = Buffer.from(
+            project === projectPublicPreviewResponse
+              ? '{"error":"TRACK_NOT_PLAYABLE"}'
+              : '{"error":"INVALID_PUBLIC_CATALOG_RESPONSE"}'
+          );
         }
         headers['Content-Type'] = 'application/json; charset=utf-8';
       }
@@ -69,7 +76,10 @@ export function createPublicGuestRouter(host) {
     if (isPublicGuestStaticPath(method, rawPath)) {
       return host.roomServer.handleRequest(request, response);
     }
-    if (method === 'POST' && request.headers.origin !== host.publicGuestOrigin)
+    if (
+      (method === 'POST' || method === 'DELETE') &&
+      request.headers.origin !== host.publicGuestOrigin
+    )
       return host.json(response, 403, { error: 'FORBIDDEN' });
     if (method === 'POST' && rawPath === '/ktv/api/client-session') {
       const room = host.roomServer.room;
@@ -90,10 +100,17 @@ export function createPublicGuestRouter(host) {
       return host.handle(request, response, true);
     if (
       (method === 'GET' &&
+        /^\/ktv\/api\/track\/\d{1,20}\/preview$/.test(rawPath)) ||
+      (method === 'GET' &&
         /^\/ktv\/api\/(?:state|search|artists\/search|artists\/\d{1,20}\/tracks|recommendations|toplists|playlists|local-playlists|(?:recommendations|toplists|playlists)\/\d{1,20}\/tracks)$/.test(
           rawPath
         )) ||
-      (method === 'POST' && rawPath === '/ktv/api/requests')
+      (method === 'POST' &&
+        (rawPath === '/ktv/api/requests' ||
+          rawPath === '/ktv/api/next' ||
+          /^\/ktv\/api\/requests\/[\w-]{1,160}\/front$/.test(rawPath))) ||
+      (method === 'DELETE' &&
+        /^\/ktv\/api\/requests\/[\w-]{1,160}$/.test(rawPath))
     )
       return host.remoteApi.handle(
         request,

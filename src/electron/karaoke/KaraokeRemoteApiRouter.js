@@ -281,7 +281,7 @@ export class RemoteApiRouter {
           item: await this.service.enqueue(
             client,
             body.trackId,
-            !publicGuest && body.priority === true,
+            body.priority === true,
             body.requestId
           ),
         });

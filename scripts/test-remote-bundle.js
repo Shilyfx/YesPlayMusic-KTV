@@ -1,6 +1,7 @@
 const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
+const postcss = require('postcss');
 const { REACTION_ASSET_PATHS } = require('./reaction-assets.cjs');
 const { ARTIST_PORTRAIT_PATHS } = require('./artist-portrait-assets.cjs');
 
@@ -32,6 +33,43 @@ assert.doesNotMatch(
   /chunk-vendors/,
   'Remote entry must not wait for a desktop-only vendor chunk'
 );
+
+const remoteStyles = assets
+  .filter(([, directory]) => directory === 'css')
+  .map(([, directory, asset]) =>
+    fs.readFileSync(path.join(remoteRoot, directory, asset), 'utf8')
+  )
+  .join('\n');
+const hiddenPublicGuestRules = [];
+postcss.parse(remoteStyles).walkRules(rule => {
+  if (!rule.selector.includes('.public-guest')) return;
+  const hidesContent = rule.nodes.some(
+    node => node.type === 'decl' && node.prop === 'display' && node.value === 'none'
+  );
+  if (hidesContent) hiddenPublicGuestRules.push(rule.selector);
+});
+assert.deepEqual(
+  hiddenPublicGuestRules,
+  [],
+  'the generated public guest page keeps LAN remote controls visible'
+);
+
+for (const feature of [
+  'data-module-tab="recommendations"',
+  'data-module-tab="local-playlists"',
+  'data-module-tab="playlists"',
+  'data-next-track',
+  'data-preview',
+  'data-priority',
+  'data-front',
+  'data-remove',
+  '互动应援站',
+]) {
+  assert.ok(
+    remoteScripts.includes(feature),
+    `the generated remote entry includes ${feature}`
+  );
+}
 
 const reactionRoot = path.join(remoteRoot, 'js', 'reactions');
 const reactionFiles = [];

@@ -15,7 +15,12 @@ async function run() {
   let apiCall;
   const remoteApi = {
     handle: (req, res, publicGuest) => {
-      apiCall = { authorization: req.headers.authorization, publicGuest };
+      apiCall = {
+        authorization: req.headers.authorization,
+        method: req.method,
+        url: req.url,
+        publicGuest,
+      };
       if (req.method === 'GET' && req.url.startsWith('/ktv/api/')) {
         const body = req.url.split('?')[0] === '/ktv/api/playlists'
           ? {
@@ -62,7 +67,7 @@ async function run() {
                 },
               ],
             }
-          : { playlists: [], tracks: [] };
+          : req.url === '/ktv/api/track/123/preview' ? { url: 'https://m701.music.126.net/test.mp3' } : { playlists: [], tracks: [] };
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify(body));
         return;
@@ -131,6 +136,43 @@ async function run() {
     assert.equal(response.status, 200, route);
     assert.equal(apiCall.publicGuest, true, route);
   }
+  for (const [method, route] of [
+    ['GET', '/ktv/api/track/123/preview'],
+    ['DELETE', '/ktv/api/requests/queue-item-01'],
+    ['POST', '/ktv/api/requests/queue-item-01/front'],
+    ['POST', '/ktv/api/next'],
+  ]) {
+    const response = await request(method, route, {
+      origin: 'https://ktv.example',
+      authorization: 'Bearer client-token',
+    });
+    assert.equal(response.status, 200, `${method} ${route}`);
+    assert.equal(apiCall.publicGuest, true, `${method} ${route}`);
+    assert.equal(apiCall.method, method, `${method} ${route}`);
+    assert.equal(apiCall.url, route, `${method} ${route}`);
+  }
+  const lastAllowedCall = apiCall;
+  for (const [method, route] of [
+    ['DELETE', '/ktv/api/requests/queue-item-01'],
+    ['POST', '/ktv/api/requests/queue-item-01/front'],
+    ['POST', '/ktv/api/next'],
+  ]) {
+    assert.equal(
+      (await request(method, route, {
+        origin: 'https://attacker.example',
+        authorization: 'Bearer client-token',
+      })).status,
+      403,
+      `${method} ${route} rejects a foreign Origin`
+    );
+  }
+  assert.strictEqual(apiCall, lastAllowedCall, 'blocked mutations never reach the remote API');
+  for (const [method, route] of [
+    ['DELETE', '/ktv/api/requests'],
+    ['POST', '/ktv/api/requests/queue-item-01/other'],
+    ['POST', '/ktv/api/next/queue-item-01'],
+  ])
+    assert.equal((await request(method, route, { origin: 'https://ktv.example' })).status, 404);
   const userPlaylists = await request('GET', '/ktv/api/playlists', {
     authorization: 'Bearer client-token',
   });
@@ -200,10 +242,8 @@ async function run() {
     ).status,
     200
   );
-  assert.deepEqual(apiCall, {
-    authorization: 'Bearer lan-secret',
-    publicGuest: true,
-  });
+  assert.equal(apiCall.authorization, 'Bearer lan-secret');
+  assert.equal(apiCall.publicGuest, true);
   token = 'next-room';
   assert.equal(
     (

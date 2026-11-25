@@ -101,7 +101,7 @@ export class KaraokeRemoteService {
       client: {
         clientId: client.clientId,
         displayName: client.displayName,
-        permissions: { priority: !client.publicGuest },
+        permissions: { priority: true },
       },
     };
   }
@@ -377,7 +377,7 @@ export class KaraokeRemoteService {
     if (!this.limiter.check('mutation:room', 120))
       throw new Error('RATE_LIMIT');
     await this.ownWaitingItem(client, queueItemId);
-    this.client(client.clientToken);
+    this.client(client.clientToken, Boolean(client.publicGuest));
     const item = await this.managerBridge.remove(queueItemId, {
       sessionId: client.sessionId,
       generation: client.generation,
@@ -392,7 +392,7 @@ export class KaraokeRemoteService {
     if (!this.limiter.check('mutation:room', 120))
       throw new Error('RATE_LIMIT');
     await this.ownWaitingItem(client, queueItemId);
-    this.client(client.clientToken);
+    this.client(client.clientToken, Boolean(client.publicGuest));
     const snapshot = await this.managerBridge.snapshot();
     if (
       snapshot.waitingItems[0] &&
@@ -413,7 +413,7 @@ export class KaraokeRemoteService {
       throw new Error('RATE_LIMIT');
     if (!this.limiter.check('mutation:room', 120))
       throw new Error('RATE_LIMIT');
-    this.client(client.clientToken);
+    this.client(client.clientToken, Boolean(client.publicGuest));
     const item = await this.managerBridge.next({
       sessionId: client.sessionId,
       generation: client.generation,

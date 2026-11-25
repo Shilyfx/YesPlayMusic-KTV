@@ -26,6 +26,7 @@ function allowed(method, raw) {
       /^\/room\/(?:js|css|img|fonts)\/[\w./-]+\.(?:js|css|woff2?|ttf|svg|png|jpe?g|webp|gif|avif)$/i.test(
         pathname
       ) ||
+      /^\/ktv\/api\/track\/\d{1,20}\/preview$/.test(pathname) ||
       /^\/ktv\/api\/(?:state|search|artists\/search|artists\/\d{1,20}\/tracks)$/.test(
         pathname
       ) ||
@@ -33,10 +34,29 @@ function allowed(method, raw) {
         pathname
       )
     );
+  if (method === 'DELETE')
+    return /^\/ktv\/api\/requests\/[\w-]{1,160}$/.test(pathname);
   return (
     method === 'POST' &&
-    /^\/ktv\/api\/(?:client-session|requests|reactions)$/.test(pathname)
+    (/^\/ktv\/api\/(?:client-session|requests|next|reactions)$/.test(
+      pathname
+    ) ||
+      /^\/ktv\/api\/requests\/[\w-]{1,160}\/front$/.test(pathname))
   );
+}
+
+function projectPublicPreviewResponse(body) {
+  const data = JSON.parse(Buffer.from(body).toString('utf8'));
+  const url = new URL(data.url);
+  if (
+    !['http:', 'https:'].includes(url.protocol) ||
+    url.username ||
+    url.password ||
+    !/(^|\.)music\.126\.net$/i.test(url.hostname)
+  )
+    throw new Error('TRACK_NOT_PLAYABLE');
+  url.protocol = 'https:';
+  return Buffer.from(JSON.stringify({ url: url.toString() }));
 }
 
 function projectPublicLocalPlaylistResponse(body) {
@@ -430,4 +450,5 @@ module.exports = {
   allowed,
   projectPublicLocalPlaylistResponse,
   projectPublicUserPlaylistResponse,
+  projectPublicPreviewResponse,
 };

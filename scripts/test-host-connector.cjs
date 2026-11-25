@@ -39,7 +39,8 @@ async function run() {
     '/ktv/api/toplists/123/tracks',
     '/ktv/api/playlists/123/tracks',
   ]) assert(allowed('GET', route), route);
-  assert(!allowed('GET', '/ktv/api/track/123/preview'));
+  assert(allowed('GET', '/ktv/api/track/123/preview'));
+  assert(!allowed('GET', '/ktv/api/track/local-0123456789abcdef/preview'));
   assert(!allowed('GET', '/ktv/api/local-playlists/scan'));
   assert(!allowed('POST', '/ktv/host/next'));
   const first = http.createServer((req, res) => {

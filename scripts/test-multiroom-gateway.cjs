@@ -240,6 +240,25 @@ async function testAllowedGuestRoutesPreserveMethodHeadersAndBody() {
       { method: 'POST', path: '/ktv/api/requests', body: '{"trackId":"123"}' },
       {
         method: 'POST',
+        path: '/ktv/api/requests/queue-item-01/front',
+        body: '',
+        origin: 'https://guest.example',
+      },
+      {
+        method: 'DELETE',
+        path: '/ktv/api/requests/queue-item-01',
+        body: '',
+        origin: 'https://guest.example',
+      },
+      {
+        method: 'POST',
+        path: '/ktv/api/next',
+        body: '{}',
+        origin: 'https://guest.example',
+      },
+      { method: 'GET', path: '/ktv/api/track/123/preview', body: '' },
+      {
+        method: 'POST',
         path: '/ktv/api/reactions',
         body: '{"reaction":"clap"}',
         responseStatus: 204,
@@ -253,6 +272,7 @@ async function testAllowedGuestRoutesPreserveMethodHeadersAndBody() {
         `/r/${roomId}${item.path}`,
         {
           authorization: 'Bearer guest-token-verbatim',
+          ...(item.origin ? { origin: item.origin } : {}),
         },
         item.body || undefined
       );
@@ -261,6 +281,8 @@ async function testAllowedGuestRoutesPreserveMethodHeadersAndBody() {
       assert.strictEqual(delivered.json.method, item.method);
       assert.strictEqual(delivered.json.path, item.path);
       assert.strictEqual(delivered.json.headers.authorization, 'Bearer guest-token-verbatim');
+      if (item.origin)
+        assert.strictEqual(delivered.json.headers.origin, item.origin);
       assert.strictEqual(Buffer.from(delivered.json.bodyBase64, 'base64').toString(), item.body);
 
       const completed = await completeHostRequest(
@@ -477,7 +499,7 @@ async function testRejectsDangerousPathsMethodsAndOversizedBodies() {
       `/r/${roomId}/ktv/local/list`,
       `/r/${roomId}/ktv/local/resolve/local-0123456789abcdef`,
       `/r/${roomId}/ktv/local/audio/local-0123456789abcdef`,
-      `/r/${roomId}/ktv/api/track/123/preview`,
+      `/r/${roomId}/ktv/api/track/local-0123456789abcdef/preview`,
       `/r/${roomId}/ktv/host/status`,
     ];
     for (const path of dangerousPaths) {
@@ -489,6 +511,14 @@ async function testRejectsDangerousPathsMethodsAndOversizedBodies() {
     assert.strictEqual(unsupported.status, 405);
     const disallowedApi = await request(port, 'GET', `/r/${roomId}/ktv/api/admin`, {});
     assert.strictEqual(disallowedApi.status, 404);
+    for (const [method, path] of [
+      ['POST', '/ktv/api/admin'],
+      ['DELETE', '/ktv/api/requests'],
+      ['POST', '/ktv/api/requests/queue-item-01/other'],
+    ]) {
+      const response = await request(port, method, `/r/${roomId}${path}`, {});
+      assert.ok(response.status === 404 || response.status === 405, `${method} ${path}: ${response.status}`);
+    }
     const oversized = await request(
       port,
       'POST',

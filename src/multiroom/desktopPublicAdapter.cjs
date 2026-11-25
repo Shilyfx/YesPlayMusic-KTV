@@ -4,6 +4,7 @@ const crypto = require('crypto');
 const {
   projectPublicLocalPlaylistResponse,
   projectPublicUserPlaylistResponse,
+  projectPublicPreviewResponse,
 } = require('./hostConnector.cjs');
 
 function publicCatalogResponse(request, response) {
@@ -13,6 +14,8 @@ function publicCatalogResponse(request, response) {
       ? projectPublicLocalPlaylistResponse
       : path === '/ktv/api/playlists'
       ? projectPublicUserPlaylistResponse
+      : /^\/ktv\/api\/track\/\d{1,20}\/preview$/.test(path)
+      ? projectPublicPreviewResponse
       : null;
   if (request.method !== 'GET' || !project) return response;
 
@@ -33,8 +36,12 @@ function publicCatalogResponse(request, response) {
         try {
           output = project(output);
         } catch (_) {
-          status = 502;
-          output = Buffer.from('{"error":"INVALID_PUBLIC_CATALOG_RESPONSE"}');
+          status = project === projectPublicPreviewResponse ? 409 : 502;
+          output = Buffer.from(
+            project === projectPublicPreviewResponse
+              ? '{"error":"TRACK_NOT_PLAYABLE"}'
+              : '{"error":"INVALID_PUBLIC_CATALOG_RESPONSE"}'
+          );
         }
         headers['Content-Type'] = 'application/json; charset=utf-8';
       }
@@ -87,7 +94,10 @@ function createDesktopPublicAdapter({
         res
       );
     }
-    if (req.method === 'POST' && req.headers.origin !== origin)
+    if (
+      (req.method === 'POST' || req.method === 'DELETE') &&
+      req.headers.origin !== origin
+    )
       return respond(res, 403, 'FORBIDDEN');
     if (!roomServer.room) return respond(res, 410, 'ROOM_ENDED');
     if (req.method === 'POST' && path === '/ktv/api/client-session') {
@@ -109,11 +119,24 @@ function createDesktopPublicAdapter({
     )
       return handleReaction(req, res, true);
     if (
+      req.method === 'GET' &&
+      /^\/ktv\/api\/track\/\d{1,20}\/preview$/.test(path) &&
+      !req.headers.authorization
+    )
+      return respond(res, 404, 'NOT_FOUND');
+    if (
+      (req.method === 'GET' &&
+        /^\/ktv\/api\/track\/\d{1,20}\/preview$/.test(path)) ||
       (req.method === 'GET' &&
         /^\/ktv\/api\/(?:state|search|artists\/search|artists\/\d{1,20}\/tracks|recommendations|toplists|playlists|local-playlists|(?:recommendations|toplists|playlists)\/\d{1,20}\/tracks)$/.test(
           path
         )) ||
-      (req.method === 'POST' && path === '/ktv/api/requests')
+      (req.method === 'POST' &&
+        (path === '/ktv/api/requests' ||
+          path === '/ktv/api/next' ||
+          /^\/ktv\/api\/requests\/[\w-]{1,160}\/front$/.test(path))) ||
+      (req.method === 'DELETE' &&
+        /^\/ktv\/api\/requests\/[\w-]{1,160}$/.test(path))
     )
       return remoteApi.handle(req, publicCatalogResponse(req, res), true);
     return respond(res, 404, 'NOT_FOUND');
