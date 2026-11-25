@@ -261,9 +261,9 @@ export const ktvReactionChoices = upstreamReactions.map((item, index) => {
   );
   return {
     ...item,
-    label: preset?.label || item.caption,
-    caption: preset?.caption || ktvNotes[index],
-    action: preset?.action,
+    label: (preset && preset.label) || item.caption,
+    caption: (preset && preset.caption) || ktvNotes[index],
+    action: (preset && preset.action),
   };
 });
 
