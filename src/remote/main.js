@@ -36,7 +36,8 @@ const {
   normalizeSearchText,
 } = searchLogicModule;
 const { createRemoteCapabilities } = remoteCapabilitiesModule;
-const { createRemoteApi } = remoteApiModule;
+const { createRemoteApi, resolveRemotePathConfig, resolveStaticAssetPath } =
+  remoteApiModule;
 const { createRequestSubmission } = requestSubmissionModule;
 const { createNetworkStatusTracker, getRoomAccessNotice } = remoteStatusModule;
 const { createPreviewController, previewPlayerMarkup } =
@@ -48,12 +49,14 @@ const networkStatus = createNetworkStatusTracker({
 });
 
 const app = document.querySelector('#remote-app');
-const apiRoot = '/ktv/api';
-const roomCode = window.location.pathname.split('/').filter(Boolean).pop();
+const remotePathConfig = resolveRemotePathConfig(window.location.pathname);
+const { apiRoot, roomCode } = remotePathConfig;
 const roomLinkParams = new URLSearchParams(window.location.hash.slice(1));
 const remoteCapabilities = createRemoteCapabilities({
   publicGuest: roomLinkParams.get('public') === '1',
 });
+const reactionsEnabled =
+  process.env.VUE_APP_DOCKER_KTV === 'true' || process.env.IS_ELECTRON === true;
 const publicGuest = remoteCapabilities.isPublicGuest;
 const joinToken = roomLinkParams.get('token') || '';
 const storageKey = `yesplaymusic-ktv:${roomCode}${
@@ -273,6 +276,14 @@ function escape(value = '') {
         char
       ])
   );
+}
+
+function resolveArtistCoverUrl(coverUrl) {
+  const roomAssetPath =
+    typeof coverUrl === 'string' && coverUrl.startsWith('/artist-portraits/')
+      ? `/room${coverUrl}`
+      : coverUrl;
+  return resolveStaticAssetPath(roomAssetPath, remotePathConfig.assetPrefix);
 }
 
 const requestSubmission = createRequestSubmission({
@@ -588,7 +599,7 @@ function initializeShell() {
     ['.reaction-studio', 'reactions'],
   ];
   const firstPanel = app.querySelector('.now-playing');
-  if (process.env.VUE_APP_DOCKER_KTV === 'true') {
+  if (reactionsEnabled) {
     firstPanel?.insertAdjacentHTML(
       'afterend',
       reactionController.studioMarkup()
@@ -605,10 +616,11 @@ function initializeShell() {
     'afterend',
     '<nav class="module-tabs" role="tablist" aria-label="点歌模块"><button type="button" role="tab" data-module-tab="search">搜索歌曲</button><button type="button" role="tab" data-module-tab="recommendations">推荐歌单</button><button type="button" role="tab" data-module-tab="artists">歌手点歌</button><button type="button" role="tab" data-module-tab="local-playlists">本地歌单</button><button type="button" role="tab" data-module-tab="playlists">我的歌单</button><button type="button" role="tab" data-module-tab="queue">等待队列</button><button type="button" role="tab" data-module-tab="history">已播放</button></nav>'
   );
-  if (process.env.VUE_APP_DOCKER_KTV === 'true')
+  if (reactionsEnabled) {
     app
       .querySelector('.module-tabs')
       ?.insertAdjacentHTML('beforeend', reactionController.tabMarkup());
+  }
   const themePicker = app.querySelector('[data-theme-picker]');
   const selectTheme = value => {
     const selected = ['auto', 'light', 'dark'].includes(value) ? value : 'auto';
@@ -731,7 +743,7 @@ function initializeShell() {
     else if (button.dataset.front)
       mutate(`/requests/${button.dataset.front}/front`, 'POST');
   });
-  reactionController.bind();
+  if (reactionsEnabled) reactionController.bind();
   initializeModuleTabs();
 }
 
@@ -1019,7 +1031,9 @@ function renderArtists() {
           artist.id === selectedArtistId ? 'selected' : ''
         }" data-artist="${escape(artist.id)}">${
           artist.coverUrl
-            ? `<img src="${escape(artist.coverUrl)}" alt="" loading="lazy" />`
+            ? `<img src="${escape(
+                resolveArtistCoverUrl(artist.coverUrl)
+              )}" alt="" loading="lazy" />`
             : '<span class="artist-placeholder">♪</span>'
         }<span><strong>${escape(artist.name)}</strong><small>${
           artist.albumCount ? `${artist.albumCount} 张专辑` : '热门歌曲'
@@ -1052,7 +1066,9 @@ function renderFeaturedArtists({ loading = false } = {}) {
           artist.id === selectedArtistId ? 'selected' : ''
         }" data-artist="${escape(artist.id)}">${
           artist.coverUrl
-            ? `<img src="${escape(artist.coverUrl)}" alt="" loading="lazy" />`
+            ? `<img src="${escape(
+                resolveArtistCoverUrl(artist.coverUrl)
+              )}" alt="" loading="lazy" />`
             : '<span class="artist-placeholder">♪</span>'
         }<span><strong>${escape(
           artist.name

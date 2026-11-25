@@ -1,5 +1,9 @@
 // Both original engines consume EMOTION_SEED during initialization.
 // Serialize complete library loads so their different seed formats cannot race.
+import remoteApiModule from '../remote/remoteApi.cjs';
+
+const { resolveRemotePathConfig, resolveStaticAssetPath } = remoteApiModule;
+
 const definitions = {
   ball: {
     global: 'EmotionBall',
@@ -38,9 +42,12 @@ function loadLibrary(key) {
   if (ready(key)) return Promise.resolve(ready(key));
   if (!pending.has(key)) {
     const definition = definitions[key];
-    const isRoomPage =
-      window.location && /^\/room(?:\/|$)/.test(window.location.pathname);
-    const base = isRoomPage ? definition.roomBase : definition.base;
+    const pathConfig = resolveRemotePathConfig(
+      window.location && window.location.pathname
+    );
+    const base = pathConfig.isRoomPage
+      ? resolveStaticAssetPath(definition.roomBase, pathConfig.assetPrefix)
+      : definition.base;
     const operation = serial.then(() => {
       if (ready(key)) return ready(key);
       return definition.paths

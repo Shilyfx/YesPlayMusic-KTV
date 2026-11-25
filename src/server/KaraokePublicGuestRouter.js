@@ -1,4 +1,51 @@
 import crypto from 'crypto';
+import { isPublicGuestStaticPath } from './PublicGuestStaticPaths.cjs';
+import {
+  projectPublicLocalPlaylistResponse,
+  projectPublicUserPlaylistResponse,
+} from '../multiroom/hostConnector.cjs';
+
+function publicCatalogResponse(request, response) {
+  const path = request.url.split('?')[0];
+  const project =
+    path === '/ktv/api/local-playlists'
+      ? projectPublicLocalPlaylistResponse
+      : path === '/ktv/api/playlists'
+      ? projectPublicUserPlaylistResponse
+      : null;
+  if (request.method !== 'GET' || !project) return response;
+
+  let status = 200;
+  let headers = {};
+  return {
+    setHeader(name, value) {
+      headers[name] = value;
+    },
+    writeHead(code, values = {}) {
+      status = code;
+      headers = { ...headers, ...values };
+      return this;
+    },
+    end(body) {
+      let output = body == null ? Buffer.alloc(0) : Buffer.from(body);
+      if (status >= 200 && status < 300) {
+        try {
+          output = project(output);
+        } catch (_) {
+          status = 502;
+          output = Buffer.from('{"error":"INVALID_PUBLIC_CATALOG_RESPONSE"}');
+        }
+        headers['Content-Type'] = 'application/json; charset=utf-8';
+      }
+      Object.keys(headers).forEach(name => {
+        if (name.toLowerCase() === 'content-length') delete headers[name];
+      });
+      headers['Content-Length'] = Buffer.byteLength(output);
+      response.writeHead(status, headers);
+      return response.end(output);
+    },
+  };
+}
 
 export function createPublicGuestRouter(host) {
   return async function handlePublicGuest(request, response) {
@@ -19,13 +66,7 @@ export function createPublicGuestRouter(host) {
       response.writeHead(308, { Location: '/room/' });
       return response.end();
     }
-    if (
-      method === 'GET' &&
-      (rawPath === '/room/' ||
-        /^\/room\/(?:js|css|img|fonts)\/[\w./-]+\.(?:js|css|woff2?|ttf|svg|png|jpe?g|webp|gif|avif)$/i.test(
-          rawPath
-        ))
-    ) {
+    if (isPublicGuestStaticPath(method, rawPath)) {
       return host.roomServer.handleRequest(request, response);
     }
     if (method === 'POST' && request.headers.origin !== host.publicGuestOrigin)
@@ -49,12 +90,16 @@ export function createPublicGuestRouter(host) {
       return host.handle(request, response, true);
     if (
       (method === 'GET' &&
-        /^\/ktv\/api\/(?:state|search|artists\/search|artists\/\d{1,20}\/tracks)$/.test(
+        /^\/ktv\/api\/(?:state|search|artists\/search|artists\/\d{1,20}\/tracks|recommendations|toplists|playlists|local-playlists|(?:recommendations|toplists|playlists)\/\d{1,20}\/tracks)$/.test(
           rawPath
         )) ||
       (method === 'POST' && rawPath === '/ktv/api/requests')
     )
-      return host.remoteApi.handle(request, response, true);
+      return host.remoteApi.handle(
+        request,
+        publicCatalogResponse(request, response),
+        true
+      );
     return host.json(response, 404, { error: 'NOT_FOUND' });
   };
 }

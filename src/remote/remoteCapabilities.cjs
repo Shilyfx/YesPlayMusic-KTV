@@ -5,7 +5,7 @@ function createRemoteCapabilities({ publicGuest = false } = {}) {
 
   return Object.freeze({
     isPublicGuest,
-    canLoadLocalPlaylists: !isPublicGuest,
+    canLoadLocalPlaylists: true,
     canPrefetchCatalog: !isPublicGuest,
   });
 }

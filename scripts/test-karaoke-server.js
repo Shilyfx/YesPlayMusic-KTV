@@ -5,7 +5,14 @@ const os = require('os');
 const path = require('path');
 require('./helpers/register-babel-src');
 
-const { KaraokeServer } = require('../src/electron/karaoke/KaraokeServer');
+const {
+  KaraokeServer,
+  normalizePublicRoomConfig,
+} = require('../src/electron/karaoke/KaraokeServer');
+const {
+  KaraokeRemoteService,
+  RemoteApiRouter,
+} = require('../src/electron/karaoke/KaraokeRemoteApi');
 
 const interfaces = () => ({
   Ethernet: [{ family: 'IPv4', internal: false, address: '10.46.8.202' }],
@@ -19,21 +26,30 @@ const macInterfaces = () => ({
   utun4: [{ family: 'IPv4', internal: false, address: '10.8.0.2' }],
 });
 
-function request(port, pathname) {
+function request(port, pathname, options = {}) {
   return new Promise((resolve, reject) => {
-    const req = http.get(`http://127.0.0.1:${port}${pathname}`, response => {
-      let body = '';
-      response.setEncoding('utf8');
-      response.on('data', chunk => (body += chunk));
-      response.on('end', () =>
-        resolve({
-          status: response.statusCode,
-          headers: response.headers,
-          body,
-        })
-      );
-    });
+    const req = http.request(
+      `http://127.0.0.1:${port}${pathname}`,
+      {
+        method: options.method || 'GET',
+        headers: options.headers || {},
+      },
+      response => {
+        let body = '';
+        response.setEncoding('utf8');
+        response.on('data', chunk => (body += chunk));
+        response.on('end', () =>
+          resolve({
+            status: response.statusCode,
+            headers: response.headers,
+            body,
+          })
+        );
+      }
+    );
     req.on('error', reject);
+    if (options.body) req.write(options.body);
+    req.end();
   });
 }
 
@@ -48,6 +64,28 @@ function getAvailablePort() {
 }
 
 async function run() {
+  assert.deepEqual(
+    normalizePublicRoomConfig({
+      gatewayOrigin: 'https://gateway.example/',
+      hostId: 'desktop host',
+      hostSecret: 'secret-value',
+    }),
+    {
+      gatewayOrigin: 'https://gateway.example',
+      hostId: 'desktop host',
+      hostSecret: 'secret-value',
+    }
+  );
+  assert.throws(
+    () =>
+      normalizePublicRoomConfig({
+        gatewayOrigin: 'http://gateway.example',
+        hostId: 'desktop-host',
+        hostSecret: 'secret-value',
+      }),
+    /INVALID_PUBLIC_CONFIG/
+  );
+
   const remoteDistPath = fs.mkdtempSync(path.join(os.tmpdir(), 'ktv-remote-'));
   const desktopDistPath = fs.mkdtempSync(
     path.join(os.tmpdir(), 'ktv-desktop-assets-')
@@ -69,6 +107,11 @@ async function run() {
     'window.roomHashed=true;'
   );
   fs.writeFileSync(path.join(remoteDistPath, 'css', 'remote.css'), 'body{}');
+  fs.mkdirSync(path.join(remoteDistPath, 'artist-portraits'));
+  fs.writeFileSync(
+    path.join(remoteDistPath, 'artist-portraits', '6452.jpg'),
+    'portrait-bytes'
+  );
   const roleAssetPath = path.join(
     remoteDistPath,
     'js',
@@ -91,6 +134,16 @@ async function run() {
     port: serverPort,
     networkInterfaces: interfaces,
   });
+  const remoteService = new KaraokeRemoteService({
+    catalog: {},
+    managerBridge: {
+      snapshot: async () => ({
+        currentItem: { queueItemId: 'song-current' },
+      }),
+    },
+    getRoom: () => server.room,
+  });
+  server.setRemoteApi(new RemoteApiRouter(remoteService), remoteService);
   const macCandidates = new KaraokeServer({
     remoteDistPath,
     networkInterfaces: macInterfaces,
@@ -112,8 +165,90 @@ async function run() {
   const roomUrl = new URL(room.url);
   assert.equal(roomUrl.hostname, '192.168.8.20');
   assert.equal(roomUrl.pathname, '/room/');
+  const artistPortrait = await request(
+    serverPort,
+    '/room/artist-portraits/6452.jpg'
+  );
+  assert.equal(artistPortrait.status, 200);
+  assert.match(artistPortrait.headers['content-type'], /^image\/jpeg/);
+  assert.equal(artistPortrait.body, 'portrait-bytes');
+  assert.equal(
+    (await request(serverPort, '/artist-portraits/6452.jpg')).status,
+    404
+  );
   const roomToken = server.room.token;
   assert.match(roomToken, /^[A-Za-z0-9_-]{40,}$/);
+  const bootstrap = await request(serverPort, '/ktv/api/client-session', {
+    method: 'POST',
+    headers: { authorization: `Bearer ${roomToken}` },
+  });
+  assert.equal(bootstrap.status, 200);
+  const clientToken = JSON.parse(bootstrap.body).clientToken;
+  assert.ok(clientToken);
+  const reactionBody = JSON.stringify({
+    kind: 'applause',
+    effect: 'bounce',
+    character: 'ball',
+    customText: '唱得真棒',
+  });
+  const reactionHeaders = {
+    authorization: `Bearer ${clientToken}`,
+    'content-type': 'application/json',
+  };
+  const unauthenticatedReaction = await request(
+    serverPort,
+    '/ktv/api/reactions',
+    {
+      method: 'POST',
+      headers: { 'content-type': 'application/json' },
+      body: reactionBody,
+    }
+  );
+  assert.equal(unauthenticatedReaction.status, 401);
+  const oversizedReaction = await request(serverPort, '/ktv/api/reactions', {
+    method: 'POST',
+    headers: reactionHeaders,
+    body: JSON.stringify({ customText: 'x'.repeat(5000) }),
+  });
+  assert.equal(oversizedReaction.status, 413);
+  const invalidReaction = await request(serverPort, '/ktv/api/reactions', {
+    method: 'POST',
+    headers: reactionHeaders,
+    body: JSON.stringify({ kind: 'not-a-reaction' }),
+  });
+  assert.equal(invalidReaction.status, 400);
+  const acceptedReaction = await request(serverPort, '/ktv/api/reactions', {
+    method: 'POST',
+    headers: reactionHeaders,
+    body: reactionBody,
+  });
+  assert.equal(acceptedReaction.status, 200);
+  assert.equal(JSON.parse(acceptedReaction.body).status, 'playing');
+  const reactionState = server.getReactionState();
+  assert.equal(reactionState.events.length, 1);
+  assert.equal(reactionState.events[0].kind, 'applause');
+  assert.equal(reactionState.events[0].itemId, 'song-current');
+  assert.equal(reactionState.events[0].customText, '唱得真棒');
+  assert.equal(
+    Object.prototype.hasOwnProperty.call(reactionState.events[0], 'senderId'),
+    false
+  );
+  assert.match(reactionState.generation, /^[a-f0-9]{24}$/);
+  assert.ok(reactionState.serverTime > 0);
+  for (let count = 1; count < 8; count += 1) {
+    const allowed = await request(serverPort, '/ktv/api/reactions', {
+      method: 'POST',
+      headers: reactionHeaders,
+      body: reactionBody,
+    });
+    assert.equal(allowed.status, 200);
+  }
+  const rateLimitedReaction = await request(serverPort, '/ktv/api/reactions', {
+    method: 'POST',
+    headers: reactionHeaders,
+    body: reactionBody,
+  });
+  assert.equal(rateLimitedReaction.status, 429);
   const localAudioPath = path.join(remoteDistPath, 'local-test.mp3');
   const localCoverPath = path.join(remoteDistPath, 'local-test.jpg');
   fs.writeFileSync(localAudioPath, 'local-audio');
@@ -228,6 +363,22 @@ async function run() {
   await server.stopRoom();
   await assert.rejects(() => request(serverPort, roomUrl.pathname));
   assert.equal(await server.describeRoom(), null);
+  assert.deepEqual(server.getReactionState().events, []);
+  const restartedRoom = await server.startRoom({
+    sessionId: 'session-restarted',
+  });
+  assert.notEqual(
+    server.getReactionState().generation,
+    reactionState.generation
+  );
+  const staleReaction = await request(serverPort, '/ktv/api/reactions', {
+    method: 'POST',
+    headers: reactionHeaders,
+    body: reactionBody,
+  });
+  assert.equal(staleReaction.status, 401);
+  assert.ok(restartedRoom.url);
+  await server.stopRoom();
 
   const restarted = await server.startRoom({
     sessionId: 'session-test-2',
@@ -291,6 +442,181 @@ async function run() {
   });
   assert.ok(immediateRestart.url);
   await delayedServer.stopRoom();
+
+  const connectorStarts = [];
+  const connectorStops = [];
+  const publicStatusEvents = [];
+  const publicServer = new KaraokeServer({
+    remoteDistPath,
+    port: await getAvailablePort(),
+    networkInterfaces: interfaces,
+    hostConnectorFactory: options => {
+      connectorStarts.push(options);
+      const connector = {
+        roomId: `${connectorStarts.length}`.padStart(32, '0'),
+        start: async () => options.onStatus('connected'),
+        stop: async () => connectorStops.push(connector.roomId),
+      };
+      return connector;
+    },
+  });
+  const publicService = new KaraokeRemoteService({
+    catalog: {},
+    managerBridge: {
+      snapshot: async () => ({
+        currentItem: { queueItemId: 'public-song' },
+      }),
+    },
+    getRoom: () => publicServer.room,
+  });
+  publicServer.setRemoteApi(new RemoteApiRouter(publicService), publicService);
+  publicServer.setPublicConfig({
+    gatewayOrigin: 'https://gateway.example',
+    hostId: 'desktop-host',
+    hostSecret: 'must-not-be-exposed',
+  });
+  publicServer.setPublicStatusListener(status => publicStatusEvents.push(status));
+  const publicRoom = await publicServer.startRoom({
+    sessionId: 'public-session',
+  });
+  const publicAddress = publicServer.publicAdapterServer.address();
+  assert.equal(publicAddress.address, '127.0.0.1');
+  assert.ok(publicAddress.port > 0);
+  assert.equal(connectorStarts[0].localPort, publicAddress.port);
+  assert.equal(connectorStarts[0].gatewayOrigin, 'https://gateway.example');
+  assert.equal(publicRoom.publicStatus, 'connected');
+  assert.deepEqual(publicServer.getPublicConfigState(), {
+    gatewayOrigin: 'https://gateway.example',
+    hostId: 'desktop-host',
+    hasHostSecret: true,
+  });
+  assert.throws(() => publicServer.setPublicConfig({}), /PUBLIC_ROOM_ACTIVE/);
+  connectorStarts[0].onStatus('reconnecting');
+  assert.equal(publicServer.publicStatus, 'reconnecting');
+  assert.equal(publicStatusEvents[publicStatusEvents.length - 1], 'reconnecting');
+  connectorStarts[0].onStatus('connected');
+  const publicJoinUrl = new URL(publicRoom.publicJoinUrl);
+  assert.equal(publicJoinUrl.pathname, '/r/00000000000000000000000000000001/room/');
+  assert.match(publicRoom.publicQrDataUrl, /^data:image\/png;base64,/);
+  assert.equal(JSON.stringify(publicRoom).includes('must-not-be-exposed'), false);
+  const publicToken = new URLSearchParams(publicJoinUrl.hash.slice(1)).get('token');
+  assert.ok(publicToken);
+  const publicOriginHeaders = { origin: 'https://gateway.example' };
+  const wrongOriginBootstrap = await request(
+    publicAddress.port,
+    '/ktv/api/client-session',
+    {
+      method: 'POST',
+      headers: {
+        origin: 'https://attacker.example',
+        authorization: `Bearer ${publicToken}`,
+      },
+    }
+  );
+  assert.equal(wrongOriginBootstrap.status, 403);
+  const publicBootstrap = await request(publicAddress.port, '/ktv/api/client-session', {
+    method: 'POST',
+    headers: {
+      ...publicOriginHeaders,
+      authorization: `Bearer ${publicToken}`,
+    },
+  });
+  assert.equal(publicBootstrap.status, 200);
+  const publicClientToken = JSON.parse(publicBootstrap.body).clientToken;
+  const publicReaction = await request(publicAddress.port, '/ktv/api/reactions', {
+    method: 'POST',
+    headers: {
+      ...publicOriginHeaders,
+      authorization: `Bearer ${publicClientToken}`,
+      'content-type': 'application/json',
+    },
+    body: reactionBody,
+  });
+  assert.equal(publicReaction.status, 200);
+  for (let count = 1; count < 8; count += 1) {
+    const allowedReaction = await request(
+      publicAddress.port,
+      '/ktv/api/reactions',
+      {
+        method: 'POST',
+        headers: {
+          ...publicOriginHeaders,
+          authorization: `Bearer ${publicClientToken}`,
+          'content-type': 'application/json',
+        },
+        body: reactionBody,
+      }
+    );
+    assert.equal(allowedReaction.status, 200);
+  }
+  const limitedPublicReaction = await request(
+    publicAddress.port,
+    '/ktv/api/reactions',
+    {
+      method: 'POST',
+      headers: {
+        ...publicOriginHeaders,
+        authorization: `Bearer ${publicClientToken}`,
+        'content-type': 'application/json',
+      },
+      body: reactionBody,
+    }
+  );
+  assert.equal(limitedPublicReaction.status, 429);
+  await publicServer.stopRoom();
+  assert.equal(publicServer.publicToken, '');
+  assert.equal(publicServer.publicAdapterServer, null);
+  assert.equal(connectorStops.length, 1);
+  const restartedPublicRoom = await publicServer.startRoom({
+    sessionId: 'public-session-restarted',
+  });
+  const restartedPublicAddress = publicServer.publicAdapterServer.address();
+  const restartedPublicToken = new URLSearchParams(
+    new URL(restartedPublicRoom.publicJoinUrl).hash.slice(1)
+  ).get('token');
+  assert.notEqual(restartedPublicToken, publicToken);
+  const oldPublicTokenResponse = await request(
+    restartedPublicAddress.port,
+    '/ktv/api/client-session',
+    {
+      method: 'POST',
+      headers: {
+        ...publicOriginHeaders,
+        authorization: `Bearer ${publicToken}`,
+      },
+    }
+  );
+  assert.equal(oldPublicTokenResponse.status, 401);
+  await publicServer.stopRoom();
+
+  const failingPublicServer = new KaraokeServer({
+    remoteDistPath,
+    port: await getAvailablePort(),
+    networkInterfaces: interfaces,
+    hostConnectorFactory: () => ({
+      roomId: 'f'.repeat(32),
+      start: async () => {
+        throw new Error('credential details must not escape');
+      },
+      stop: async () => {},
+    }),
+  });
+  failingPublicServer.setRemoteApi(new RemoteApiRouter(publicService), publicService);
+  failingPublicServer.setPublicConfig({
+    gatewayOrigin: 'https://gateway.example',
+    hostId: 'desktop-host',
+    hostSecret: 'another-secret',
+  });
+  const lanAfterPublicFailure = await failingPublicServer.startRoom({
+    sessionId: 'lan-survives-public-failure',
+  });
+  assert.ok(lanAfterPublicFailure.url);
+  assert.equal(lanAfterPublicFailure.publicStatus, 'error');
+  assert.equal(lanAfterPublicFailure.publicJoinUrl, null);
+  assert.equal(lanAfterPublicFailure.publicError.includes('another-secret'), false);
+  assert.equal(failingPublicServer.publicAdapterServer, null);
+  assert.equal((await request(failingPublicServer.port, '/health')).status, 200);
+  await failingPublicServer.stopRoom();
 
   const bundledRoot = path.join(__dirname, '..', 'dist_electron', 'bundled');
   const bundledRemote = path.join(bundledRoot, 'remote');

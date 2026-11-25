@@ -1,6 +1,7 @@
 const fs = require('fs');
 const path = require('path');
 const { copyReactionAssets } = require('./reaction-assets.cjs');
+const { copyArtistPortraitAssets } = require('./artist-portrait-assets.cjs');
 
 function isolateRemoteAssets(
   distPath,
@@ -35,6 +36,7 @@ function isolateRemoteAssets(
     fs.copyFileSync(source, path.join(targetDirectory, asset));
   });
   copyReactionAssets(remotePath, projectRoot);
+  copyArtistPortraitAssets(remotePath, projectRoot);
   html = html
     .replace(/(?:app:\/\/\.|)\/(js|css)\//g, '$1/')
     .replace(

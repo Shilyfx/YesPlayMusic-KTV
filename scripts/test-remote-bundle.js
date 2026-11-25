@@ -2,6 +2,7 @@ const assert = require('assert');
 const fs = require('fs');
 const path = require('path');
 const { REACTION_ASSET_PATHS } = require('./reaction-assets.cjs');
+const { ARTIST_PORTRAIT_PATHS } = require('./artist-portrait-assets.cjs');
 
 const remoteRoot = path.join(__dirname, '..', 'dist', 'remote');
 const indexPath = path.join(remoteRoot, 'index.html');
@@ -53,4 +54,14 @@ assert.deepEqual(
   'the remote artifact contains all and only allowlisted reaction scripts'
 );
 
+const portraitRoot = path.join(remoteRoot, 'artist-portraits');
+assert.ok(
+  fs.existsSync(portraitRoot),
+  'static featured artist portraits are included in dist/remote'
+);
+assert.deepEqual(
+  fs.readdirSync(portraitRoot).sort(),
+  ARTIST_PORTRAIT_PATHS.slice().sort(),
+  'the remote artifact contains exactly the featured artist portraits'
+);
 console.log(`Remote bundle asset tests passed (${assets.length} assets)`);

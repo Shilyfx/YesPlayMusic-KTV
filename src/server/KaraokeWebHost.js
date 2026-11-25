@@ -29,6 +29,7 @@ import {
 import KaraokeLocalLibrary from '../electron/karaoke/KaraokeLocalLibrary';
 import { KaraokeServer } from '../electron/karaoke/KaraokeServer';
 import { createPublicGuestRouter } from './KaraokePublicGuestRouter';
+import { createHostConnector } from '../multiroom/hostConnector.cjs';
 import {
   KaraokeCatalogService,
   KaraokeRemoteService,
@@ -61,10 +62,56 @@ function safeSearchDiagnosticError(error) {
     : 'UNKNOWN_MAIN_SCREEN_ERROR';
 }
 
+function normalizeGatewayOrigin(value) {
+  if (!value) return '';
+  try {
+    const origin = new URL(value);
+    const localHttp =
+      origin.protocol === 'http:' &&
+      ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(origin.hostname);
+    if (
+      (origin.protocol !== 'https:' && !localHttp) ||
+      origin.username ||
+      origin.password ||
+      origin.pathname !== '/' ||
+      origin.search ||
+      origin.hash
+    )
+      return '';
+    return origin.origin;
+  } catch (_) {
+    return '';
+  }
+}
+
+function normalizePublicGuestOrigin(value) {
+  if (!value) return '';
+  const origin = new URL(value);
+  const localHttp =
+    origin.protocol === 'http:' &&
+    ['127.0.0.1', 'localhost', '::1', '[::1]'].includes(origin.hostname);
+  if (
+    (origin.protocol !== 'https:' && !localHttp) ||
+    origin.username ||
+    origin.password ||
+    origin.pathname !== '/' ||
+    origin.search ||
+    origin.hash
+  )
+    throw new Error(
+      'KTV_PUBLIC_GUEST_ORIGIN must be an HTTPS or loopback HTTP origin'
+    );
+  return origin.origin;
+}
+
 export default class KaraokeWebHost {
   constructor({
     publicOrigin = '',
     publicGuestOrigin = '',
+    gatewayOrigin = '',
+    gatewayHostId = '',
+    gatewayHostSecret = '',
+    hostConnectorFactory = createHostConnector,
     allowedHosts = [],
     remoteDistPath = '',
     now = Date.now,
@@ -82,20 +129,23 @@ export default class KaraokeWebHost {
       .filter(Boolean)
       .map(item => String(item).trim());
     this.publicOrigin = publicOrigin ? new URL(publicOrigin).origin : null;
-    this.publicGuestOrigin = '';
-    if (publicGuestOrigin) {
-      const origin = new URL(publicGuestOrigin);
-      if (
-        origin.protocol !== 'https:' ||
-        origin.username ||
-        origin.password ||
-        origin.pathname !== '/' ||
-        origin.search ||
-        origin.hash
-      )
-        throw new Error('KTV_PUBLIC_GUEST_ORIGIN must be an HTTPS origin');
-      this.publicGuestOrigin = origin.origin;
-    }
+    this.gatewayOrigin = normalizeGatewayOrigin(gatewayOrigin);
+    this.gatewayHostConfig =
+      this.gatewayOrigin && gatewayHostId && gatewayHostSecret
+        ? {
+            gatewayOrigin: this.gatewayOrigin,
+            hostId: gatewayHostId,
+            hostSecret: gatewayHostSecret,
+          }
+        : null;
+    this.hostConnectorFactory = hostConnectorFactory;
+    this.publicGuestOrigin =
+      normalizePublicGuestOrigin(publicGuestOrigin) ||
+      (this.gatewayHostConfig ? this.gatewayOrigin : '');
+    this.gatewayConnector = null;
+    this.gatewayConnectorStartPromise = null;
+    this.gatewayConnectorRetryTimer = null;
+    this.gatewayConnectorStatus = 'stopped';
     this.allowedHosts = new Set(
       (Array.isArray(allowedHosts) ? allowedHosts : [allowedHosts])
         .filter(Boolean)
@@ -247,7 +297,78 @@ export default class KaraokeWebHost {
     if (this.owner && this.now() - this.owner.lastSeen > 90000) this.close();
   }
 
+  startGatewayConnector() {
+    const room = this.roomServer.room;
+    if (!room || !this.gatewayHostConfig || this.gatewayConnector)
+      return Promise.resolve();
+    let connector;
+    try {
+      connector = this.hostConnectorFactory({
+        ...this.gatewayHostConfig,
+        localPort: 3101,
+        onStatus: status => {
+          this.gatewayConnectorStatus = status;
+        },
+      });
+    } catch (_) {
+      return Promise.resolve();
+    }
+    this.gatewayConnector = connector;
+    room.gatewayRoomId = connector.roomId;
+    this.gatewayConnectorStartPromise = this.startGatewayConnectorAttempt(
+      connector,
+      room.generation
+    );
+    return this.gatewayConnectorStartPromise;
+  }
+
+  async startGatewayConnectorAttempt(connector, generation) {
+    try {
+      await connector.start();
+    } catch (_) {
+      if (
+        this.gatewayConnector !== connector ||
+        this.roomServer.room?.generation !== generation
+      )
+        return;
+      this.gatewayConnectorStatus = 'reconnecting';
+      this.gatewayConnectorRetryTimer = setTimeout(() => {
+        this.gatewayConnectorRetryTimer = null;
+        if (this.gatewayConnector === connector) {
+          this.gatewayConnectorStartPromise = this.startGatewayConnectorAttempt(
+            connector,
+            generation
+          );
+        }
+      }, 1500);
+      this.gatewayConnectorRetryTimer.unref?.();
+    }
+  }
+
+  stopGatewayConnector() {
+    if (this.gatewayConnectorRetryTimer) {
+      clearTimeout(this.gatewayConnectorRetryTimer);
+      this.gatewayConnectorRetryTimer = null;
+    }
+    const connector = this.gatewayConnector;
+    this.gatewayConnector = null;
+    this.gatewayConnectorStatus = 'stopped';
+    const startPromise = this.gatewayConnectorStartPromise;
+    this.gatewayConnectorStartPromise = null;
+    if (!connector) return Promise.resolve();
+    return Promise.resolve(startPromise)
+      .catch(() => {})
+      .then(() => {
+        try {
+          return Promise.resolve(connector.stop()).catch(() => {});
+        } catch (_) {
+          return undefined;
+        }
+      });
+  }
+
   close() {
+    const gatewayStop = this.stopGatewayConnector();
     this.owner = null;
     this.roomServer.room = null;
     this.service.onRoomStop();
@@ -270,6 +391,7 @@ export default class KaraokeWebHost {
     this.reactionKnownItems = null;
     this.reactionPlayback = null;
     this.reactionEpoch = '';
+    return gatewayStop;
   }
 
   addReaction(kind, effect = 'bounce', detail = {}) {
@@ -713,9 +835,13 @@ export default class KaraokeWebHost {
         /* ignore invalid alt origin */
       }
     }
-    const publicJoinUrl = room.publicJoinToken
-      ? `${this.publicGuestOrigin}/room/#public=1&token=${room.publicJoinToken}`
-      : '';
+    let publicJoinUrl = '';
+    if (room.publicJoinToken) {
+      if (room.gatewayRoomId && this.gatewayOrigin)
+        publicJoinUrl = `${this.gatewayOrigin}/r/${room.gatewayRoomId}/room/#public=1&token=${room.publicJoinToken}`;
+      else if (!this.gatewayHostConfig && this.publicGuestOrigin)
+        publicJoinUrl = `${this.publicGuestOrigin}/room/#public=1&token=${room.publicJoinToken}`;
+    }
     return {
       code: room.code,
       name: room.name,
@@ -1102,6 +1228,7 @@ export default class KaraokeWebHost {
             : {}),
         };
         this.service.onRoomStart(this.roomServer.room);
+        this.startGatewayConnector();
         this.reactionEpoch = crypto.randomBytes(12).toString('hex');
         this.updateAutomaticReactions(body.snapshot, presentation);
         return this.json(response, 200, {
@@ -1110,7 +1237,7 @@ export default class KaraokeWebHost {
         });
       }
       if (route === '/ktv/host/close') {
-        this.close();
+        await this.close();
         return this.json(response, 200, { ok: true });
       }
       if (route === '/ktv/host/status')

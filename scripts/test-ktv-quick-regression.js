@@ -57,6 +57,20 @@ const suites = [
       '../src/remote/remoteCapabilities.test.cjs',
       '../src/remote/remoteApi.test.cjs',
       '../src/remote/playbackQueueRenderer.test.cjs',
+      '../src/remote/reactionEntry.test.cjs',
+    ],
+  },
+  {
+    name: 'Multi-room gateway and guest resources',
+    tests: [
+      'test-multiroom-gateway.cjs',
+      'test-host-connector.cjs',
+      'test-host-reconnect.cjs',
+      'test-desktop-public-adapter.cjs',
+      'test-multiroom-desktop-e2e.cjs',
+      'test-karaoke-multiroom-host.cjs',
+      'test-isolate-remote-assets.js',
+      'test-public-guest-static-paths.js',
     ],
   },
 ];

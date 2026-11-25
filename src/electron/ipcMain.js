@@ -6,6 +6,7 @@ import shortcuts from '@/utils/shortcuts';
 import { createMenu } from './menu';
 import { isCreateTray, isMac } from '@/utils/platform';
 import KaraokeLanLifecycle from './karaoke/KaraokeLanLifecycle';
+import { normalizePublicRoomConfig } from './karaoke/KaraokeServer';
 import {
   KaraokeCatalogService,
   KaraokeRemoteService,
@@ -163,6 +164,21 @@ export function initIpcMain(
   // WIP: Do not enable logging as it has some issues in non-blocking I/O environment.
   // UNM.enableLogging(UNM.LoggingType.ConsoleEnv);
   const karaokeLanLifecycle = new KaraokeLanLifecycle(karaokeServer);
+  const savedPublicRoomConfig = store.get('settings.karaokePublicRoom', {});
+  try {
+    karaokeServer.setPublicConfig(savedPublicRoomConfig);
+  } catch (_) {
+    // Invalid saved connection details are ignored and never included in logs.
+  }
+  karaokeServer.setPublicStatusListener(status => {
+    if (
+      win &&
+      !win.isDestroyed() &&
+      win.webContents &&
+      !win.webContents.isDestroyed()
+    )
+      win.webContents.send('karaoke:public:status', { status });
+  });
   const karaokeLocalLibrary = new KaraokeLocalLibrary(
     store.get('settings.localKaraokeDirectories', []),
     {
@@ -275,6 +291,45 @@ export function initIpcMain(
     ok: true,
     ...(await karaokeLanLifecycle.status()),
   }));
+
+  ipcMain.handle('karaoke:lan:reactions', async () => ({
+    ok: Boolean(karaokeServer.room),
+    ...karaokeServer.getReactionState(),
+  }));
+
+  ipcMain.handle('karaoke:public:config:get', async () => ({
+    ok: true,
+    config: karaokeServer.getPublicConfigState(),
+  }));
+
+  ipcMain.handle('karaoke:public:config:set', async (_, input = {}) => {
+    if (karaokeServer.room || karaokeServer.state === 'starting')
+      return { ok: false, error: 'PUBLIC_ROOM_ACTIVE' };
+    if (!input || typeof input !== 'object' || Array.isArray(input))
+      return { ok: false, error: 'INVALID_PUBLIC_CONFIG' };
+    if (
+      input.clearHostSecret !== undefined &&
+      typeof input.clearHostSecret !== 'boolean'
+    )
+      return { ok: false, error: 'INVALID_PUBLIC_CONFIG' };
+    try {
+      const saved = store.get('settings.karaokePublicRoom', {});
+      const hostSecret =
+        input.clearHostSecret === true
+          ? ''
+          : input.hostSecret || (saved && saved.hostSecret) || '';
+      const config = normalizePublicRoomConfig({
+        gatewayOrigin: input.gatewayOrigin,
+        hostId: input.hostId,
+        hostSecret,
+      });
+      karaokeServer.setPublicConfig(config);
+      store.set('settings.karaokePublicRoom', config);
+      return { ok: true, config: karaokeServer.getPublicConfigState() };
+    } catch (_) {
+      return { ok: false, error: 'INVALID_PUBLIC_CONFIG' };
+    }
+  });
 
   ipcMain.handle('karaoke:lan:refresh-qr', async () => {
     const room = await karaokeServer.describeRoom();

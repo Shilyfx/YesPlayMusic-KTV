@@ -96,14 +96,28 @@
         当前网卡自检失败，请确认手机与主机处于同一局域网
       </p>
     </div>
-    <template v-if="lanRoom && lanRoom.publicJoinUrl">
+    <template v-if="lanRoom && (lanRoom.publicJoinUrl || isElectron)">
       <div class="room-qr-wrap">
-        <img :src="lanRoom.publicQrDataUrl" alt="公网 KTV 房间二维码" />
+        <img
+          v-if="lanRoom.publicJoinUrl && lanRoom.publicQrDataUrl"
+          :src="lanRoom.publicQrDataUrl"
+          alt="公网 KTV 房间二维码"
+        />
+        <div v-else class="room-qr-placeholder">公网二维码暂不可用</div>
       </div>
       <div class="room-access-copy room-link-block">
         <strong>公网点歌</strong>
-        <p>适用于使用移动网络或其他 Wi-Fi 的来宾。</p>
-        <div class="room-link-row">
+        <p v-if="lanRoom.publicStatus">状态：{{ publicStatusLabel }}</p>
+        <p v-else-if="lanRoom.publicJoinUrl"
+          >适用于使用移动网络或其他 Wi-Fi 的来宾。</p
+        >
+        <p v-if="lanRoom.publicError" class="room-warning">
+          {{ lanRoom.publicError }}
+        </p>
+        <p v-if="lanRoom.publicQrError" class="room-warning">
+          {{ lanRoom.publicQrError }}
+        </p>
+        <div v-if="lanRoom.publicJoinUrl" class="room-link-row">
           <code class="room-link">{{ lanRoom.publicJoinUrl }}</code>
           <button
             type="button"
@@ -115,6 +129,65 @@
         </div>
       </div>
     </template>
+
+    <div v-if="isElectron" class="public-config">
+      <strong>公网房间连接</strong>
+      <p>填写网关地址和主机凭据，设置会用于下一次开启房间。</p>
+      <label>
+        网关地址
+        <input
+          v-model.trim="draftGatewayOrigin"
+          type="url"
+          inputmode="url"
+          placeholder="https://ktv.example"
+          autocomplete="url"
+        />
+      </label>
+      <label>
+        主机 ID
+        <input
+          v-model.trim="draftHostId"
+          type="text"
+          maxlength="128"
+          autocomplete="username"
+        />
+      </label>
+      <label>
+        主机密钥
+        <input
+          v-model="draftHostSecret"
+          type="password"
+          maxlength="4096"
+          autocomplete="new-password"
+          placeholder="留空以沿用已保存的密钥"
+        />
+      </label>
+      <p v-if="publicConfig.hasHostSecret" class="public-secret-state">
+        已保存主机密钥；密钥不会显示在此处。
+      </p>
+      <p v-if="publicConfigError" class="room-warning">
+        {{ publicConfigError }}
+      </p>
+      <div class="room-tools">
+        <button
+          type="button"
+          class="room-tool save-public-config"
+          :disabled="publicConfigSaving || Boolean(lanRoom)"
+          @click="savePublicConfig(false)"
+        >
+          {{ publicConfigSaving ? '保存中…' : '保存公网设置' }}
+        </button>
+        <button
+          v-if="publicConfig.hasHostSecret"
+          type="button"
+          class="room-tool"
+          :disabled="publicConfigSaving || Boolean(lanRoom)"
+          @click="savePublicConfig(true)"
+        >
+          清除已保存密钥
+        </button>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -128,6 +201,49 @@ export default {
     lanSelfTest: { type: String, default: 'idle' },
     copyLinkLabel: { type: String, default: '一键复制' },
     copyBackupLinkLabel: { type: String, default: '一键复制' },
+    isElectron: { type: Boolean, default: false },
+    publicConfig: { type: Object, default: () => ({}) },
+    publicConfigSaving: { type: Boolean, default: false },
+    publicConfigError: { type: String, default: '' },
+  },
+  data() {
+    return {
+      draftGatewayOrigin: this.publicConfig.gatewayOrigin || '',
+      draftHostId: this.publicConfig.hostId || '',
+      draftHostSecret: '',
+    };
+  },
+  computed: {
+    publicStatusLabel() {
+      const labels = {
+        starting: '正在连接',
+        connected: '已连接',
+        reconnecting: '正在重连',
+        error: '连接失败',
+        disabled: '未配置',
+      };
+      return labels[this.lanRoom && this.lanRoom.publicStatus] || '未连接';
+    },
+  },
+  watch: {
+    'publicConfig.gatewayOrigin'(value) {
+      this.draftGatewayOrigin = value || '';
+    },
+    'publicConfig.hostId'(value) {
+      this.draftHostId = value || '';
+    },
+  },
+  methods: {
+    savePublicConfig(clearHostSecret) {
+      const config = {
+        gatewayOrigin: this.draftGatewayOrigin,
+        hostId: this.draftHostId,
+        hostSecret: clearHostSecret ? '' : this.draftHostSecret,
+      };
+      if (clearHostSecret) config.clearHostSecret = true;
+      this.$emit('save-public-config', config);
+      this.draftHostSecret = '';
+    },
   },
 };
 </script>
@@ -229,6 +345,38 @@ export default {
 }
 .room-link-copy:hover {
   background: var(--ktv-accent-strong);
+}
+.public-config {
+  grid-column: 1 / -1;
+  min-width: 0;
+  margin-top: 8px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ktv-glass-border);
+}
+.public-config strong {
+  color: var(--ktv-text-primary);
+}
+.public-config label {
+  display: block;
+  max-width: 520px;
+  margin-top: 8px;
+  color: var(--ktv-text-secondary);
+  font-size: 12px;
+}
+.public-config input {
+  display: block;
+  box-sizing: border-box;
+  width: 100%;
+  min-height: 34px;
+  margin-top: 4px;
+  padding: 6px 9px;
+  border: 1px solid var(--ktv-glass-border);
+  border-radius: 8px;
+  background: var(--ktv-glass-soft);
+  color: var(--ktv-text-primary);
+}
+.public-secret-state {
+  color: var(--ktv-success) !important;
 }
 .room-access .room-link {
   overflow-wrap: anywhere;

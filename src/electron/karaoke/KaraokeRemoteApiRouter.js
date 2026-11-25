@@ -261,11 +261,18 @@ export class RemoteApiRouter {
             !/^[A-Za-z0-9_-]{16,128}$/.test(body.requestId))
         )
           return error(response, 400, 'INVALID_REQUEST_ID');
-        if (
-          publicGuest &&
-          !/^\d{1,20}$/.test(String((body && body.trackId) || ''))
-        )
-          return error(response, 400, 'INVALID_TRACK');
+        const trackId = String(body.trackId || '');
+        if (publicGuest && !/^\d{1,20}$/.test(trackId)) {
+          if (!/^local-[a-f0-9]{16}$/.test(trackId))
+            return error(response, 400, 'INVALID_TRACK');
+          const localPlaylists = await this.service.localPlaylists(client);
+          const indexedTrack = localPlaylists.some(playlist =>
+            (playlist.tracks || []).some(
+              track => String(track.trackId || track.id || '') === trackId
+            )
+          );
+          if (!indexedTrack) return error(response, 400, 'INVALID_TRACK');
+        }
         if (
           !/^(?:\d{1,20}|local-[a-f0-9]{16})$/i.test(String(body.trackId || ''))
         )

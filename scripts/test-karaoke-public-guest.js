@@ -67,23 +67,170 @@ async function testPublicGuestStaticPaths() {
     return response.status;
   };
 
-  const allowedPath = '/room/js/reactions/mood-mates/src/core/geometry.js';
-  assert.equal(await invoke(allowedPath), 200);
-  assert.deepEqual(delegated, [allowedPath]);
+  const allowedPaths = [
+    '/room/js/reactions/mood-mates/src/core/geometry.js',
+    '/room/artist-portraits/6452.jpg',
+  ];
+  for (const allowedPath of allowedPaths)
+    assert.equal(await invoke(allowedPath), 200, allowedPath);
+  assert.deepEqual(delegated, allowedPaths);
   for (const blockedPath of [
     '/room/js/reactions/../../index.html',
     '/room/js/reactions/%2e%2e/index.html',
     '/room/js/reactions/mood-mates/LICENSE',
     '/room/js/reactions/mood-mates/README.md',
     '/room/js/reactions/mood-mates/',
+    '/room/artist-portraits/6452.png',
+    '/room/artist-portraits/../index.html',
   ]) {
     assert.equal(await invoke(blockedPath), 404, blockedPath);
   }
   assert.deepEqual(
     delegated,
-    [allowedPath],
-    'only allowed JavaScript assets reach the static room server'
+    allowedPaths,
+    'only allowed assets reach the static room server'
   );
+}
+
+async function testPublicGuestCatalogRoutesAndLocalProjection() {
+  const host = {
+    expire() {},
+    publicGuestOrigin: 'https://ktv.example.test',
+    roomServer: { room: { token: 'host-token' } },
+    json(response, status, body) {
+      response.writeHead(status);
+      response.end(JSON.stringify(body));
+    },
+    remoteApi: {
+      handle(request, response, publicGuest) {
+        assert.equal(publicGuest, true);
+        assert.equal(request.headers.authorization, 'Bearer guest-token');
+        response.writeHead(200, { 'Content-Type': 'application/json' });
+        const payload = request.url.split('?')[0] === '/ktv/api/playlists'
+          ? {
+              playlists: [
+                {
+                  id: '123',
+                  name: 'Personal',
+                  trackCount: 3,
+                  coverUrl: 'https://img.example/cover.jpg',
+                  creatorName: 'Account owner',
+                  userId: 99,
+                  token: 'private',
+                },
+              ],
+              offset: 0,
+              nextOffset: 1,
+              total: 3,
+              hasMore: true,
+            }
+          : {
+            directories: ['C:\\Users\\alice\\Music'],
+            playlists: [
+              {
+                id: 'local-playlist-0123456789abcdef',
+                name: 'Music',
+                source: 'local',
+                trackCount: 1,
+                directory: 'C:\\Users\\alice\\Music',
+                tracks: [
+                  {
+                    trackId: 'local-0123456789abcdef',
+                    localId: 'local-0123456789abcdef',
+                    name: 'Song',
+                    artists: ['Singer'],
+                    album: 'Album',
+                    duration: 123,
+                    playability: 'playable',
+                    coverUrl: '/ktv/local/cover/local-0123456789abcdef',
+                    audioPath: 'C:\\Users\\alice\\Music\\song.mp3',
+                    lyrics: [{ time: 1, content: 'private lyric' }],
+                    controlToken: 'host-secret',
+                  },
+                ],
+              },
+            ],
+          };
+        response.end(JSON.stringify(payload));
+      },
+    },
+  };
+  const router = createPublicGuestRouter(host);
+  async function invoke(method, url) {
+    const response = {
+      headers: {},
+      setHeader(name, value) {
+        this.headers[name] = value;
+      },
+      writeHead(status, headers = {}) {
+        this.status = status;
+        Object.assign(this.headers, headers);
+      },
+      end(body) {
+        this.body = body;
+      },
+    };
+    await router(
+      {
+        method,
+        url,
+        headers: {
+          authorization: 'Bearer guest-token',
+          origin: 'https://ktv.example.test',
+        },
+      },
+      response
+    );
+    return response;
+  }
+
+  const catalog = await invoke('GET', '/ktv/api/local-playlists');
+  assert.equal(catalog.status, 200);
+  assert.deepEqual(JSON.parse(catalog.body), {
+    playlists: [
+      {
+        id: 'local-playlist-0123456789abcdef',
+        name: 'Music',
+        source: 'local',
+        trackCount: 1,
+        tracks: [
+          {
+            trackId: 'local-0123456789abcdef',
+            source: 'local',
+            name: 'Song',
+            artists: ['Singer'],
+            album: 'Album',
+            duration: 123,
+            playability: 'playable',
+          },
+        ],
+      },
+    ],
+  });
+  const userPlaylists = await invoke('GET', '/ktv/api/playlists');
+  assert.equal(userPlaylists.status, 200);
+  assert.deepEqual(JSON.parse(userPlaylists.body), {
+    playlists: [
+      {
+        id: '123',
+        name: 'Personal',
+        trackCount: 3,
+        coverUrl: 'https://img.example/cover.jpg',
+      },
+    ],
+    offset: 0,
+    nextOffset: 1,
+    total: 3,
+    hasMore: true,
+  });
+  for (const [method, url] of [
+    ['GET', '/ktv/local/list'],
+    ['GET', '/ktv/local/resolve/local-0123456789abcdef'],
+    ['GET', '/ktv/local/audio/local-0123456789abcdef'],
+    ['GET', '/ktv/api/track/123/preview'],
+    ['POST', '/ktv/api/playlists'],
+  ])
+    assert.equal((await invoke(method, url)).status, 404, `${method} ${url}`);
 }
 
 function requestRawPath(base, requestPath) {
@@ -107,10 +254,21 @@ function requestRawPath(base, requestPath) {
 async function run() {
   await testPublicGuestRouterRedirect();
   await testPublicGuestStaticPaths();
+  await testPublicGuestCatalogRoutesAndLocalProjection();
   const origin = 'https://ktv.example.test';
   const lanOrigin = 'http://127.0.0.1';
   const remoteDistPath = fs.mkdtempSync(
     path.join(os.tmpdir(), 'ktv-public-reactions-')
+  );
+  const portraitBytes = fs.readFileSync(
+    path.join(__dirname, '..', 'public', 'artist-portraits', '6452.jpg')
+  );
+  fs.mkdirSync(path.join(remoteDistPath, 'artist-portraits'), {
+    recursive: true,
+  });
+  fs.writeFileSync(
+    path.join(remoteDistPath, 'artist-portraits', '6452.jpg'),
+    portraitBytes
   );
   for (const relativePath of REACTION_ASSET_PATHS) {
     const scriptPath = path.join(
@@ -185,6 +343,63 @@ async function run() {
     album: 'Album',
   });
   host.service.catalog.availability = async () => 'playable';
+  host.service.catalog.hostCatalogBridge = async action => {
+    if (action === 'recommendations')
+      return [{ id: '123', name: 'Recommended', trackCount: 1 }];
+    if (action === 'toplists')
+      return [{ id: '123', name: 'Top list', trackCount: 1 }];
+    if (action === 'playlists')
+      return [
+        {
+          id: '123',
+          name: 'Personal list',
+          trackCount: 1,
+          coverUrl: 'https://img.example/cover.jpg',
+          creatorName: 'Private account name',
+          accountToken: 'must-not-cross',
+        },
+      ];
+    if (action === 'localPlaylists')
+      return [
+        {
+          id: 'local-playlist-0123456789abcdef',
+          name: 'Local list',
+          source: 'local',
+          trackCount: 1,
+          directory: 'C:\\Users\\alice\\Music',
+          tracks: [
+            {
+              id: 'local-0123456789abcdef',
+              trackId: 'local-0123456789abcdef',
+              localId: 'local-0123456789abcdef',
+              source: 'local',
+              name: 'Local song',
+              artists: [{ name: 'Singer' }],
+              album: {
+                name: 'Album',
+                picUrl: '/ktv/local/cover/local-0123456789abcdef',
+              },
+              audioPath: 'C:\\Users\\alice\\Music\\song.mp3',
+              lyrics: [{ time: 1, content: 'private lyric' }],
+            },
+          ],
+        },
+      ];
+    if (
+      ['recommendationTracks', 'toplistTracks', 'playlistTracks'].includes(
+        action
+      )
+    )
+      return [
+        {
+          id: '321',
+          name: 'Catalog song',
+          ar: [{ name: 'Singer' }],
+          al: { name: 'Album', picUrl: 'https://img.example/album.jpg' },
+        },
+      ];
+    throw new Error('UNEXPECTED_CATALOG_ACTION');
+  };
   host.service.managerBridge.enqueue = async (track, requester) => {
     const item = {
       queueItemId: 'test-item',
@@ -200,6 +415,13 @@ async function run() {
   };
   host.service.managerBridge.front = async () => assert.fail('Public priority');
   try {
+    const portraitPath = '/room/artist-portraits/6452.jpg';
+    for (const base of [lan, guest]) {
+      const portrait = await fetch(base + portraitPath);
+      assert.equal(portrait.status, 200, `${base}${portraitPath}`);
+      assert.match(portrait.headers.get('content-type'), /^image\/jpeg/);
+      assert.deepEqual(Buffer.from(await portrait.arrayBuffer()), portraitBytes);
+    }
     for (const relativePath of REACTION_ASSET_PATHS) {
       const reactionAsset = await fetch(
         guest + `/room/js/reactions/${relativePath}`
@@ -259,30 +481,39 @@ async function run() {
       '/ktv/host/status',
       '/ktv/local/list',
       '/ktv/display',
-      '/ktv/api/local-playlists',
-      '/ktv/api/playlists',
       '/ktv/api/track/123/preview',
       '/ktv/local/audio/local-0123456789abcdef',
     ])
       assert.equal((await fetch(guest + route, { headers })).status, 404);
+    for (const route of [
+      '/ktv/api/recommendations',
+      '/ktv/api/toplists',
+      '/ktv/api/playlists',
+      '/ktv/api/local-playlists',
+      '/ktv/api/recommendations/123/tracks',
+      '/ktv/api/toplists/123/tracks',
+      '/ktv/api/playlists/123/tracks',
+    ]) {
+      const response = await fetch(guest + route, { headers });
+      assert.equal(response.status, 200, route);
+      const data = await response.json();
+      assert.ok(Array.isArray(data.playlists || data.tracks), route);
+      assert.doesNotMatch(JSON.stringify(data), /audioPath|lyrics|accountToken|Private account name|C:\\\\Users/);
+    }
     assert.equal(
       (await post(guest, '/ktv/api/next', {}, clientToken)).status,
       404
     );
-    assert.equal(
-      (
-        await post(
-          guest,
-          '/ktv/api/requests',
-          {
-            trackId: 'local-0123456789abcdef',
-            requestId: 'request-public-local-0001',
-          },
-          clientToken
-        )
-      ).status,
-      400
+    const unknownLocalRequest = await post(
+      guest,
+      '/ktv/api/requests',
+      {
+        trackId: 'local-ffffffffffffffff',
+        requestId: 'request-public-unknown-local-0001',
+      },
+      clientToken
     );
+    assert.equal(unknownLocalRequest.status, 400);
     const requested = await post(
       guest,
       '/ktv/api/requests',
@@ -299,6 +530,24 @@ async function run() {
     assert.deepEqual(publicState.waiting, lanState.waiting);
     assert.equal(publicState.waiting.length, 1);
     assert.equal(publicState.client.permissions.priority, false);
+    const localRequested = await post(
+      guest,
+      '/ktv/api/requests',
+      {
+        trackId: 'local-0123456789abcdef',
+        requestId: 'request-public-local-0001',
+      },
+      clientToken
+    );
+    assert.equal(localRequested.status, 201, await localRequested.clone().text());
+    const localRequestBody = await localRequested.json();
+    assert.equal(localRequestBody.item.source, 'local');
+    const localQueue = await (await state(guest, clientToken)).json();
+    assert.equal(localQueue.waiting.length, 2);
+    assert.doesNotMatch(
+      JSON.stringify(localQueue),
+      /audioPath|audioUrl|lyrics|C:\\\\Users/
+    );
     assert.equal(
       (
         await post(

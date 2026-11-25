@@ -119,6 +119,11 @@ const mainScene = findNode(
 );
 assert.strictEqual(parentOf(main.ast, mainOverlay), mainStage);
 assert.strictEqual(parentOf(main.ast, mainScene), mainStage);
+assert.strictEqual(
+  mainOverlay.attrsMap['v-if'],
+  'reactionFeatureEnabled && lanRoom',
+  'the main stage shows room reactions in Electron and Docker hosts'
+);
 assert.match(main.source, /const target = this\.\$refs\.lyricStage/);
 assert.match(main.source, /const target = this\.\$refs\.karaokeSurface/);
 

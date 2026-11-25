@@ -11,14 +11,14 @@ function testLanCapabilitiesAllowLocalPlaylistsAndCatalogPrefetch() {
   });
 }
 
-function testPublicGuestCapabilitiesDisableLocalPlaylistsAndCatalogPrefetch() {
+function testPublicGuestCanLoadLocalPlaylistsWithoutCatalogPrefetch() {
   assert.deepStrictEqual(createRemoteCapabilities({ publicGuest: true }), {
     isPublicGuest: true,
-    canLoadLocalPlaylists: false,
+    canLoadLocalPlaylists: true,
     canPrefetchCatalog: false,
   });
 }
 
 testLanCapabilitiesAllowLocalPlaylistsAndCatalogPrefetch();
-testPublicGuestCapabilitiesDisableLocalPlaylistsAndCatalogPrefetch();
+testPublicGuestCanLoadLocalPlaylistsWithoutCatalogPrefetch();
 console.log('PASS: remote client capabilities');

@@ -5,9 +5,22 @@ import path from 'path';
 import { promises as fs } from 'fs';
 import { createReadStream } from 'fs';
 import QRCode from 'qrcode';
+import { createDesktopPublicAdapter } from '../../multiroom/desktopPublicAdapter.cjs';
+import { createHostConnector } from '../../multiroom/hostConnector.cjs';
+import {
+  isValidReactionEffect,
+  normalizeReactionText,
+  reactionCharacters,
+  reactionChoices,
+  upstreamReactions,
+} from '@/karaoke/reactions';
+import { createReactionScheduler } from '@/karaoke/reactionScheduler';
 
 const ROOM_PORT = 27233;
 const DEFAULT_ROOM_NAME = 'LumaSing KTV';
+const MAX_REACTION_BODY_BYTES = 4096;
+const REACTION_RATE_LIMIT_PER_CLIENT = 8;
+const REACTION_RATE_LIMIT_PER_ROOM = 40;
 const roomCode = () => crypto.randomBytes(3).toString('hex').toUpperCase();
 // Electron 13 ships with a Node.js version that does not support the
 // `base64url` Buffer encoding. Keep the token URL-safe without relying on
@@ -19,6 +32,97 @@ const toBase64Url = value =>
     .replace(/\//g, '_')
     .replace(/=+$/g, '');
 const roomToken = () => toBase64Url(crypto.randomBytes(32));
+const reactionEpoch = () => crypto.randomBytes(12).toString('hex');
+
+function hasAsciiControlCharacters(value) {
+  for (let index = 0; index < value.length; index += 1) {
+    const code = value.charCodeAt(index);
+    if (code < 32 || code === 127) return true;
+  }
+  return false;
+}
+
+function normalizePublicRoomConfig(config = {}) {
+  if (!config || typeof config !== 'object' || Array.isArray(config))
+    throw new Error('INVALID_PUBLIC_CONFIG');
+  const gatewayValue = config.gatewayOrigin;
+  const hostIdValue = config.hostId;
+  const hostSecretValue = config.hostSecret;
+  if (
+    (gatewayValue !== undefined && typeof gatewayValue !== 'string') ||
+    (hostIdValue !== undefined && typeof hostIdValue !== 'string') ||
+    (hostSecretValue !== undefined && typeof hostSecretValue !== 'string')
+  )
+    throw new Error('INVALID_PUBLIC_CONFIG');
+
+  const gatewayText = (gatewayValue || '').trim();
+  const hostId = (hostIdValue || '').trim();
+  const hostSecret = hostSecretValue || '';
+  let gatewayOrigin = '';
+  if (gatewayText) {
+    let gateway;
+    try {
+      gateway = new URL(gatewayText);
+    } catch (_) {
+      throw new Error('INVALID_PUBLIC_CONFIG');
+    }
+    const localHost = ['localhost', '127.0.0.1'].includes(gateway.hostname);
+    if (
+      (gateway.protocol !== 'https:' &&
+        !(gateway.protocol === 'http:' && localHost)) ||
+      gateway.username ||
+      gateway.password ||
+      gateway.pathname !== '/' ||
+      gateway.search ||
+      gateway.hash
+    )
+      throw new Error('INVALID_PUBLIC_CONFIG');
+    gatewayOrigin = gateway.origin;
+  }
+  if (hostId.length > 256 || hasAsciiControlCharacters(hostId))
+    throw new Error('INVALID_PUBLIC_CONFIG');
+  if (
+    hostSecret.length > 4096 ||
+    hasAsciiControlCharacters(hostSecret) ||
+    (hostSecret && !hostSecret.trim())
+  )
+    throw new Error('INVALID_PUBLIC_CONFIG');
+  return { gatewayOrigin, hostId, hostSecret };
+}
+
+function bearerToken(request) {
+  const authorization = request.headers.authorization || '';
+  return authorization.startsWith('Bearer ')
+    ? authorization.slice('Bearer '.length)
+    : '';
+}
+
+function readJsonBody(request, maxBytes = MAX_REACTION_BODY_BYTES) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let byteLength = 0;
+    let tooLarge = false;
+    request.on('data', chunk => {
+      if (tooLarge) return;
+      byteLength += chunk.length;
+      if (byteLength > maxBytes) {
+        tooLarge = true;
+        chunks.length = 0;
+        return;
+      }
+      chunks.push(chunk);
+    });
+    request.on('end', () => {
+      if (tooLarge) return reject(new Error('BODY_TOO_LARGE'));
+      try {
+        resolve(JSON.parse(Buffer.concat(chunks).toString('utf8')));
+      } catch (_) {
+        reject(new Error('INVALID_JSON'));
+      }
+    });
+    request.on('error', reject);
+  });
+}
 
 function isPrivateIpv4(address) {
   return (
@@ -94,6 +198,8 @@ export class KaraokeServer {
     remoteApi = null,
     remoteService = null,
     localLibrary = null,
+    hostConnectorFactory = createHostConnector,
+    publicAdapterFactory = createDesktopPublicAdapter,
   }) {
     this.remoteDistPath = remoteDistPath;
     this.port = port;
@@ -102,11 +208,25 @@ export class KaraokeServer {
     this.remoteApi = remoteApi;
     this.remoteService = remoteService;
     this.localLibrary = localLibrary;
+    this.hostConnectorFactory = hostConnectorFactory;
+    this.publicAdapterFactory = publicAdapterFactory;
     this.server = null;
     this.room = null;
     this.state = 'idle';
     this.startPromise = null;
     this.generation = 0;
+    this.reactionScheduler = createReactionScheduler();
+    this.reactionGeneration = '';
+    this.publicConfig = { gatewayOrigin: '', hostId: '', hostSecret: '' };
+    this.publicStatus = 'disabled';
+    this.publicError = '';
+    this.publicQrError = '';
+    this.publicToken = '';
+    this.publicJoinUrl = '';
+    this.publicQrDataUrl = null;
+    this.publicConnector = null;
+    this.publicAdapterServer = null;
+    this.publicStatusListener = null;
   }
 
   setRemoteApi(remoteApi, remoteService) {
@@ -116,6 +236,39 @@ export class KaraokeServer {
 
   setLocalLibrary(localLibrary) {
     this.localLibrary = localLibrary;
+  }
+
+  setPublicConfig(config) {
+    if (this.room || this.state === 'starting')
+      throw new Error('PUBLIC_ROOM_ACTIVE');
+    this.publicConfig = normalizePublicRoomConfig(config);
+    this.publicStatus = 'disabled';
+    this.publicError = '';
+    this.publicQrError = '';
+  }
+
+  getPublicConfigState() {
+    return {
+      gatewayOrigin: this.publicConfig.gatewayOrigin,
+      hostId: this.publicConfig.hostId,
+      hasHostSecret: Boolean(this.publicConfig.hostSecret),
+    };
+  }
+
+  setPublicStatusListener(listener) {
+    this.publicStatusListener =
+      typeof listener === 'function' ? listener : null;
+  }
+
+  updatePublicStatus(status) {
+    this.publicStatus = status;
+    if (this.publicStatusListener) {
+      try {
+        this.publicStatusListener(status);
+      } catch (_) {
+        // Status notifications are presentation-only.
+      }
+    }
   }
 
   getLanAddressCandidates() {
@@ -193,6 +346,11 @@ export class KaraokeServer {
       }
       this.state = 'active';
       if (this.remoteService) this.remoteService.onRoomStart(room);
+      this.reactionScheduler.reset();
+      this.reactionGeneration = reactionEpoch();
+      await this.startPublicRoom(room, generation);
+      if (this.room !== room || this.generation !== generation)
+        throw new Error('KTV 房间已取消');
       return this.describeRoom();
     } catch (error) {
       this.room = null;
@@ -203,9 +361,179 @@ export class KaraokeServer {
     }
   }
 
+  async closePublicAdapter(server) {
+    if (!server || !server.listening) return;
+    await new Promise(resolve => server.close(() => resolve()));
+  }
+
+  async startPublicRoom(room, generation) {
+    const { gatewayOrigin, hostId, hostSecret } = this.publicConfig;
+    if (!gatewayOrigin || !hostId || !hostSecret) {
+      this.publicToken = '';
+      this.publicJoinUrl = '';
+      this.publicQrDataUrl = null;
+      this.publicError = '';
+      this.updatePublicStatus('disabled');
+      return;
+    }
+
+    this.publicError = '';
+    this.publicQrError = '';
+    this.publicToken = roomToken();
+    this.publicJoinUrl = '';
+    this.publicQrDataUrl = null;
+    this.updatePublicStatus('starting');
+
+    let adapterServer = null;
+    let connector = null;
+    try {
+      const handler = this.publicAdapterFactory({
+        roomServer: this,
+        remoteApi: this.remoteApi,
+        publicOrigin: gatewayOrigin,
+        getPublicToken: () =>
+          this.room === room && this.generation === generation
+            ? this.publicToken
+            : '',
+        handleReaction: (request, response, publicGuest = false) =>
+          this.handleReactionRequest(request, response, publicGuest),
+      });
+      adapterServer = http.createServer((request, response) => {
+        Promise.resolve(handler(request, response)).catch(() => {
+          if (response.headersSent) return response.destroy();
+          response.writeHead(502, {
+            'Cache-Control': 'no-store',
+            'Content-Type': 'application/json; charset=utf-8',
+            'X-Content-Type-Options': 'nosniff',
+          });
+          response.end(JSON.stringify({ error: 'PUBLIC_ROOM_UNAVAILABLE' }));
+        });
+      });
+      adapterServer.on('error', () => {
+        if (this.room !== room || this.generation !== generation) return;
+        this.publicToken = '';
+        this.publicJoinUrl = '';
+        this.publicQrDataUrl = null;
+        this.publicError = '公网服务异常，局域网房间仍可使用';
+        const activeConnector = this.publicConnector;
+        this.publicConnector = null;
+        if (activeConnector)
+          Promise.resolve(activeConnector.stop()).catch(() => {});
+        this.closePublicAdapter(adapterServer).catch(() => {});
+        this.updatePublicStatus('error');
+      });
+      this.publicAdapterServer = adapterServer;
+      await new Promise((resolve, reject) => {
+        const onError = error => reject(error);
+        adapterServer.once('error', onError);
+        this.listen(adapterServer, 0, '127.0.0.1', () => {
+          adapterServer.off('error', onError);
+          resolve();
+        });
+      });
+
+      if (this.room !== room || this.generation !== generation) {
+        await this.closePublicAdapter(adapterServer);
+        if (this.publicAdapterServer === adapterServer)
+          this.publicAdapterServer = null;
+        this.publicToken = '';
+        return;
+      }
+      const address = adapterServer.address();
+      if (!address || typeof address === 'string' || !address.port)
+        throw new Error('PUBLIC_ADAPTER_LISTEN_FAILED');
+
+      connector = this.hostConnectorFactory({
+        gatewayOrigin,
+        hostId,
+        hostSecret,
+        localPort: address.port,
+        onStatus: status => {
+          if (
+            this.room === room &&
+            this.generation === generation &&
+            this.publicConnector === connector &&
+            ['connected', 'reconnecting', 'stopped'].includes(status)
+          )
+            this.updatePublicStatus(status);
+        },
+      });
+      this.publicConnector = connector;
+      await connector.start();
+      if (this.room !== room || this.generation !== generation) {
+        if (this.publicConnector === connector) this.publicConnector = null;
+        await connector.stop();
+        await this.closePublicAdapter(adapterServer);
+        if (this.publicAdapterServer === adapterServer)
+          this.publicAdapterServer = null;
+        this.publicToken = '';
+        return;
+      }
+      if (!/^[a-f0-9]{32,64}$/.test(connector.roomId || ''))
+        throw new Error('INVALID_PUBLIC_ROOM_ID');
+
+      this.publicJoinUrl = `${gatewayOrigin}/r/${
+        connector.roomId
+      }/room/#public=1&token=${encodeURIComponent(this.publicToken)}`;
+      try {
+        this.publicQrDataUrl = await QRCode.toDataURL(this.publicJoinUrl, {
+          margin: 3,
+          width: 520,
+        });
+      } catch (_) {
+        this.publicQrError = '公网二维码生成失败，可复制链接加入';
+      }
+      if (!['connected', 'reconnecting'].includes(this.publicStatus))
+        this.updatePublicStatus('connected');
+    } catch (_) {
+      this.publicToken = '';
+      this.publicJoinUrl = '';
+      this.publicQrDataUrl = null;
+      this.publicQrError = '';
+      this.publicError = '公网连接失败，局域网房间仍可使用';
+      if (this.publicConnector === connector) this.publicConnector = null;
+      if (connector) {
+        try {
+          await connector.stop();
+        } catch (_) {
+          // Public cleanup must not affect the LAN room.
+        }
+      }
+      if (this.publicAdapterServer === adapterServer)
+        this.publicAdapterServer = null;
+      await this.closePublicAdapter(adapterServer);
+      if (this.room === room && this.generation === generation)
+        this.updatePublicStatus('error');
+    }
+  }
+
+  async stopPublicRoom() {
+    this.publicToken = '';
+    this.publicJoinUrl = '';
+    this.publicQrDataUrl = null;
+    this.publicQrError = '';
+    this.publicError = '';
+    const connector = this.publicConnector;
+    const adapterServer = this.publicAdapterServer;
+    this.publicConnector = null;
+    this.publicAdapterServer = null;
+    this.updatePublicStatus('disabled');
+    if (connector) {
+      try {
+        await connector.stop();
+      } catch (_) {
+        // The LAN room can still be closed if the gateway is unreachable.
+      }
+    }
+    await this.closePublicAdapter(adapterServer);
+  }
+
   async stopRoom() {
     this.generation += 1;
+    await this.stopPublicRoom();
     if (this.remoteService) this.remoteService.onRoomStop();
+    this.reactionScheduler.reset();
+    this.reactionGeneration = '';
     this.room = null;
     this.state = 'idle';
     const pendingStart = this.startPromise;
@@ -249,6 +577,11 @@ export class KaraokeServer {
       selectedAddress: this.room.lanAddress,
       qrDataUrl,
       qrError,
+      publicJoinUrl: this.publicJoinUrl || null,
+      publicQrDataUrl: this.publicQrDataUrl,
+      publicStatus: this.publicStatus,
+      publicError: this.publicError || null,
+      publicQrError: this.publicQrError || null,
     };
   }
 
@@ -291,6 +624,118 @@ export class KaraokeServer {
     });
   }
 
+  getReactionState() {
+    return {
+      events: this.room ? this.reactionScheduler.recentPublic() : [],
+      generation: this.room ? this.reactionGeneration : '',
+      serverTime: Date.now(),
+    };
+  }
+
+  async handleReactionRequest(request, response, publicGuest = false) {
+    if (request.method !== 'POST')
+      return this.sendJson(response, { error: 'METHOD_NOT_ALLOWED' }, 405);
+    if (!this.room)
+      return this.sendJson(response, { error: 'ROOM_ENDED' }, 410);
+    if (!this.remoteService || !this.remoteService.managerBridge)
+      return this.sendJson(response, { error: 'REMOTE_UNAVAILABLE' }, 503);
+
+    const room = this.room;
+    const token = bearerToken(request);
+    let client;
+    try {
+      client = this.remoteService.client(token, publicGuest);
+    } catch (_) {
+      return this.sendJson(response, { error: 'INVALID_CLIENT_TOKEN' }, 401);
+    }
+
+    if (
+      !/^application\/json(?:\s*;|$)/i.test(
+        request.headers['content-type'] || ''
+      )
+    )
+      return this.sendJson(response, { error: 'JSON_REQUIRED' }, 415);
+
+    let body;
+    try {
+      body = await readJsonBody(request);
+    } catch (error) {
+      const status = error.message === 'BODY_TOO_LARGE' ? 413 : 400;
+      return this.sendJson(response, { error: error.message }, status);
+    }
+    if (!body || typeof body !== 'object' || Array.isArray(body)) body = {};
+
+    const validKind =
+      body.kind === 'emotion'
+        ? upstreamReactions.some(item => item.emotion === body.emotionId)
+        : reactionChoices.some(item => item.kind === body.kind);
+    if (!validKind)
+      return this.sendJson(response, { error: 'INVALID_REACTION' }, 400);
+    if (
+      body.character !== undefined &&
+      !reactionCharacters.some(item => item.id === body.character)
+    )
+      return this.sendJson(response, { error: 'INVALID_CHARACTER' }, 400);
+    if (body.effect && !isValidReactionEffect(body.effect))
+      return this.sendJson(response, { error: 'INVALID_EFFECT' }, 400);
+
+    let customText;
+    try {
+      customText = normalizeReactionText(body.customText);
+    } catch (error) {
+      return this.sendJson(response, { error: error.message }, 400);
+    }
+
+    const clientRateKey = `reaction:${client.clientId}`;
+    if (
+      !this.remoteService.limiter.check(
+        clientRateKey,
+        REACTION_RATE_LIMIT_PER_CLIENT
+      ) ||
+      !this.remoteService.limiter.check(
+        'reaction:room',
+        REACTION_RATE_LIMIT_PER_ROOM
+      )
+    )
+      return this.sendJson(response, { error: 'RATE_LIMIT' }, 429);
+
+    try {
+      const snapshot = await this.remoteService.managerBridge.snapshot();
+      if (this.room !== room)
+        return this.sendJson(response, { error: 'ROOM_ENDED' }, 410);
+      client = this.remoteService.client(token, publicGuest);
+      const scheduled = this.reactionScheduler.scheduleUser({
+        senderId: client.clientId,
+        itemId: snapshot.currentItem?.queueItemId || '',
+        kind: body.kind,
+        effect: body.effect || 'bounce',
+        character: body.character,
+        emotionId: body.kind === 'emotion' ? body.emotionId : undefined,
+        customText,
+      });
+      if (!scheduled.ok)
+        return this.sendJson(
+          response,
+          {
+            error: scheduled.code || 'REACTION_QUEUE_FULL',
+            status: 'busy',
+            queuePosition: scheduled.queuePosition,
+          },
+          429
+        );
+      return this.sendJson(response, {
+        ok: true,
+        status: scheduled.status,
+        queuePosition: scheduled.queuePosition,
+        eventId: scheduled.event.id,
+        startAt: scheduled.event.startAt,
+        endsAt: scheduled.event.endsAt,
+      });
+    } catch (_) {
+      return this.sendJson(response, { error: 'REMOTE_UNAVAILABLE' }, 502);
+    }
+  }
+
   async handleRequest(request, response) {
     // `URL` normalizes encoded dot segments before we can compare them to the
     // room prefix. Remote assets never need encoded separators or dot segments,
@@ -298,6 +743,8 @@ export class KaraokeServer {
     const rawPath = request.url.split(/[?#]/)[0];
     if (/%2e|%2f|%5c|\\/i.test(rawPath)) return this.notFound(response);
     const requestUrl = new URL(request.url, 'http://karaoke.local');
+    if (requestUrl.pathname === '/ktv/api/reactions')
+      return this.handleReactionRequest(request, response);
     if (this.remoteApi && (await this.remoteApi.handle(request, response)))
       return;
     if (request.method !== 'GET') return this.notFound(response);
@@ -449,9 +896,9 @@ export class KaraokeServer {
     }
   }
 
-  sendJson(response, body) {
+  sendJson(response, body, statusCode = 200) {
     response.writeHead(
-      200,
+      statusCode,
       this.securityHeaders('application/json; charset=utf-8')
     );
     response.end(JSON.stringify(body));
@@ -476,4 +923,10 @@ export class KaraokeServer {
   }
 }
 
-export { ROOM_PORT, getLanAddress, getLanAddressCandidates, selectLanAddress };
+export {
+  ROOM_PORT,
+  getLanAddress,
+  getLanAddressCandidates,
+  normalizePublicRoomConfig,
+  selectLanAddress,
+};

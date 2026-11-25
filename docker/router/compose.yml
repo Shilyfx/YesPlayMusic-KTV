@@ -26,6 +26,11 @@ services:
       # Optional alternate access URLs shown as backup join links (comma separated).
       # The first one whose hostname differs from the current visit host is used.
       KTV_PUBLIC_GUEST_ORIGIN: "${KTV_PUBLIC_GUEST_ORIGIN:-}"
+      # Optional multiroom gateway credentials are injected at runtime only.
+      # Keep these values in the deployment environment or an untracked .env file.
+      KTV_MULTIROOM_GATEWAY_ORIGIN: "${KTV_MULTIROOM_GATEWAY_ORIGIN:-}"
+      KTV_MULTIROOM_HOST_ID: "${KTV_MULTIROOM_HOST_ID:-}"
+      KTV_MULTIROOM_HOST_SECRET: "${KTV_MULTIROOM_HOST_SECRET:-}"
       KTV_ALT_ORIGINS: "http://ktv.home,http://192.168.100.1:18080"
     volumes:
       - ./dist/ktv-server.cjs:/app/ktv-server.cjs:ro

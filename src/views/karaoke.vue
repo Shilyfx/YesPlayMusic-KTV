@@ -105,6 +105,10 @@
       :lan-self-test="lanSelfTest"
       :copy-link-label="copyLinkLabel"
       :copy-backup-link-label="copyBackupLinkLabel"
+      :is-electron="isElectron"
+      :public-config="publicConfig"
+      :public-config-saving="publicConfigSaving"
+      :public-config-error="publicConfigError"
       @select-lan-address="selectedLanAddress = $event"
       @copy-lan-link="copyLanLink"
       @copy-backup-link="copyBackupLink"
@@ -113,6 +117,7 @@
       @retry-lan-qr="retryLanQr"
       @self-test-lan="selfTestLan"
       @copy-public-link="copyPublicLink"
+      @save-public-config="savePublicRoomConfig"
     />
 
     <KaraokeLocalLibraryPanel
@@ -169,7 +174,7 @@
       >
         <p class="stage-kicker">LYRIC STAGE</p>
         <ReactionOverlay
-          v-if="reactionFeatureEnabled && !isElectron && lanRoom"
+          v-if="reactionFeatureEnabled && lanRoom"
           :events="reactionEvents"
           :generation="reactionGeneration"
           :server-time="reactionServerTime"
@@ -447,6 +452,10 @@ export default {
       systemTheme: 'light',
       themeMedia: null,
       lanRoom: null,
+      publicConfig: { gatewayOrigin: '', hostId: '', hasHostSecret: false },
+      publicConfigSaving: false,
+      publicConfigError: '',
+      publicStatusListener: null,
       webRoomBridge: null,
       lanCandidates: [],
       showRoomCode: false,
@@ -485,9 +494,14 @@ export default {
       localError: '',
       localDirectoryInput: '',
       reactionEvents: [],
-      reactionFeatureEnabled: process.env.VUE_APP_DOCKER_KTV === 'true',
+      reactionFeatureEnabled:
+        process.env.VUE_APP_DOCKER_KTV === 'true' ||
+        process.env.IS_ELECTRON === true,
       reactionGeneration: '',
       reactionServerTime: 0,
+      reactionPollTimer: null,
+      reactionPollInFlight: false,
+      reactionPollingDisposed: false,
       musicReaction: null,
       smartBeatSettings: readSmartBeatPreferences(),
       smartBeatStatus: { state: 'idle', detail: '' },
@@ -802,6 +816,13 @@ export default {
       window.addEventListener('pagehide', this.webRoomPageHide);
       if (this.reactionFeatureEnabled) this.ensureMusicAnalyzer();
     }
+    if (this.isElectron && this.reactionFeatureEnabled) {
+      this.pollLanReactions();
+      this.reactionPollTimer = window.setInterval(
+        () => this.pollLanReactions(),
+        250
+      );
+    }
     this.themeMedia = window.matchMedia('(prefers-color-scheme: dark)');
     this.syncSystemTheme();
     if (this.themeMedia.addEventListener)
@@ -809,12 +830,18 @@ export default {
     else this.themeMedia.addListener(this.syncSystemTheme);
     this.loadLyrics();
     this.loadLanRoom();
+    this.loadPublicRoomConfig();
     if (!this.isSessionActive) this.startDefaultSession();
     this.loadLocalLibrarySummary();
     this.lyricFontSizeDraft = String(this.lyricFontSize);
     this.lyricOffsetDraft = this.lyricOffset.toFixed(1);
     const ipcRenderer = this.electronIpc();
     if (ipcRenderer) {
+      this.publicStatusListener = (_, payload = {}) => {
+        if (this.lanRoom && payload.status)
+          this.$set(this.lanRoom, 'publicStatus', payload.status);
+      };
+      ipcRenderer.on('karaoke:public:status', this.publicStatusListener);
       this.windowStateListener = (_, value) => {
         this.isWindowMaximized = Boolean(value);
       };
@@ -858,6 +885,8 @@ export default {
     document.addEventListener('click', this.handleOverlayOutsideClick);
   },
   beforeDestroy() {
+    this.reactionPollingDisposed = true;
+    window.clearInterval(this.reactionPollTimer);
     this.visualAssetUploads?.dispose();
     if (this.unsubscribeMusicEnded) this.unsubscribeMusicEnded();
     if (this.musicAnalyzer) this.musicAnalyzer.dispose();
@@ -891,6 +920,11 @@ export default {
     const ipcRenderer = this.electronIpc();
     if (ipcRenderer && this.windowStateListener)
       ipcRenderer.removeListener('isMaximized', this.windowStateListener);
+    if (ipcRenderer && this.publicStatusListener)
+      ipcRenderer.removeListener(
+        'karaoke:public:status',
+        this.publicStatusListener
+      );
     window.clearTimeout(this.copyLinkTimer);
     window.clearTimeout(this.lyricControlsTimer);
     document.removeEventListener(
@@ -1384,6 +1418,44 @@ export default {
     onMusicSensitivityChange(value) {
       this.musicAnalyzer?.setSensitivity(value);
     },
+    async pollLanReactions() {
+      if (
+        !this.isElectron ||
+        !this.reactionFeatureEnabled ||
+        !this.lanRoom ||
+        this.reactionPollInFlight ||
+        this.reactionPollingDisposed
+      )
+        return;
+      const ipcRenderer = this.electronIpc();
+      if (!ipcRenderer) return;
+      const roomToken = this.lanRoom.token;
+      this.reactionPollInFlight = true;
+      try {
+        const state = await ipcRenderer.invoke('karaoke:lan:reactions');
+        if (
+          this.reactionPollingDisposed ||
+          !this.lanRoom ||
+          this.lanRoom.token !== roomToken
+        )
+          return;
+        this.reactionEvents = Array.isArray(state?.events) ? state.events : [];
+        this.reactionGeneration = state?.generation || '';
+        this.reactionServerTime = Number(state?.serverTime) || 0;
+      } catch (_) {
+        if (
+          !this.reactionPollingDisposed &&
+          this.lanRoom &&
+          this.lanRoom.token === roomToken
+        ) {
+          this.reactionEvents = [];
+          this.reactionGeneration = '';
+          this.reactionServerTime = 0;
+        }
+      } finally {
+        this.reactionPollInFlight = false;
+      }
+    },
     getWebPresentation() {
       if (document.hidden && this.musicAnalyzer) {
         this.musicAnalyzer.tick();
@@ -1639,6 +1711,41 @@ export default {
         if (this.lanRoom) this.selfTestLan();
       } catch (error) {
         console.warn('[karaoke] LAN status unavailable', error);
+      }
+    },
+    async loadPublicRoomConfig() {
+      if (!this.isElectron) return;
+      const ipcRenderer = this.roomIpc();
+      if (!ipcRenderer) return;
+      try {
+        const result = await ipcRenderer.invoke('karaoke:public:config:get');
+        if (result?.ok && result.config) this.publicConfig = result.config;
+      } catch (_) {
+        this.publicConfigError = '公网设置读取失败';
+      }
+    },
+    async savePublicRoomConfig(config) {
+      const ipcRenderer = this.roomIpc();
+      if (!ipcRenderer || !this.isElectron) return;
+      this.publicConfigSaving = true;
+      this.publicConfigError = '';
+      try {
+        const result = await ipcRenderer.invoke(
+          'karaoke:public:config:set',
+          config
+        );
+        if (result?.ok) {
+          this.publicConfig = result.config;
+          this.$store.dispatch('showToast', '公网房间设置已保存');
+        } else if (result?.error === 'PUBLIC_ROOM_ACTIVE') {
+          this.publicConfigError = '请先结束当前房间，再修改公网连接设置';
+        } else {
+          this.publicConfigError = '设置无效，请检查网关地址、主机 ID 和密钥';
+        }
+      } catch (_) {
+        this.publicConfigError = '公网设置保存失败';
+      } finally {
+        this.publicConfigSaving = false;
       }
     },
     applyLocalLibraryResult(result) {

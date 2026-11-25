@@ -113,6 +113,7 @@ jobs:
           test -n "$mounted_app"
           mounted_archs=$(lipo -archs "$mounted_app/Contents/MacOS/LumaSing")
           [[ " $mounted_archs " == *" arm64 "* ]]
+          node scripts/verify-packaged-artist-portraits.cjs "$mounted_app"
           shasum -a 256 "$dmg_path" >dist_electron/LumaSing-mac-arm64.sha256
       - name: Upload installer artifact
         uses: actions/upload-artifact@v4

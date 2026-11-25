@@ -126,6 +126,7 @@ assert.equal(startRequested, true);
 ready.$destroy();
 
 const active = mountPanel({
+  isElectron: false,
   lanRoom: {
     code: 'ABCD',
     qrDataUrl: 'data:image/png;base64,lan',
@@ -196,5 +197,47 @@ actions.forEach(([event, selector], index) => {
   assert.equal(emitted[emitted.length - 1], event);
 });
 active.$destroy();
+
+const publicSetup = mountPanel({
+  isElectron: true,
+  publicConfig: {
+    gatewayOrigin: 'https://ktv.example',
+    hostId: 'desktop-host',
+    hasHostSecret: true,
+  },
+  lanRoom: null,
+  lanCandidates: candidates,
+  selectedLanAddress: '192.168.1.20',
+});
+const publicSetupTree = publicSetup._render();
+assert.match(textContent(publicSetupTree), /公网房间连接/);
+assert.match(textContent(publicSetupTree), /已保存主机密钥/);
+const secretInput = findNode(
+  publicSetupTree,
+  node => node.tag === 'input' && node.data.attrs.type === 'password',
+  'masked public host secret input'
+);
+assert.equal(secretInput.data.domProps.value, '');
+let savedPublicConfig = null;
+publicSetup.$on('save-public-config', value => {
+  savedPublicConfig = value;
+});
+publicSetup.$set(publicSetup, 'draftGatewayOrigin', 'https://public.example');
+publicSetup.$set(publicSetup, 'draftHostId', 'host-next');
+publicSetup.$set(publicSetup, 'draftHostSecret', '');
+const saveConfigButton = findNode(
+  publicSetupTree,
+  node =>
+    node.tag === 'button' &&
+    node.data.staticClass.includes('save-public-config'),
+  'public connection settings save action'
+);
+click(saveConfigButton, 'public connection settings save action');
+assert.deepEqual(savedPublicConfig, {
+  gatewayOrigin: 'https://public.example',
+  hostId: 'host-next',
+  hostSecret: '',
+});
+publicSetup.$destroy();
 
 process.stdout.write('Karaoke room access panel behavior tests passed\n');
