@@ -166,7 +166,17 @@ export function initIpcMain(
   const karaokeLanLifecycle = new KaraokeLanLifecycle(karaokeServer);
   const savedPublicRoomConfig = store.get('settings.karaokePublicRoom', {});
   try {
-    karaokeServer.setPublicConfig(savedPublicRoomConfig);
+    const normalizedPublicRoomConfig = normalizePublicRoomConfig(
+      savedPublicRoomConfig
+    );
+    karaokeServer.setPublicConfig(normalizedPublicRoomConfig);
+    const savedGatewayOrigin =
+      savedPublicRoomConfig && savedPublicRoomConfig.gatewayOrigin;
+    if (
+      typeof savedGatewayOrigin === 'string' &&
+      new URL(savedGatewayOrigin.trim()).hostname === 'ktv.-shilyfx.icu'
+    )
+      store.set('settings.karaokePublicRoom', normalizedPublicRoomConfig);
   } catch (_) {
     // Invalid saved connection details are ignored and never included in logs.
   }
@@ -303,7 +313,7 @@ export function initIpcMain(
   }));
 
   ipcMain.handle('karaoke:public:config:set', async (_, input = {}) => {
-    if (karaokeServer.room || karaokeServer.state === 'starting')
+    if (karaokeServer.state === 'starting')
       return { ok: false, error: 'PUBLIC_ROOM_ACTIVE' };
     if (!input || typeof input !== 'object' || Array.isArray(input))
       return { ok: false, error: 'INVALID_PUBLIC_CONFIG' };

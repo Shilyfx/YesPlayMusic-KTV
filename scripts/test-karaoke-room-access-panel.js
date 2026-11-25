@@ -218,6 +218,12 @@ const secretInput = findNode(
   'masked public host secret input'
 );
 assert.equal(secretInput.data.domProps.value, '');
+const gatewayInput = findNode(
+  publicSetupTree,
+  node => node.tag === 'input' && node.data.attrs.type === 'url',
+  'public gateway address input'
+);
+assert.equal(gatewayInput.data.domProps.value, 'https://ktv.example');
 let savedPublicConfig = null;
 publicSetup.$on('save-public-config', value => {
   savedPublicConfig = value;
@@ -239,5 +245,61 @@ assert.deepEqual(savedPublicConfig, {
   hostSecret: '',
 });
 publicSetup.$destroy();
+
+const activePublicSetup = mountPanel({
+  isElectron: true,
+  publicConfig: {
+    gatewayOrigin: 'https://ktv.shilyfx.icu',
+    hostId: 'desktop-host',
+    hasHostSecret: true,
+  },
+  lanRoom: {
+    code: 'LIVE',
+    publicJoinUrl: 'https://ktv.shilyfx.icu/r/live/room/',
+    publicStatus: 'connected',
+  },
+});
+const activePublicSetupTree = activePublicSetup._render();
+assert.match(textContent(activePublicSetupTree), /下次开启房间时生效/);
+assert.match(textContent(activePublicSetupTree), /当前房间的连接保持不变/);
+const activeSaveButton = findNode(
+  activePublicSetupTree,
+  node =>
+    node.tag === 'button' &&
+    node.data.staticClass.includes('save-public-config'),
+  'active room public settings save action'
+);
+assert.notEqual(activeSaveButton.data.attrs.disabled, true);
+const clearSecretButton = findNode(
+  activePublicSetupTree,
+  node => node.tag === 'button' && textContent(node).includes('清除已保存密钥'),
+  'active room saved secret clear action'
+);
+assert.notEqual(clearSecretButton.data.attrs.disabled, true);
+let clearedConfig = null;
+activePublicSetup.$on('save-public-config', value => {
+  clearedConfig = value;
+});
+click(clearSecretButton, 'active room saved secret clear action');
+assert.equal(clearedConfig.clearHostSecret, true);
+assert.equal(clearedConfig.hostSecret, '');
+assert.equal(
+  activePublicSetup.lanRoom.publicJoinUrl,
+  'https://ktv.shilyfx.icu/r/live/room/'
+);
+activePublicSetup.$destroy();
+
+const defaultSetup = mountPanel({
+  isElectron: true,
+  publicConfig: {},
+  lanRoom: null,
+});
+const defaultGatewayInput = findNode(
+  defaultSetup._render(),
+  node => node.tag === 'input' && node.data.attrs.type === 'url',
+  'default public gateway address input'
+);
+assert.equal(defaultGatewayInput.data.domProps.value, 'https://ktv.shilyfx.icu');
+defaultSetup.$destroy();
 
 process.stdout.write('Karaoke room access panel behavior tests passed\n');

@@ -280,16 +280,17 @@ function createGateway(options) {
     config[key] = positiveInteger(config[key], key);
   const hostCredentialDigests = new Map();
   for (const hostId of Object.keys(hostCredentials)) {
-    const credential = hostCredentials[hostId];
+    const values = Array.isArray(hostCredentials[hostId])
+      ? hostCredentials[hostId]
+      : [hostCredentials[hostId]];
     if (
       !/^[A-Za-z0-9_-]{1,64}$/.test(hostId) ||
-      typeof credential !== 'string' ||
-      credential.length < 16
+      values.length < 1 ||
+      values.length > 2 ||
+      values.some(value => typeof value !== 'string' || value.length < 6)
     )
-      throw new TypeError(
-        'each host requires a valid hostId and at least 16 credential characters'
-      );
-    hostCredentialDigests.set(hostId, digest(credential));
+      throw new TypeError('each host requires valid credentials');
+    hostCredentialDigests.set(hostId, values.map(digest));
   }
 
   const rooms = new Map();
@@ -411,7 +412,8 @@ function createGateway(options) {
     const match =
       typeof authorization === 'string' && authorization.match(/^Bearer (.+)$/);
     if (!expected || !match || match[1].length > 4096) return false;
-    return timingSafeEqual(digest(match[1]), expected);
+    const provided = digest(match[1]);
+    return expected.some(value => timingSafeEqual(provided, value));
   }
 
   function dispatch(room) {

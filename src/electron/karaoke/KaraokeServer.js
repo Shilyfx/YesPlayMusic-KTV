@@ -18,6 +18,8 @@ import { createReactionScheduler } from '@/karaoke/reactionScheduler';
 
 const ROOM_PORT = 27233;
 const DEFAULT_ROOM_NAME = 'LumaSing KTV';
+const DEFAULT_PUBLIC_GATEWAY_ORIGIN = 'https://ktv.shilyfx.icu';
+const LEGACY_PUBLIC_GATEWAY_HOST = 'ktv.-shilyfx.icu';
 const MAX_REACTION_BODY_BYTES = 4096;
 const REACTION_RATE_LIMIT_PER_CLIENT = 8;
 const REACTION_RATE_LIMIT_PER_ROOM = 40;
@@ -55,7 +57,7 @@ function normalizePublicRoomConfig(config = {}) {
   )
     throw new Error('INVALID_PUBLIC_CONFIG');
 
-  const gatewayText = (gatewayValue || '').trim();
+  const gatewayText = (gatewayValue || DEFAULT_PUBLIC_GATEWAY_ORIGIN).trim();
   const hostId = (hostIdValue || '').trim();
   const hostSecret = hostSecretValue || '';
   let gatewayOrigin = '';
@@ -77,6 +79,8 @@ function normalizePublicRoomConfig(config = {}) {
       gateway.hash
     )
       throw new Error('INVALID_PUBLIC_CONFIG');
+    if (gateway.hostname === LEGACY_PUBLIC_GATEWAY_HOST)
+      gateway.hostname = new URL(DEFAULT_PUBLIC_GATEWAY_ORIGIN).hostname;
     gatewayOrigin = gateway.origin;
   }
   if (hostId.length > 256 || hasAsciiControlCharacters(hostId))
@@ -217,7 +221,7 @@ export class KaraokeServer {
     this.generation = 0;
     this.reactionScheduler = createReactionScheduler();
     this.reactionGeneration = '';
-    this.publicConfig = { gatewayOrigin: '', hostId: '', hostSecret: '' };
+    this.publicConfig = normalizePublicRoomConfig();
     this.publicStatus = 'disabled';
     this.publicError = '';
     this.publicQrError = '';
@@ -239,12 +243,13 @@ export class KaraokeServer {
   }
 
   setPublicConfig(config) {
-    if (this.room || this.state === 'starting')
-      throw new Error('PUBLIC_ROOM_ACTIVE');
+    if (this.state === 'starting') throw new Error('PUBLIC_ROOM_ACTIVE');
     this.publicConfig = normalizePublicRoomConfig(config);
-    this.publicStatus = 'disabled';
-    this.publicError = '';
-    this.publicQrError = '';
+    if (!this.room) {
+      this.publicStatus = 'disabled';
+      this.publicError = '';
+      this.publicQrError = '';
+    }
   }
 
   getPublicConfigState() {

@@ -76,6 +76,22 @@ async function run() {
       hostSecret: 'secret-value',
     }
   );
+  assert.equal(
+    normalizePublicRoomConfig({}).gatewayOrigin,
+    'https://ktv.shilyfx.icu'
+  );
+  assert.equal(
+    normalizePublicRoomConfig({
+      gatewayOrigin: 'https://ktv.-shilyfx.icu/',
+    }).gatewayOrigin,
+    'https://ktv.shilyfx.icu'
+  );
+  assert.equal(
+    normalizePublicRoomConfig({
+      gatewayOrigin: 'https://custom.example/',
+    }).gatewayOrigin,
+    'https://custom.example'
+  );
   assert.throws(
     () =>
       normalizePublicRoomConfig({
@@ -490,7 +506,29 @@ async function run() {
     hostId: 'desktop-host',
     hasHostSecret: true,
   });
-  assert.throws(() => publicServer.setPublicConfig({}), /PUBLIC_ROOM_ACTIVE/);
+  const existingPublicJoinUrl = publicRoom.publicJoinUrl;
+  const existingPublicQrDataUrl = publicServer.publicQrDataUrl;
+  const existingPublicToken = publicServer.publicToken;
+  const existingPublicConnector = publicServer.publicConnector;
+  const existingPublicAdapter = publicServer.publicAdapterServer;
+  publicServer.setPublicConfig({
+    gatewayOrigin: 'https://next-gateway.example',
+    hostId: 'next-desktop-host',
+    hostSecret: 'next-secret',
+  });
+  assert.equal(connectorStarts.length, 1);
+  assert.equal(connectorStops.length, 0);
+  assert.equal(publicServer.publicJoinUrl, existingPublicJoinUrl);
+  assert.equal(publicServer.publicQrDataUrl, existingPublicQrDataUrl);
+  assert.equal(publicServer.publicToken, existingPublicToken);
+  assert.strictEqual(publicServer.publicConnector, existingPublicConnector);
+  assert.strictEqual(publicServer.publicAdapterServer, existingPublicAdapter);
+  assert.equal(publicServer.publicStatus, 'connected');
+  assert.deepEqual(publicServer.getPublicConfigState(), {
+    gatewayOrigin: 'https://next-gateway.example',
+    hostId: 'next-desktop-host',
+    hasHostSecret: true,
+  });
   connectorStarts[0].onStatus('reconnecting');
   assert.equal(publicServer.publicStatus, 'reconnecting');
   assert.equal(publicStatusEvents[publicStatusEvents.length - 1], 'reconnecting');
@@ -570,6 +608,10 @@ async function run() {
   const restartedPublicRoom = await publicServer.startRoom({
     sessionId: 'public-session-restarted',
   });
+  assert.equal(connectorStarts.length, 2);
+  assert.equal(connectorStarts[1].gatewayOrigin, 'https://next-gateway.example');
+  assert.equal(connectorStarts[1].hostId, 'next-desktop-host');
+  assert.equal(connectorStarts[1].hostSecret, 'next-secret');
   const restartedPublicAddress = publicServer.publicAdapterServer.address();
   const restartedPublicToken = new URLSearchParams(
     new URL(restartedPublicRoom.publicJoinUrl).hash.slice(1)
@@ -581,7 +623,7 @@ async function run() {
     {
       method: 'POST',
       headers: {
-        ...publicOriginHeaders,
+        origin: 'https://next-gateway.example',
         authorization: `Bearer ${publicToken}`,
       },
     }

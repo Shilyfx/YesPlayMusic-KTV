@@ -132,14 +132,14 @@
 
     <div v-if="isElectron" class="public-config">
       <strong>公网房间连接</strong>
-      <p>填写网关地址和主机凭据，设置会用于下一次开启房间。</p>
+      <p>保存或清除后，下次开启房间时生效；当前房间的连接保持不变。</p>
       <label>
         网关地址
         <input
           v-model.trim="draftGatewayOrigin"
           type="url"
           inputmode="url"
-          placeholder="https://ktv.example"
+          placeholder="https://ktv.shilyfx.icu"
           autocomplete="url"
         />
       </label>
@@ -172,7 +172,7 @@
         <button
           type="button"
           class="room-tool save-public-config"
-          :disabled="publicConfigSaving || Boolean(lanRoom)"
+          :disabled="publicConfigSaving"
           @click="savePublicConfig(false)"
         >
           {{ publicConfigSaving ? '保存中…' : '保存公网设置' }}
@@ -181,7 +181,7 @@
           v-if="publicConfig.hasHostSecret"
           type="button"
           class="room-tool"
-          :disabled="publicConfigSaving || Boolean(lanRoom)"
+          :disabled="publicConfigSaving"
           @click="savePublicConfig(true)"
         >
           清除已保存密钥
@@ -208,7 +208,8 @@ export default {
   },
   data() {
     return {
-      draftGatewayOrigin: this.publicConfig.gatewayOrigin || '',
+      draftGatewayOrigin:
+        this.publicConfig.gatewayOrigin || 'https://ktv.shilyfx.icu',
       draftHostId: this.publicConfig.hostId || '',
       draftHostSecret: '',
     };
@@ -227,7 +228,7 @@ export default {
   },
   watch: {
     'publicConfig.gatewayOrigin'(value) {
-      this.draftGatewayOrigin = value || '';
+      this.draftGatewayOrigin = value || 'https://ktv.shilyfx.icu';
     },
     'publicConfig.hostId'(value) {
       this.draftHostId = value || '';

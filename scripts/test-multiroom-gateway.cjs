@@ -543,8 +543,22 @@ async function testGuestRequestTimesOutWhenHostDoesNotPoll() {
   });
 }
 
+async function testCredentialTransition() {
+  await withGateway({ hostCredentials: { alpha: ['legacy-secret-value', '638417'] } }, async port => {
+    for (const [credential, roomId, expected] of [
+      ['legacy-secret-value', '8'.repeat(32), 201],
+      ['638417', '9'.repeat(32), 201],
+      ['638418', 'a'.repeat(32), 401],
+    ]) {
+      const response = await request(port, 'POST', '/_gateway/register', bearer(credential), JSON.stringify({ hostId: 'alpha', roomId }));
+      assert.strictEqual(response.status, expected);
+    }
+  });
+}
+
 async function main() {
   const tests = [
+    testCredentialTransition,
     testTwoRoomsKeepRequestsAndTokensIsolated,
     testRejectsUnauthorizedHostsAndSessions,
     testExpiredRoomIsReleasedAndCanBeRegisteredAgain,
